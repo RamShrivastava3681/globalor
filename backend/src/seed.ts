@@ -56,8 +56,8 @@ export async function seedAdmin(): Promise<void> {
     // Create profile
     const profile: Profile = {
       id, email,
-      company_name: "Administrator",
-      contact_name: "Admin",
+      company_name: email.split('@')[0] || "Administrator",
+      contact_name: email.split('@')[0] || "Admin",
       created_at: now,
       updated_at: now,
     };

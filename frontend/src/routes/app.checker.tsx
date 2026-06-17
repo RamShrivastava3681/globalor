@@ -143,7 +143,7 @@ function CheckerPage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: amt,
         po_number: i.po_number, advance: adv, net: Math.max(0, amt - adv),
         issue_date: i.issue_date, due_date: i.due_date,
-        party: i.debtor?.name ?? "—", client: i.client?.company_name, client_id: i.client_id,
+        party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
       };
     }),
@@ -235,7 +235,7 @@ function CheckerPage() {
                     <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
-                    <th className="px-5 py-2 text-right font-normal">Net to {side === "purchase" ? "pay" : side === "sale" ? "receive" : "transfer"}</th>
+                    <th className="px-5 py-2 text-right font-normal">Net</th>
                     <th className="px-5 py-2 text-left font-normal">Issued</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-left font-normal">NOA</th>
@@ -255,7 +255,7 @@ function CheckerPage() {
                       <td className="px-5 py-3">{r.party}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}{r.po_number && <div className="text-[10px] font-mono text-muted-foreground">PO {r.po_number}</div>}</td>
                       <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
-                      <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.net)}</td>
+                      <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.net)}<div className="text-[10px] uppercase tracking-widest text-muted-foreground">{(r.kind === "sale" || (r.kind === "proforma" && r.side === "sales")) ? "to receive" : "to transfer"}</div></td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
                       <td className="px-5 py-3">

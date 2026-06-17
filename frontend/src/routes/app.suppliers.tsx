@@ -3,15 +3,13 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, StatusPill, fmtMoney } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { Plus, Loader2, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/suppliers")({
   component: SuppliersPage,
 });
-
-type SupplierStatus = "prospect" | "active" | "suspended" | "offboarded";
 
 type Supplier = {
   id: string;
@@ -31,8 +29,6 @@ type Supplier = {
   payment_terms_days: number;
   advance_rate: number;
   fee_rate: number;
-  credit_limit: number;
-  status: SupplierStatus;
   notes: string | null;
   created_at: string;
 };
@@ -54,8 +50,6 @@ const emptyForm = {
   payment_terms_days: 30,
   advance_rate: 0.8,
   fee_rate: 0.025,
-  credit_limit: 0,
-  status: "prospect" as SupplierStatus,
   notes: "",
 };
 
@@ -71,17 +65,6 @@ function SuppliersPage() {
     queryKey: ["suppliers"],
     queryFn: async () => (await api.get<any[]>("/suppliers")) ?? [],
   });
-
-  const invoicesQ = useQuery({
-    queryKey: ["invoices-by-supplier"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
-    enabled: canEdit,
-  });
-
-  const exposureBy = (id: string) =>
-    (invoicesQ.data ?? [])
-      .filter((i: any) => i.supplier_id === id && i.status !== "paid" && i.status !== "rejected")
-      .reduce((s: number, i: any) => s + Number(i.amount), 0);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -104,8 +87,6 @@ function SuppliersPage() {
         payment_terms_days: Number(form.payment_terms_days) || 30,
         advance_rate: Number(form.advance_rate),
         fee_rate: Number(form.fee_rate),
-        credit_limit: Number(form.credit_limit),
-        status: form.status,
         notes: form.notes || null,
       };
       if (editing) {
@@ -160,23 +141,19 @@ function SuppliersPage() {
       payment_terms_days: Number(s.payment_terms_days) || 30,
       advance_rate: Number(s.advance_rate),
       fee_rate: Number(s.fee_rate),
-      credit_limit: Number(s.credit_limit),
-      status: s.status,
       notes: s.notes ?? "",
     });
     setOpen(true);
   };
 
   const suppliers = suppliersQ.data ?? [];
-  const totalLimit = suppliers.reduce((s, x) => s + Number(x.credit_limit), 0);
-  const activeCount = suppliers.filter((s) => s.status === "active").length;
 
   return (
     <div>
       <PageHeader
         eyebrow="Onboarding"
         title="Suppliers"
-        description="The companies whose invoices you finance. Set terms, credit lines, and lifecycle status."
+        description="The companies whose invoices you finance. Set advance rates, fee rates, and payment terms."
         actions={
           canEdit ? (
             <button onClick={openNew} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -188,26 +165,7 @@ function SuppliersPage() {
         }
       />
 
-      <div className="grid gap-4 p-6 md:grid-cols-3 md:p-10">
-        <Card title="Total suppliers">
-          <div className="num text-3xl">{suppliers.length}</div>
-          <div className="mt-1 text-xs text-muted-foreground">{activeCount} active</div>
-        </Card>
-        <Card title="Aggregate credit line">
-          <div className="num text-3xl text-primary">{fmtMoney(totalLimit)}</div>
-        </Card>
-        <Card title="Open exposure">
-          <div className="num text-3xl">
-            {fmtMoney(
-              (invoicesQ.data ?? [])
-                .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
-                .reduce((s: number, i: any) => s + Number(i.amount), 0),
-            )}
-          </div>
-        </Card>
-      </div>
-
-      <div className="px-6 pb-10 md:px-10">
+      <div className="p-6 md:p-10">
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -218,63 +176,52 @@ function SuppliersPage() {
                   <th className="px-3 py-3 text-left">Location</th>
                   <th className="px-3 py-3 text-right">Advance</th>
                   <th className="px-3 py-3 text-right">Fee</th>
-                  <th className="px-3 py-3 text-right">Credit limit</th>
-                  <th className="px-3 py-3 text-right">Exposure</th>
-                  <th className="px-3 py-3 text-left">Status</th>
+                  <th className="px-3 py-3 text-right">Terms</th>
                   <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {suppliersQ.isLoading && (
                   <tr>
-                    <td colSpan={9} className="p-6 text-center text-muted-foreground">Loading…</td>
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">Loading…</td>
                   </tr>
                 )}
                 {!suppliersQ.isLoading && suppliers.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-10 text-center text-muted-foreground">
+                    <td colSpan={7} className="p-10 text-center text-muted-foreground">
                       No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to add the first one.
                     </td>
                   </tr>
                 )}
-                {suppliers.map((s: any) => {
-                  const exposure = exposureBy(s.id);
-                  const util = Number(s.credit_limit) > 0 ? exposure / Number(s.credit_limit) : 0;
-                  return (
-                    <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-3 py-3">
-                        <div className="font-medium">{s.company_name}</div>
-                        <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div>{s.contact_name ?? "—"}</div>
-                        <div className="text-xs text-muted-foreground">{s.contact_email ?? ""}</div>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        {[s.city, s.country].filter(Boolean).join(", ") || "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
-                      <td className="px-3 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
-                      <td className="px-3 py-3 text-right num">{fmtMoney(s.credit_limit)}</td>
-                      <td className="px-3 py-3 text-right num">
-                        <div className={util > 0.85 ? "text-destructive" : util > 0.6 ? "text-warning" : ""}>{fmtMoney(exposure)}</div>
-                        {Number(s.credit_limit) > 0 && <div className="text-xs text-muted-foreground">{(util * 100).toFixed(0)}%</div>}
-                      </td>
-                      <td className="px-3 py-3"><StatusPill status={s.status} /></td>
-                      <td className="px-3 py-3 text-right">
-                        {canEdit && (
-                          <>
-                            <button onClick={() => openEdit(s)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
-                            <button onClick={() => { if (confirm(`Remove ${s.company_name}?`)) remove.mutate(s.id); }}
-                              className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {suppliers.map((s: any) => (
+                  <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                    <td className="px-3 py-3">
+                      <div className="font-medium">{s.company_name}</div>
+                      <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div>{s.contact_name ?? "—"}</div>
+                      <div className="text-xs text-muted-foreground">{s.contact_email ?? ""}</div>
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {[s.city, s.country].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
+                    <td className="px-3 py-3 text-right text-muted-foreground">Net {s.payment_terms_days}</td>
+                    <td className="px-3 py-3 text-right">
+                      {canEdit && (
+                        <>
+                          <button onClick={() => openEdit(s)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
+                          <button onClick={() => { if (confirm(`Remove ${s.company_name}?`)) remove.mutate(s.id); }}
+                            className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -324,17 +271,8 @@ function SuppliersPage() {
               <Section title="Terms">
                 <div className="grid gap-3 md:grid-cols-3">
                   <F label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: Number(e.target.value) })} /></F>
-                  <F label="Advance rate (0–1)"><input type="number" step="0.01" min="0" max="1" className="inp" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} /></F>
-                  <F label="Fee rate (0–1)"><input type="number" step="0.001" min="0" max="1" className="inp" value={form.fee_rate} onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} /></F>
-                  <F label="Credit limit (USD)"><input type="number" step="1000" min="0" className="inp" value={form.credit_limit} onChange={(e) => setForm({ ...form, credit_limit: Number(e.target.value) })} /></F>
-                  <F label="Status">
-                    <select className="inp" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as SupplierStatus })}>
-                      <option value="prospect">Prospect</option>
-                      <option value="active">Active</option>
-                      <option value="suspended">Suspended</option>
-                      <option value="offboarded">Offboarded</option>
-                    </select>
-                  </F>
+                  <F label="Advance rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.8)" className="inp" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} /></F>
+                  <F label="Fee rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.025)" className="inp" value={form.fee_rate} onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} /></F>
                   <F label="Notes" full><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></F>
                 </div>
               </Section>

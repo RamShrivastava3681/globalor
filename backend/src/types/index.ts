@@ -5,7 +5,7 @@ export type AlertType = "overdue" | "credit_limit" | "risk_change" | "large_invo
 export type InvoiceStatus = "pending" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 export type NoaStatus = "not_sent" | "sent" | "accepted" | "rejected" | "commented";
 export type PurchaseInvoiceStatus = "pending" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded";
-export type SupplierStatus = "prospect" | "active" | "suspended" | "offboarded";
+
 export type AdvanceSide = "sales" | "purchase";
 export type MovementDirection = "in" | "out";
 export type POStatus = "open" | "proforma" | "invoiced" | "cancelled";
@@ -107,8 +107,6 @@ export interface Supplier {
   payment_terms_days: number;
   advance_rate: number;
   fee_rate: number;
-  credit_limit: number;
-  status: SupplierStatus;
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -307,6 +305,8 @@ export interface NoaInvoiceResult {
   id: string;
   invoice_number: string;
   amount: number;
+  advance_rate: number;
+  advance_amount: number;
   issue_date: string;
   due_date: string;
   noa_status: NoaStatus;

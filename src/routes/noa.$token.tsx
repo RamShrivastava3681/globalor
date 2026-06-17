@@ -14,6 +14,8 @@ type NoaInvoice = {
   id: string;
   invoice_number: string;
   amount: number;
+  advance_rate: number;
+  advance_amount: number;
   issue_date: string;
   due_date: string;
   noa_status: string;
@@ -33,14 +35,14 @@ function NoaPage() {
   const noaQ = useQuery({
     queryKey: ["noa", token],
     queryFn: async () => {
-      const data = await api.get<NoaInvoice>(`/api/noa/${token}`);
+      const data = await api.get<NoaInvoice>(`/noa/${token}`);
       return data ?? null;
     },
   });
 
   const respond = useMutation({
     mutationFn: async ({ decision, comments }: { decision: string; comments: string | null }) => {
-      await api.post(`/api/noa/${token}/respond`, { decision, comments });
+      await api.post(`/noa/${token}/respond`, { decision, comments });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["noa", token] });
@@ -77,6 +79,8 @@ function NoaPage() {
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Contact</dt><dd>{inv.debtor_contact_name || "—"}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Invoice #</dt><dd className="font-mono">{inv.invoice_number}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Amount</dt><dd className="num">{fmtMoney(Number(inv.amount))}</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Advance rate</dt><dd>{inv.advance_rate}%</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-primary">Advance amount</dt><dd className="num text-primary">{fmtMoney(Number(inv.advance_amount))}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Issue date</dt><dd>{fmtDate(inv.issue_date)}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Due date</dt><dd>{fmtDate(inv.due_date)}</dd></div>
         </dl>

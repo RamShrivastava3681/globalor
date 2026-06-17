@@ -56,7 +56,7 @@ function QueuePage() {
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/invoices") ?? [];
+      const data = await api.get<any[]>("/invoices") ?? [];
       return data.filter((i: any) => ["approved", "funded", "advanced", "overdue"].includes(i.status));
     },
   });
@@ -64,7 +64,7 @@ function QueuePage() {
   const purchasesQ = useQuery({
     queryKey: ["queue-purchases"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/purchase-invoices") ?? [];
+      const data = await api.get<any[]>("/purchase-invoices") ?? [];
       return data.filter((p: any) => ["approved", "funded", "advanced", "overdue"].includes(p.status));
     },
   });
@@ -72,7 +72,7 @@ function QueuePage() {
   const proformasQ = useQuery({
     queryKey: ["queue-proformas"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/purchase-orders") ?? [];
+      const data = await api.get<any[]>("/purchase-orders") ?? [];
       return data.filter((p: any) => p.proforma_status === "approved");
     },
   });
@@ -86,17 +86,17 @@ function QueuePage() {
     enabled: salePos.length > 0 || purPos.length > 0,
     queryFn: async () => {
       const map: Record<string, number> = {};
-      const allAdvances = await api.get<any[]>("/api/advances") ?? [];
+      const allAdvances = await api.get<any[]>("/advances") ?? [];
 
       for (const po of salePos) {
-        const orders = await api.get<any>(`/api/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const salesOrders = (orders.proformas ?? []).filter((o: any) => o.side === "sales");
         const pfIds = salesOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
         map[`sales::${po}`] = advs.reduce((s: number, a: any) => s + Number(a.amount), 0);
       }
       for (const po of purPos) {
-        const orders = await api.get<any>(`/api/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const purOrders = (orders.proformas ?? []).filter((o: any) => o.side === "purchase");
         const pfIds = purOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
@@ -113,7 +113,7 @@ function QueuePage() {
     mutationFn: async ({ id, amount_received, receipt_date, amount, due_date }: { id: string; amount_received: number; receipt_date: string; amount: number; due_date: string | null }) => {
       const short_payment = Math.max(0, +(amount - amount_received).toFixed(2));
       const late_days = diffDaysUTC(due_date, receipt_date);
-      await api.patch(`/api/invoices/${id}`, {
+      await api.patch(`/invoices/${id}`, {
         status: "paid",
         paid_date: receipt_date,
         amount_received,
@@ -135,7 +135,7 @@ function QueuePage() {
   const payPurchase = useMutation({
     mutationFn: async ({ id }: { id: string }) => {
       const today = new Date().toISOString().slice(0, 10);
-      await api.patch(`/api/purchase-invoices/${id}`, { status: "paid", paid_date: today });
+      await api.patch(`/purchase-invoices/${id}`, { status: "paid", paid_date: today });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
@@ -150,7 +150,7 @@ function QueuePage() {
 
   const fundProforma = useMutation({
     mutationFn: async ({ id, amount, reference, advance_date }: { id: string; amount: number; reference: string; advance_date: string }) => {
-      await api.post(`/api/purchase-orders/${id}/fund`, {
+      await api.post(`/purchase-orders/${id}/fund`, {
         amount,
         reference: reference || null,
         advance_date,
@@ -175,7 +175,7 @@ function QueuePage() {
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
         due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name,
+        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—",
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -394,7 +394,7 @@ function FundProformaModal({ row, onClose, onSubmit }: { row: Row; onClose: () =
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount ({row.currency ?? "USD"}) *</span>
-            <input required type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Date *</span>
@@ -431,7 +431,7 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount received</span>
-            <input type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Receipt date</span>

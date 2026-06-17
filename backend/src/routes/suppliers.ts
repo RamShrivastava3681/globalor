@@ -10,7 +10,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { Supplier, SupplierStatus } from "../types/index.js";
+import type { Supplier } from "../types/index.js";
 
 const router = Router();
 
@@ -43,8 +43,6 @@ const createSupplierSchema = z.object({
   payment_terms_days: z.number().min(0).optional().default(30),
   advance_rate: z.number().min(0).max(1).optional().default(0.8),
   fee_rate: z.number().min(0).max(1).optional().default(0.025),
-  credit_limit: z.number().min(0).optional().default(0),
-  status: z.enum(["prospect", "active", "suspended", "offboarded"]).optional().default("prospect"),
   notes: z.string().nullable().optional(),
 });
 
@@ -72,8 +70,6 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
       payment_terms_days: parsed.payment_terms_days,
       advance_rate: parsed.advance_rate,
       fee_rate: parsed.fee_rate,
-      credit_limit: parsed.credit_limit,
-      status: parsed.status as SupplierStatus,
       notes: parsed.notes || null,
       created_by: req.user!.id,
       created_at: now,

@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, Trash2, X, Loader2, Link2, Paperclip } from "lucide-react";
+import { Plus, Trash2, X, Loader2, Link2, Paperclip, Search } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 
@@ -16,6 +16,7 @@ const CATS = [
   { id: "logistics", label: "Logistics" },
   { id: "insurance", label: "Insurance" },
   { id: "interest", label: "Interest" },
+  { id: "commission", label: "Commission" },
   { id: "administrative", label: "Administrative" },
   { id: "other", label: "Other" },
 ];
@@ -30,6 +31,7 @@ function ExpensesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const expensesQ = useQuery({
     queryKey: ["expenses"],
@@ -44,7 +46,22 @@ function ExpensesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const rows = expensesQ.data ?? [];
+  const rows = useMemo(() => {
+    const all = expensesQ.data ?? [];
+    if (!searchQuery.trim()) return all;
+    const q = searchQuery.toLowerCase().trim();
+    return all.filter((r: any) => {
+      const linkNum = r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? "";
+      const cat = catLabel(r.category).toLowerCase();
+      const desc = (r.description ?? "").toLowerCase();
+      return (
+        linkNum.toLowerCase().includes(q) ||
+        cat.includes(q) ||
+        desc.includes(q) ||
+        String(r.amount).includes(q)
+      );
+    });
+  }, [expensesQ.data, searchQuery]);
   const byCat = CATS.map((c) => ({
     ...c,
     total: rows.filter((r: any) => r.category === c.id).reduce((s: number, r: any) => s + Number(r.amount), 0),
@@ -86,10 +103,26 @@ function ExpensesPage() {
         <Card>
           {expensesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
-          ) : rows.length === 0 ? (
+          ) : rows.length === 0 && !searchQuery ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No expenses logged yet.</div>
           ) : (
+            <>
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search by description, invoice number, category..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all"
+                />
+              </div>
+            </div>
             <div className="-mx-5 overflow-x-auto">
+              {rows.length === 0 && searchQuery ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">No expenses match your search.</div>
+              ) : (
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -150,7 +183,9 @@ function ExpensesPage() {
                   })}
                 </tbody>
               </table>
+              )}
             </div>
+            </>
           )}
         </Card>
       </div>
@@ -274,7 +309,7 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
           </L>
           <div className="grid grid-cols-2 gap-3">
             <L label="Amount (USD) *">
-              <input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
             </L>
             <L label="Date">
               <input required type="date" className="inp" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} />

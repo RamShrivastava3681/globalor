@@ -27,15 +27,19 @@ router.get("/:token", async (req: Request, res: Response) => {
     const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
     const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
 
+    const advanceAmount = (inv.amount * inv.advance_rate) / 100;
+
     const result: NoaInvoiceResult = {
       id: inv.id,
       invoice_number: inv.invoice_number,
       amount: inv.amount,
+      advance_rate: inv.advance_rate,
+      advance_amount: advanceAmount,
       issue_date: inv.issue_date,
       due_date: inv.due_date,
       noa_status: inv.noa_status,
       noa_comments: inv.noa_comments || "",
-      client_company: client?.company_name || "Unknown",
+      client_company: client?.contact_name || client?.company_name || "Unknown",
       debtor_name: debtor?.name || "Unknown",
       debtor_contact_name: debtor?.contact_name || "",
       debtor_contact_email: debtor?.contact_email || "",

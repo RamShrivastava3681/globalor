@@ -175,7 +175,7 @@ function QueuePage() {
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
         due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name,
+        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—",
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -394,7 +394,7 @@ function FundProformaModal({ row, onClose, onSubmit }: { row: Row; onClose: () =
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount ({row.currency ?? "USD"}) *</span>
-            <input required type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Date *</span>
@@ -431,7 +431,7 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount received</span>
-            <input type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Receipt date</span>

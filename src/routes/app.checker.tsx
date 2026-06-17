@@ -40,7 +40,7 @@ function CheckerPage() {
   const salesQ = useQuery({
     queryKey: ["checker-sales"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/invoices") ?? [];
+      const data = await api.get<any[]>("/invoices") ?? [];
       return data.filter((i: any) => i.status === "pending");
     },
   });
@@ -48,7 +48,7 @@ function CheckerPage() {
   const purchasesQ = useQuery({
     queryKey: ["checker-purchases"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/purchase-invoices") ?? [];
+      const data = await api.get<any[]>("/purchase-invoices") ?? [];
       return data.filter((p: any) => p.status === "pending");
     },
   });
@@ -56,14 +56,14 @@ function CheckerPage() {
   const proformasQ = useQuery({
     queryKey: ["checker-proformas"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/purchase-orders") ?? [];
+      const data = await api.get<any[]>("/purchase-orders") ?? [];
       return data.filter((p: any) => p.proforma_status === "pending_review");
     },
   });
 
   const reviewSale = useMutation({
     mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
-      await api.patch(`/api/invoices/${id}`, { status: decision });
+      await api.patch(`/invoices/${id}`, { status: decision });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
@@ -76,7 +76,7 @@ function CheckerPage() {
 
   const reviewPurchase = useMutation({
     mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "disputed" }) => {
-      await api.patch(`/api/purchase-invoices/${id}`, { status: decision });
+      await api.patch(`/purchase-invoices/${id}`, { status: decision });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-purchases"] });
@@ -89,7 +89,7 @@ function CheckerPage() {
 
   const reviewProforma = useMutation({
     mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
-      await api.post(`/api/purchase-orders/${id}/review`, { decision });
+      await api.post(`/purchase-orders/${id}/review`, { decision });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-proformas"] });
@@ -109,17 +109,17 @@ function CheckerPage() {
     enabled: salePos.length > 0 || purPos.length > 0,
     queryFn: async () => {
       const map: Record<string, number> = {};
-      const allAdvances = await api.get<any[]>("/api/advances") ?? [];
+      const allAdvances = await api.get<any[]>("/advances") ?? [];
 
       for (const po of salePos) {
-        const orders = await api.get<any[]>(`/api/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const salesOrders = (orders.proformas ?? []).filter((o: any) => o.side === "sales");
         const pfIds = salesOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
         map[`sales::${po}`] = advs.reduce((s: number, a: any) => s + Number(a.amount), 0);
       }
       for (const po of purPos) {
-        const orders = await api.get<any[]>(`/api/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const purOrders = (orders.proformas ?? []).filter((o: any) => o.side === "purchase");
         const pfIds = purOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
@@ -143,7 +143,7 @@ function CheckerPage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: amt,
         po_number: i.po_number, advance: adv, net: Math.max(0, amt - adv),
         issue_date: i.issue_date, due_date: i.due_date,
-        party: i.debtor?.name ?? "—", client: i.client?.company_name, client_id: i.client_id,
+        party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
       };
     }),
@@ -235,7 +235,7 @@ function CheckerPage() {
                     <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
-                    <th className="px-5 py-2 text-right font-normal">Net to {side === "purchase" ? "pay" : side === "sale" ? "receive" : "transfer"}</th>
+                    <th className="px-5 py-2 text-right font-normal">Net</th>
                     <th className="px-5 py-2 text-left font-normal">Issued</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-left font-normal">NOA</th>
@@ -255,7 +255,7 @@ function CheckerPage() {
                       <td className="px-5 py-3">{r.party}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}{r.po_number && <div className="text-[10px] font-mono text-muted-foreground">PO {r.po_number}</div>}</td>
                       <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
-                      <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.net)}</td>
+                      <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.net)}<div className="text-[10px] uppercase tracking-widest text-muted-foreground">{(r.kind === "sale" || (r.kind === "proforma" && r.side === "sales")) ? "to receive" : "to transfer"}</div></td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
                       <td className="px-5 py-3">

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -121,6 +121,7 @@ function PurchasesPage() {
                     <th className="px-5 py-2 text-left font-normal">PO</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
+                    <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">Linked sales</th>
@@ -150,6 +151,7 @@ function PurchasesPage() {
                         </td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
+                        <td className="px-5 py-3 text-sm">{p.status === "paid" ? fmtDate(p.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                         <td className="px-5 py-3"><StatusPill status={p.status} /></td>
                         <td className="px-5 py-3">
@@ -216,7 +218,7 @@ function PurchasesPage() {
 function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editing: any | null; vendors: any[]; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
-    vendor_id: editing?.vendor_id ?? vendors[0]?.id ?? "",
+    vendor_id: editing?.vendor_id ?? "",
     amount: String(editing?.amount ?? ""),
     po_number: editing?.po_number ?? "",
     po_date: editing?.po_date ?? "",
@@ -225,7 +227,8 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
     notes: editing?.notes ?? "",
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
-  const [inv, setInv] = useState({ enabled: false, item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" });
+  const [invEnabled, setInvEnabled] = useState(false);
+  const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
 
   const poLookupQ = useQuery({
     queryKey: ["po-lookup-purchase", form.po_number],
@@ -239,6 +242,15 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
   const advancesTotal = ((poLookupQ.data?.advances ?? []) as any[])
     .filter((a: any) => a.status !== "refunded")
     .reduce((s: number, a: any) => s + Number(a.amount), 0);
+  useEffect(() => {
+    if (!editing && poLookupQ.data?.proformas) {
+      const purchasePf = poLookupQ.data.proformas.find((p: any) => p.side === "purchase");
+      if (purchasePf?.vendor_id && !form.vendor_id) {
+        setForm((prev: any) => ({ ...prev, vendor_id: purchasePf.vendor_id }));
+      }
+    }
+  }, [poLookupQ.data]);
+
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
   const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
@@ -267,15 +279,17 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
         notes: form.notes || null,
         documents: docs,
       };
-      if (!editing) {
-        payload.inventory = inv.enabled ? {
-          enabled: true,
-          item_name: inv.item_name,
-          sku: inv.sku || null,
-          quantity: Number(inv.quantity),
-          unit: inv.unit,
-          unit_cost: inv.unit_cost ? Number(inv.unit_cost) : null,
-        } : undefined;
+      if (!editing && invEnabled) {
+        const items = invItems.filter((it) => it.item_name.trim() && Number(it.quantity) > 0);
+        if (items.length > 0) {
+          payload.inventory_items = items.map((item) => ({
+            item_name: item.item_name.trim(),
+            sku: item.sku || null,
+            quantity: Number(item.quantity),
+            unit: item.unit || "unit",
+            unit_cost: item.unit_cost ? Number(item.unit_cost) : null,
+          }));
+        }
       }
       if (editing) {
         await api.patch(`/purchase-invoices/${editing.id}`, payload);
@@ -347,7 +361,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </L>
-            <L label="Total invoice amount *"><input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
             <L label={`Due date${selectedVendor ? ` (auto: ${termsDays}d net)` : ""}`}><input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></L>
           </div>
@@ -357,16 +371,40 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
           {!editing && (
             <div className="rounded-md border border-border p-3">
               <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={inv.enabled} onChange={(e) => setInv({ ...inv, enabled: e.target.checked })} />
+                <input type="checkbox" checked={invEnabled} onChange={(e) => setInvEnabled(e.target.checked)} />
                 <span className="uppercase tracking-widest text-muted-foreground">Track inventory (stock-in / credit)</span>
               </label>
-              {inv.enabled && (
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <L label="Item *"><input className="inp" value={inv.item_name} onChange={(e) => setInv({ ...inv, item_name: e.target.value })} /></L>
-                  <L label="SKU"><input className="inp" value={inv.sku} onChange={(e) => setInv({ ...inv, sku: e.target.value })} /></L>
-                  <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
-                  <L label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></L>
-                  <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
+              {invEnabled && (
+                <div className="mt-3 space-y-4">
+                  {invItems.map((item, idx) => (
+                    <div key={idx} className="relative rounded-md border border-border bg-background/40 p-3 pt-5">
+                      <button type="button" onClick={() => setInvItems((prev) => prev.filter((_, i) => i !== idx))}
+                        className="absolute right-2 top-2 text-muted-foreground hover:text-destructive" aria-label="Remove item">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                        <L label="Item *">
+                          <input className="inp" value={item.item_name} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, item_name: e.target.value } : it))} />
+                        </L>
+                        <L label="SKU">
+                          <input className="inp" value={item.sku} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, sku: e.target.value } : it))} />
+                        </L>
+                        <L label="Quantity *">
+                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
+                        </L>
+                        <L label="Unit">
+                          <input className="inp" value={item.unit} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit: e.target.value } : it))} />
+                        </L>
+                        <L label="Unit cost">
+                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
+                        </L>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setInvItems((prev) => [...prev, { item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" }])}
+                    className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">
+                    <Plus className="h-3.5 w-3.5" /> Add item
+                  </button>
                 </div>
               )}
             </div>

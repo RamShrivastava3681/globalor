@@ -61,14 +61,13 @@ const createSchema = z.object({
   due_date: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
-  inventory: z.object({
-    enabled: z.boolean(),
-    item_name: z.string().optional(),
+  inventory_items: z.array(z.object({
+    item_name: z.string().min(1),
     sku: z.string().nullable().optional(),
-    quantity: z.number().positive().optional(),
-    unit: z.string().optional(),
+    quantity: z.number().positive(),
+    unit: z.string().optional().default("unit"),
     unit_cost: z.number().nullable().optional(),
-  }).optional(),
+  })).optional(),
 });
 
 router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
@@ -126,26 +125,27 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       }
     }
 
-    // Create inventory movement if enabled
-    const inv = parsed.inventory;
-    if (inv?.enabled && inv.item_name && inv.quantity && inv.quantity > 0) {
-      const movement: StockMovement = {
-        id: generateId(),
-        client_id: req.user!.id,
-        direction: "in",
-        item_name: inv.item_name,
-        sku: inv.sku || null,
-        quantity: inv.quantity,
-        unit: inv.unit || "unit",
-        unit_cost: inv.unit_cost || null,
-        notes: null,
-        invoice_id: null,
-        purchase_invoice_id: id,
-        movement_date: parsed.issue_date,
-        created_at: now,
-        updated_at: now,
-      };
-      await putItem(TABLES.STOCK_MOVEMENTS, movement as any);
+    // Create inventory movements if enabled
+    if (parsed.inventory_items && parsed.inventory_items.length > 0) {
+      for (const item of parsed.inventory_items) {
+        const movement: StockMovement = {
+          id: generateId(),
+          client_id: req.user!.id,
+          direction: "in",
+          item_name: item.item_name,
+          sku: item.sku || null,
+          quantity: item.quantity,
+          unit: item.unit || "unit",
+          unit_cost: item.unit_cost || null,
+          notes: null,
+          invoice_id: null,
+          purchase_invoice_id: id,
+          movement_date: parsed.issue_date,
+          created_at: now,
+          updated_at: now,
+        };
+        await putItem(TABLES.STOCK_MOVEMENTS, movement as any);
+      }
     }
 
     res.status(201).json(invoice);

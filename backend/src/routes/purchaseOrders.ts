@@ -11,7 +11,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor } from "../types/index.js";
+import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile } from "../types/index.js";
 
 const router = Router();
 
@@ -24,10 +24,11 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       orders
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
         .map(async (po) => {
-          let debtor, vendor;
+          let debtor, vendor, client;
           if (po.debtor_id) debtor = await getItem(TABLES.DEBTORS, { id: po.debtor_id }) as Debtor | undefined;
           if (po.vendor_id) vendor = await getItem(TABLES.VENDORS, { id: po.vendor_id }) as Vendor | undefined;
-          return { ...po, debtor, vendor };
+          if (po.client_id) client = await getItem(TABLES.PROFILES, { id: po.client_id }) as Profile | undefined;
+          return { ...po, debtor, vendor, client };
         }),
     );
 

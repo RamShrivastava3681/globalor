@@ -20,7 +20,7 @@ function AdvancesPage() {
 
   const advancesQ = useQuery({
     queryKey: ["advances"],
-    queryFn: async () => (await api.get<any[]>("/api/advances")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
   });
 
   const rows = (advancesQ.data ?? []).filter((a: any) => a.side === tab);
@@ -36,7 +36,7 @@ function AdvancesPage() {
 
   const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      await api.patch(`/api/advances/${id}`, { status });
+      await api.patch(`/advances/${id}`, { status });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -44,7 +44,7 @@ function AdvancesPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/advances/${id}`);
+      await api.delete(`/advances/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -99,7 +99,7 @@ function AdvancesPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-left font-normal">Linked to</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
                     <th className="px-5 py-2 text-right font-normal">PO / Inv amt</th>
                     <th className="px-5 py-2 text-left font-normal">Reference</th>
@@ -183,7 +183,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
   const ordersQ = useQuery({
     queryKey: ["adv-po", side],
     queryFn: async () => {
-      const orders = await api.get<any[]>("/api/purchase-orders") ?? [];
+      const orders = await api.get<any[]>("/purchase-orders") ?? [];
       return orders.filter((o: any) => o.side === side && o.status !== "cancelled");
     },
   });
@@ -192,8 +192,8 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
     queryKey: ["adv-inv", side],
     enabled: linkType === "invoice",
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/api/invoices/mini")) ?? [];
-      return (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/invoices/mini")) ?? [];
+      return (await api.get<any[]>("/purchase-invoices/mini")) ?? [];
     },
   });
 
@@ -216,7 +216,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
         invoice_id: linkType === "invoice" && side === "sales" ? form.invoice_id : null,
         purchase_invoice_id: linkType === "invoice" && side === "purchase" ? form.purchase_invoice_id : null,
       };
-      await api.post("/api/advances", payload);
+      await api.post("/advances", payload);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Advance recorded"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -265,7 +265,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
             </L>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <L label="Amount *"><input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Date"><input required type="date" className="inp" value={form.advance_date} onChange={(e) => setForm({ ...form, advance_date: e.target.value })} /></L>
           </div>
           <L label="Reference (txn id / cheque #)"><input className="inp" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></L>

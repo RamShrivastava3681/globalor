@@ -94,7 +94,7 @@ export const api = {
 // ── Auth helpers (for use outside React) ──
 
 export async function signIn(email: string, password: string) {
-  const data = await api.post<{ token: string; user: any }>("/api/auth/signin", {
+  const data = await api.post<{ token: string; user: any }>("/auth/signin", {
     email,
     password,
   });
@@ -108,7 +108,7 @@ export async function signUp(
   company_name: string,
   contact_name?: string,
 ) {
-  const data = await api.post<{ token: string; user: any }>("/api/auth/signup", {
+  const data = await api.post<{ token: string; user: any }>("/auth/signup", {
     email,
     password,
     company_name,
@@ -124,7 +124,7 @@ export async function signOut() {
 
 export async function promoteToAdmin() {
   const data = await api.post<{ token: string; roles: string[] }>(
-    "/api/auth/promote-admin",
+    "/auth/promote-admin",
   );
   setToken(data.token);
   return data;

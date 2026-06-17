@@ -22,16 +22,6 @@ function DebtorsPage() {
     queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
   });
 
-  const invoicesQ = useQuery({
-    queryKey: ["invoices-for-debtors"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
-  });
-
-  const exposureFor = (id: string) =>
-    (invoicesQ.data ?? [])
-      .filter((i: any) => i.debtor_id === id && i.status !== "paid" && i.status !== "rejected")
-      .reduce((s: number, i: any) => s + Number(i.amount), 0);
-
   const remove = useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/debtors/${id}`);
@@ -50,7 +40,7 @@ function DebtorsPage() {
       <PageHeader
         eyebrow="Counterparties"
         title="Debtor book"
-        description="Credit limits, risk scores, and live exposure across every payer."
+        description="Credit limits, risk scores, and payment terms for every payer."
         actions={
           canEdit && (
             <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -76,8 +66,6 @@ function DebtorsPage() {
                     <th className="px-5 py-2 text-left font-normal">Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     <th className="px-5 py-2 text-right font-normal">Credit limit</th>
-                    <th className="px-5 py-2 text-right font-normal">Exposure</th>
-                    <th className="px-5 py-2 text-right font-normal">Utilization</th>
                     <th className="px-5 py-2 text-left font-normal">Risk</th>
                     <th className="px-5 py-2 text-right font-normal">Terms</th>
                     {canEdit && <th className="px-5 py-2" />}
@@ -85,17 +73,12 @@ function DebtorsPage() {
                 </thead>
                 <tbody>
                   {(debtorsQ.data ?? []).map((d: any) => {
-                    const exposure = exposureFor(d.id);
-                    const util = Number(d.credit_limit) > 0 ? (exposure / Number(d.credit_limit)) * 100 : 0;
-                    const utilTone = util > 90 ? "text-destructive" : util > 70 ? "text-warning" : "text-success";
                     const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
                       <tr key={d.id} className="border-b border-border/60">
                         <td className="px-5 py-3 font-medium">{d.name}</td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(d.credit_limit)}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(exposure)}</td>
-                        <td className={`px-5 py-3 text-right num ${utilTone}`}>{util.toFixed(0)}%</td>
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2">
                             <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">

@@ -70,7 +70,7 @@ function AppLayout() {
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/inventory", label: "Inventory", icon: Boxes },
         { to: "/app/debtors", label: "Debtors", icon: Building2 },
-        { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+        { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         ...(isAdmin ? [
           { to: "/app/admin", label: "Operations", icon: Shield },

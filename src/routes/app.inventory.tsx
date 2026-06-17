@@ -20,7 +20,7 @@ function InventoryPage() {
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
-    queryFn: async () => (await api.get<any[]>("/api/stock-movements")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
   const rows = (movementsQ.data ?? []).filter((m: any) => filter === "all" || m.direction === filter);
@@ -40,7 +40,7 @@ function InventoryPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/stock-movements/${id}`);
+      await api.delete(`/stock-movements/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["stock_movements"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -181,18 +181,18 @@ function NewMovementModal({ onClose }: { onClose: () => void }) {
 
   const invoicesQ = useQuery({
     queryKey: ["inv-mini"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
   });
   const purchQ = useQuery({
     queryKey: ["pi-mini"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
 
   const create = useMutation({
     mutationFn: async () => {
       if (!form.item_name.trim()) throw new Error("Item name required");
       if (!form.quantity || Number(form.quantity) <= 0) throw new Error("Quantity must be > 0");
-      await api.post("/api/stock-movements", {
+      await api.post("/stock-movements", {
         direction: form.direction,
         item_name: form.item_name.trim(),
         sku: form.sku || null,
@@ -228,9 +228,9 @@ function NewMovementModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <L label="Item name *"><input required className="inp" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} /></L>
             <L label="SKU"><input className="inp" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></L>
-            <L label="Quantity *"><input required type="number" step="0.001" min="0" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
+            <L label="Quantity *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
             <L label="Unit"><input className="inp" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="kg / box / unit" /></L>
-            <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
+            <L label="Unit cost"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
             <L label="Date"><input required type="date" className="inp" value={form.movement_date} onChange={(e) => setForm({ ...form, movement_date: e.target.value })} /></L>
           </div>
           {form.direction === "in" ? (

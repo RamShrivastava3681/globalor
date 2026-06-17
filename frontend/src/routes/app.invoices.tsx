@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -116,6 +116,7 @@ function InvoicesPage() {
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
+                    <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">NOA</th>
@@ -140,11 +141,12 @@ function InvoicesPage() {
                             </Link>
                           )}
                         </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name ?? "—"}</td>}
+                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.contact_name || i.client?.company_name || "—"}</td>}
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
                         <td className="px-5 py-3 text-right num text-primary">{fmtMoney(adv)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
+                        <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                         <td className="px-5 py-3"><StatusPill status={i.status} /></td>
                         <td className="px-5 py-3">
@@ -218,7 +220,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
-    debtor_id: editing?.debtor_id ?? debtors[0]?.id ?? "",
+    debtor_id: editing?.debtor_id ?? "",
     amount: String(editing?.amount ?? ""),
     advance_rate: String(editing?.advance_rate ?? "80"),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
@@ -228,7 +230,8 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
     purchase_invoice_id: editing?.purchase_invoice_id ?? "",
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
-  const [inv, setInv] = useState({ enabled: false, item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" });
+  const [invEnabled, setInvEnabled] = useState(false);
+  const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
 
   const poLookupQ = useQuery({
     queryKey: ["po-lookup-sales", form.po_number],
@@ -242,6 +245,15 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
   const advancesTotal = ((poLookupQ.data?.advances ?? []) as any[])
     .filter((a: any) => a.status !== "refunded")
     .reduce((s: number, a: any) => s + Number(a.amount), 0);
+  useEffect(() => {
+    if (!editing && poLookupQ.data?.proformas) {
+      const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
+      if (salesPf?.debtor_id && !form.debtor_id) {
+        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      }
+    }
+  }, [poLookupQ.data]);
+
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
   const selectedDebtor = debtors.find((d: any) => d.id === form.debtor_id);
@@ -270,15 +282,17 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
         purchase_invoice_id: form.purchase_invoice_id || null,
         documents: docs,
       };
-      if (!editing) {
-        payload.inventory = inv.enabled ? {
-          enabled: true,
-          item_name: inv.item_name,
-          sku: inv.sku || null,
-          quantity: Number(inv.quantity),
-          unit: inv.unit,
-          unit_cost: inv.unit_cost ? Number(inv.unit_cost) : null,
-        } : undefined;
+      if (!editing && invEnabled) {
+        const items = invItems.filter((it) => it.item_name.trim() && Number(it.quantity) > 0);
+        if (items.length > 0) {
+          payload.inventory_items = items.map((item) => ({
+            item_name: item.item_name.trim(),
+            sku: item.sku || null,
+            quantity: Number(item.quantity),
+            unit: item.unit || "unit",
+            unit_cost: item.unit_cost ? Number(item.unit_cost) : null,
+          }));
+        }
       }
       if (editing) {
         await api.patch(`/invoices/${editing.id}`, payload);
@@ -349,7 +363,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Total invoice amount (USD)"><input required type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="inp" /></Field>
+            <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label="Advance % (0–100)"><input required type="number" step="0.1" min="0" max="100" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: e.target.value })} className="inp" /></Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -375,16 +389,40 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
           {!editing && (
             <div className="rounded-md border border-border p-3">
               <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={inv.enabled} onChange={(e) => setInv({ ...inv, enabled: e.target.checked })} />
+                <input type="checkbox" checked={invEnabled} onChange={(e) => setInvEnabled(e.target.checked)} />
                 <span className="uppercase tracking-widest text-muted-foreground">Track inventory (stock-out / debit)</span>
               </label>
-              {inv.enabled && (
-                <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-                  <Field label="Item *"><input className="inp" value={inv.item_name} onChange={(e) => setInv({ ...inv, item_name: e.target.value })} /></Field>
-                  <Field label="SKU"><input className="inp" value={inv.sku} onChange={(e) => setInv({ ...inv, sku: e.target.value })} /></Field>
-                  <Field label="Quantity *"><input type="number" step="0.001" min="0" className="inp" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></Field>
-                  <Field label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></Field>
-                  <Field label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></Field>
+              {invEnabled && (
+                <div className="mt-3 space-y-4">
+                  {invItems.map((item, idx) => (
+                    <div key={idx} className="relative rounded-md border border-border bg-background/40 p-3 pt-5">
+                      <button type="button" onClick={() => setInvItems((prev) => prev.filter((_, i) => i !== idx))}
+                        className="absolute right-2 top-2 text-muted-foreground hover:text-destructive" aria-label="Remove item">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                        <Field label="Item *">
+                          <input className="inp" value={item.item_name} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, item_name: e.target.value } : it))} />
+                        </Field>
+                        <Field label="SKU">
+                          <input className="inp" value={item.sku} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, sku: e.target.value } : it))} />
+                        </Field>
+                        <Field label="Quantity *">
+                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
+                        </Field>
+                        <Field label="Unit">
+                          <input className="inp" value={item.unit} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit: e.target.value } : it))} />
+                        </Field>
+                        <Field label="Unit cost">
+                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setInvItems((prev) => [...prev, { item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" }])}
+                    className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">
+                    <Plus className="h-3.5 w-3.5" /> Add item
+                  </button>
                 </div>
               )}
             </div>
