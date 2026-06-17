@@ -20,7 +20,7 @@ function InventoryPage() {
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
-    queryFn: async () => (await api.get<any[]>("/api/stock-movements")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
   const rows = (movementsQ.data ?? []).filter((m: any) => filter === "all" || m.direction === filter);
@@ -40,7 +40,7 @@ function InventoryPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/stock-movements/${id}`);
+      await api.delete(`/stock-movements/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["stock_movements"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -181,18 +181,18 @@ function NewMovementModal({ onClose }: { onClose: () => void }) {
 
   const invoicesQ = useQuery({
     queryKey: ["inv-mini"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
   });
   const purchQ = useQuery({
     queryKey: ["pi-mini"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
 
   const create = useMutation({
     mutationFn: async () => {
       if (!form.item_name.trim()) throw new Error("Item name required");
       if (!form.quantity || Number(form.quantity) <= 0) throw new Error("Quantity must be > 0");
-      await api.post("/api/stock-movements", {
+      await api.post("/stock-movements", {
         direction: form.direction,
         item_name: form.item_name.trim(),
         sku: form.sku || null,

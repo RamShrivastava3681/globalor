@@ -37,7 +37,7 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
         formData.append("files", f);
         formData.append("scope", scope);
 
-        const results = await api.post<DocMeta[]>("/api/upload", formData);
+        const results = await api.post<DocMeta[]>("/upload", formData);
         next.push(...results);
       }
       onChange(next);
@@ -50,7 +50,7 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
 
   const remove = async (d: DocMeta) => {
     try {
-      await api.delete("/api/upload", { paths: [d.path] });
+      await api.delete("/upload", { paths: [d.path] });
     } catch { /* ignore */ }
     onChange(docs.filter((x) => x.path !== d.path));
   };
@@ -97,7 +97,7 @@ export function DocumentList({ docs }: { docs: DocMeta[] }) {
   const open = async (d: DocMeta) => {
     setBusyPath(d.path);
     try {
-      const { signedUrl } = await api.get<{ signedUrl: string }>(`/api/upload/signed-url/${encodeURIComponent(d.path)}`);
+      const { signedUrl } = await api.get<{ signedUrl: string }>(`/upload/signed-url/${encodeURIComponent(d.path)}`);
       window.open(signedUrl, "_blank", "noopener");
     } catch (err) {
       toast.error("Could not open document");

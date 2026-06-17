@@ -41,7 +41,7 @@ function ProformasPage() {
 
   const listQ = useQuery({
     queryKey: ["proformas"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-orders")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [],
   });
 
   const rows = ((listQ.data ?? []) as PF[])
@@ -64,7 +64,7 @@ function ProformasPage() {
 
   const cancel = useMutation({
     mutationFn: async (id: string) => {
-      await api.patch(`/api/purchase-orders/${id}`, { status: "cancelled" });
+      await api.patch(`/purchase-orders/${id}`, { status: "cancelled" });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Cancelled"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -72,7 +72,7 @@ function ProformasPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/purchase-orders/${id}`);
+      await api.delete(`/purchase-orders/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -232,8 +232,8 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/api/debtors")) ?? [];
-      return (await api.get<any[]>("/api/vendors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
 
@@ -244,7 +244,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
       if (!form.party_id) throw new Error(side === "sales" ? "Pick a debtor" : "Pick a supplier");
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
-      await api.post("/api/purchase-orders", {
+      await api.post("/purchase-orders", {
         side,
         debtor_id: side === "sales" ? form.party_id : null,
         vendor_id: side === "purchase" ? form.party_id : null,

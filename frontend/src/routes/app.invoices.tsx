@@ -24,22 +24,22 @@ function InvoicesPage() {
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/api/debtors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchases-for-link"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
 
   const sendNoa = useMutation({
     mutationFn: async (id: string) => {
-      const result = await api.post<{ noa_status: string; noa_link: string }>(`/api/invoices/${id}/send-noa`);
+      const result = await api.post<{ noa_status: string; noa_link: string }>(`/invoices/${id}/send-noa`);
       return result;
     },
     onSuccess: (result, id) => {
@@ -53,7 +53,7 @@ function InvoicesPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/invoices/${id}`);
+      await api.delete(`/invoices/${id}`);
     },
     onSuccess: () => {
       toast.success("Invoice removed");
@@ -234,7 +234,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
     queryKey: ["po-lookup-sales", form.po_number],
     enabled: !!form.po_number.trim(),
     queryFn: async () => {
-      const data = await api.get<any>(`/api/purchase-orders/by-po/${encodeURIComponent(form.po_number.trim())}`);
+      const data = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(form.po_number.trim())}`);
       return data ?? { proformas: [], advances: [] };
     },
   });
@@ -281,9 +281,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
         } : undefined;
       }
       if (editing) {
-        await api.patch(`/api/invoices/${editing.id}`, payload);
+        await api.patch(`/invoices/${editing.id}`, payload);
       } else {
-        await api.post("/api/invoices", payload);
+        await api.post("/invoices", payload);
       }
     },
     onSuccess: () => {

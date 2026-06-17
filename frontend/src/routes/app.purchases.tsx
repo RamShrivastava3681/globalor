@@ -24,17 +24,17 @@ function PurchasesPage() {
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
   });
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
-    queryFn: async () => (await api.get<any[]>("/api/vendors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
   });
 
   const salesQ = useQuery({
     queryKey: ["invoices-by-pi"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
@@ -43,7 +43,7 @@ function PurchasesPage() {
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const patch: any = { status };
       if (status === "paid") patch.paid_date = new Date().toISOString().slice(0, 10);
-      await api.patch(`/api/purchase-invoices/${id}`, patch);
+      await api.patch(`/purchase-invoices/${id}`, patch);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); toast.success("Updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -51,7 +51,7 @@ function PurchasesPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/purchase-invoices/${id}`);
+      await api.delete(`/purchase-invoices/${id}`);
     },
     onSuccess: () => {
       toast.success("Purchase invoice removed");
@@ -231,7 +231,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
     queryKey: ["po-lookup-purchase", form.po_number],
     enabled: !!form.po_number.trim(),
     queryFn: async () => {
-      const data = await api.get<any>(`/api/purchase-orders/by-po/${encodeURIComponent(form.po_number.trim())}`);
+      const data = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(form.po_number.trim())}`);
       return data ?? { proformas: [], advances: [] };
     },
   });
@@ -278,9 +278,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
         } : undefined;
       }
       if (editing) {
-        await api.patch(`/api/purchase-invoices/${editing.id}`, payload);
+        await api.patch(`/purchase-invoices/${editing.id}`, payload);
       } else {
-        await api.post("/api/purchase-invoices", payload);
+        await api.post("/purchase-invoices", payload);
       }
     },
     onSuccess: () => {

@@ -22,30 +22,30 @@ function Dashboard() {
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchase_invoices", isAdmin ? "all" : user?.id],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
   });
 
   const expensesQ = useQuery({
     queryKey: ["expenses", isAdmin ? "all" : user?.id],
-    queryFn: async () => (await api.get<any[]>("/api/expenses")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/expenses")) ?? [],
   });
 
   const alertsQ = useQuery({
     queryKey: ["alerts"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/alerts") ?? [];
+      const data = await api.get<any[]>("/alerts") ?? [];
       return data.slice(0, 8);
     },
   });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/api/debtors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
   });
 
   const invoices = invoicesQ.data ?? [];

@@ -33,12 +33,12 @@ function ExpensesPage() {
 
   const expensesQ = useQuery({
     queryKey: ["expenses"],
-    queryFn: async () => (await api.get<any[]>("/api/expenses")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/expenses")) ?? [],
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/expenses/${id}`);
+      await api.delete(`/expenses/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["expenses"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -228,11 +228,11 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   const salesQ = useQuery({
     queryKey: ["expense-link-sales"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
   });
   const purchQ = useQuery({
     queryKey: ["expense-link-purchases"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
 
   const linkOptions = useMemo(() => {
@@ -253,7 +253,7 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
         purchase_invoice_id: form.link_kind === "purchase" && form.link_id ? form.link_id : null,
         documents: docs,
       };
-      await api.post("/api/expenses", payload);
+      await api.post("/expenses", payload);
     },
     onSuccess: () => { onCreated(); toast.success("Expense logged"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),

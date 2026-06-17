@@ -69,12 +69,12 @@ function SuppliersPage() {
 
   const suppliersQ = useQuery({
     queryKey: ["suppliers"],
-    queryFn: async () => (await api.get<any[]>("/api/suppliers")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/suppliers")) ?? [],
   });
 
   const invoicesQ = useQuery({
     queryKey: ["invoices-by-supplier"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
     enabled: canEdit,
   });
 
@@ -109,9 +109,9 @@ function SuppliersPage() {
         notes: form.notes || null,
       };
       if (editing) {
-        await api.patch(`/api/suppliers/${editing.id}`, payload);
+        await api.patch(`/suppliers/${editing.id}`, payload);
       } else {
-        await api.post("/api/suppliers", payload);
+        await api.post("/suppliers", payload);
       }
     },
     onSuccess: () => {
@@ -126,7 +126,7 @@ function SuppliersPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/suppliers/${id}`);
+      await api.delete(`/suppliers/${id}`);
     },
     onSuccess: () => {
       toast.success("Supplier removed");

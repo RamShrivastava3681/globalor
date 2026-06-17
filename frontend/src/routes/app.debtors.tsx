@@ -19,12 +19,12 @@ function DebtorsPage() {
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-full"],
-    queryFn: async () => (await api.get<any[]>("/api/debtors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
   });
 
   const invoicesQ = useQuery({
     queryKey: ["invoices-for-debtors"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const exposureFor = (id: string) =>
@@ -34,7 +34,7 @@ function DebtorsPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/debtors/${id}`);
+      await api.delete(`/debtors/${id}`);
     },
     onSuccess: () => {
       toast.success("Debtor removed");
@@ -174,9 +174,9 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
       };
 
       if (editing) {
-        await api.patch(`/api/debtors/${editing.id}`, payload);
+        await api.patch(`/debtors/${editing.id}`, payload);
       } else {
-        await api.post("/api/debtors", payload);
+        await api.post("/debtors", payload);
       }
     },
     onSuccess: () => {

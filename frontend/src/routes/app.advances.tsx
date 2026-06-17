@@ -20,7 +20,7 @@ function AdvancesPage() {
 
   const advancesQ = useQuery({
     queryKey: ["advances"],
-    queryFn: async () => (await api.get<any[]>("/api/advances")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
   });
 
   const rows = (advancesQ.data ?? []).filter((a: any) => a.side === tab);
@@ -36,7 +36,7 @@ function AdvancesPage() {
 
   const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      await api.patch(`/api/advances/${id}`, { status });
+      await api.patch(`/advances/${id}`, { status });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -44,7 +44,7 @@ function AdvancesPage() {
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/api/advances/${id}`);
+      await api.delete(`/advances/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -183,7 +183,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
   const ordersQ = useQuery({
     queryKey: ["adv-po", side],
     queryFn: async () => {
-      const orders = await api.get<any[]>("/api/purchase-orders") ?? [];
+      const orders = await api.get<any[]>("/purchase-orders") ?? [];
       return orders.filter((o: any) => o.side === side && o.status !== "cancelled");
     },
   });
@@ -192,8 +192,8 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
     queryKey: ["adv-inv", side],
     enabled: linkType === "invoice",
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/api/invoices/mini")) ?? [];
-      return (await api.get<any[]>("/api/purchase-invoices/mini")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/invoices/mini")) ?? [];
+      return (await api.get<any[]>("/purchase-invoices/mini")) ?? [];
     },
   });
 
@@ -216,7 +216,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
         invoice_id: linkType === "invoice" && side === "sales" ? form.invoice_id : null,
         purchase_invoice_id: linkType === "invoice" && side === "purchase" ? form.purchase_invoice_id : null,
       };
-      await api.post("/api/advances", payload);
+      await api.post("/advances", payload);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Advance recorded"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),

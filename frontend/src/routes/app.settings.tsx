@@ -32,7 +32,7 @@ function SettingsPage() {
 
   useEffect(() => {
     if (!user) return;
-    api.get<any>("/api/profiles/me").then((data) => {
+    api.get<any>("/profiles/me").then((data) => {
       if (data) setProfile({ company_name: data.company_name ?? "", contact_name: data.contact_name ?? "" });
     }).catch(() => {});
   }, [user]);
@@ -45,8 +45,8 @@ function SettingsPage() {
   const loadUsers = async () => {
     try {
       const [profiles, roles] = await Promise.all([
-        api.get<any[]>("/api/admin/profiles"),
-        api.get<any[]>("/api/admin/roles"),
+        api.get<any[]>("/admin/profiles"),
+        api.get<any[]>("/admin/roles"),
       ]);
       setUsers((profiles ?? []).map((p: any) => ({
         id: p.id,
@@ -69,7 +69,7 @@ function SettingsPage() {
   const save = async () => {
     setLoading(true);
     try {
-      await api.patch("/api/profiles/me", profile);
+      await api.patch("/profiles/me", profile);
       toast.success("Profile saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -85,7 +85,7 @@ function SettingsPage() {
     }
     setCreating(true);
     try {
-      await api.post("/api/admin/users", newUser);
+      await api.post("/admin/users", newUser);
       toast.success(`User ${newUser.email} created with role: ${newUser.role}`);
       setShowCreateUser(false);
       setNewUser({ email: "", password: "", company_name: "", contact_name: "", role: "operations" });
@@ -99,7 +99,7 @@ function SettingsPage() {
 
   const toggleRole = async (userId: string, role: string, add: boolean) => {
     try {
-      await api.post("/api/admin/roles", { user_id: userId, role, add });
+      await api.post("/admin/roles", { user_id: userId, role, add });
       await loadUsers();
       toast.success(`Role ${add ? "added" : "removed"}`);
     } catch (err) {

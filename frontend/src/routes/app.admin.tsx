@@ -16,20 +16,20 @@ function AdminPage() {
 
   const invoicesQ = useQuery({
     queryKey: ["invoices-admin"],
-    queryFn: async () => (await api.get<any[]>("/api/invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
     enabled: isAdmin,
   });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-admin"],
-    queryFn: async () => (await api.get<any[]>("/api/debtors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
     enabled: isAdmin,
   });
 
   const profilesQ = useQuery({
     queryKey: ["profiles-admin"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/admin/profiles");
+      const data = await api.get<any[]>("/admin/profiles");
       return data ?? [];
     },
     enabled: isAdmin,
@@ -38,7 +38,7 @@ function AdminPage() {
   const rolesQ = useQuery({
     queryKey: ["user_roles-admin"],
     queryFn: async () => {
-      const data = await api.get<any[]>("/api/admin/roles");
+      const data = await api.get<any[]>("/admin/roles");
       return data ?? [];
     },
     enabled: isAdmin,
@@ -46,7 +46,7 @@ function AdminPage() {
 
   const toggleRole = useMutation({
     mutationFn: async ({ user_id, role, add }: { user_id: string; role: string; add: boolean }) => {
-      await api.post("/api/admin/roles", { user_id, role, add });
+      await api.post("/admin/roles", { user_id, role, add });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["user_roles-admin"] }); toast.success("Role updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -54,7 +54,7 @@ function AdminPage() {
 
   const generateAlerts = useMutation({
     mutationFn: async () => {
-      const result = await api.post<{ created: number }>("/api/admin/generate-alerts");
+      const result = await api.post<{ created: number }>("/admin/generate-alerts");
       return result.created;
     },
     onSuccess: (n) => { qc.invalidateQueries({ queryKey: ["alerts"] }); toast.success(`Generated ${n} alerts`); },

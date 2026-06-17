@@ -33,14 +33,14 @@ function NoaPage() {
   const noaQ = useQuery({
     queryKey: ["noa", token],
     queryFn: async () => {
-      const data = await api.get<NoaInvoice>(`/api/noa/${token}`);
+      const data = await api.get<NoaInvoice>(`/noa/${token}`);
       return data ?? null;
     },
   });
 
   const respond = useMutation({
     mutationFn: async ({ decision, comments }: { decision: string; comments: string | null }) => {
-      await api.post(`/api/noa/${token}/respond`, { decision, comments });
+      await api.post(`/noa/${token}/respond`, { decision, comments });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["noa", token] });

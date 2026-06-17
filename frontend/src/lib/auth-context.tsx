@@ -60,7 +60,7 @@ type MeResponse = {
 
 async function fetchMe(): Promise<MeResponse | null> {
   try {
-    return await api.get<MeResponse>("/api/auth/me");
+    return await api.get<MeResponse>("/auth/me");
   } catch {
     return null;
   }

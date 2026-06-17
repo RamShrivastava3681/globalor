@@ -18,12 +18,12 @@ function VendorsPage() {
 
   const vendorsQ = useQuery({
     queryKey: ["vendors"],
-    queryFn: async () => (await api.get<any[]>("/api/vendors")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
   });
 
   const piQ = useQuery({
     queryKey: ["pi-for-vendors"],
-    queryFn: async () => (await api.get<any[]>("/api/purchase-invoices")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
   });
 
   const openFor = (id: string) =>
@@ -111,7 +111,7 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("Name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
-      await api.post("/api/vendors", {
+      await api.post("/vendors", {
         name: form.name.trim(),
         industry: form.industry || null,
         payment_terms_days: Number(form.payment_terms_days) || 30,

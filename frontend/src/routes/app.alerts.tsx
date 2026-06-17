@@ -13,12 +13,12 @@ function AlertsPage() {
   const qc = useQueryClient();
   const alertsQ = useQuery({
     queryKey: ["alerts", "all"],
-    queryFn: async () => (await api.get<any[]>("/api/alerts")) ?? [],
+    queryFn: async () => (await api.get<any[]>("/alerts")) ?? [],
   });
 
   const markRead = useMutation({
     mutationFn: async (id: string) => {
-      await api.patch(`/api/alerts/${id}/read`);
+      await api.patch(`/alerts/${id}/read`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alerts"] }),
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
