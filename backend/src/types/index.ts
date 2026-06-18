@@ -82,7 +82,7 @@ export interface Vendor {
   contact_designation: string | null;
   contact_phone: string | null;
   industry: string | null;
-  payment_terms_days: number;
+  payment_terms_days?: number;
   notes: string | null;
   created_at: string;
   updated_at: string;
