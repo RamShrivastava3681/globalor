@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2 } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/proformas")({
@@ -31,18 +31,29 @@ type PF = {
 };
 
 function ProformasPage() {
-  const { user, isAdmin, isClient, isChecker, isTreasury, canWrite } = useAuth();
+  const { user, isAdmin, isClient, isChecker, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-orders");
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
-
+  const [searchQuery, setSearchQuery] = useState("");
 
   const listQ = useQuery({
     queryKey: ["proformas"],
     queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [],
   });
+
+  const advancesQ = useQuery({
+    queryKey: ["advances"],
+    queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
+  });
+
+  const viewedAdvances = useMemo(() => {
+    if (!viewing) return [];
+    return (advancesQ.data ?? []).filter((a: any) => a.purchase_order_id === viewing.id);
+  }, [viewing, advancesQ.data]);
 
   const rows = ((listQ.data ?? []) as PF[])
     .filter((p) => tab === "all" || p.side === tab)
@@ -50,6 +61,18 @@ function ProformasPage() {
       if (queue === "all") return true;
       if (queue === "approved") return p.proforma_status === "approved";
       return p.proforma_status === queue;
+    })
+    .filter((p) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+      return (
+        p.proforma_number?.toLowerCase().includes(q) ||
+        p.po_number?.toLowerCase().includes(q) ||
+        (cp ?? "").toLowerCase().includes(q) ||
+        p.side?.toLowerCase().includes(q) ||
+        p.proforma_status?.toLowerCase().includes(q)
+      );
     });
 
   const counts = useMemo(() => {
@@ -130,6 +153,10 @@ function ProformasPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search proformas by number, PO, counterparty..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {listQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -172,6 +199,9 @@ function ProformasPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                            <button onClick={() => setViewing(p)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                              <Eye className="h-3 w-3" /> View
+                            </button>
                             {p.proforma_status === "pending_review" && (
                               <span className="text-[10px] uppercase tracking-widest text-warning">Awaiting checker</span>
                             )}
@@ -210,6 +240,13 @@ function ProformasPage() {
 
       {open && user && <NewProformaModal side={open} onClose={() => setOpen(null)} />}
 
+      {viewing && (
+        <ProformaDetailModal
+          proforma={viewing}
+          advances={viewedAdvances}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -306,6 +343,151 @@ function Actions({ onClose, pending, label }: { onClose: () => void; pending: bo
       <button disabled={pending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
         {pending && <Loader2 className="h-4 w-4 animate-spin" />} {label}
       </button>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
+  const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-lg">{proforma.proforma_number || proforma.po_number}</h3>
+            <StatusPill status={proforma.status} pStatus={proforma.proforma_status} />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Proforma summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Proforma details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+              <Detail label="Proforma #" value={proforma.proforma_number || "—"} />
+              <Detail label="PO number" value={proforma.po_number} />
+              <Detail label="Side" value={proforma.side === "sales" ? "Sales" : "Purchase"} />
+              <Detail label="Amount" value={fmtMoney(proforma.amount)} />
+              <Detail label="Currency" value={proforma.currency} />
+              <Detail label="Proforma date" value={proforma.proforma_date ? fmtDate(proforma.proforma_date) : fmtDate(proforma.issue_date)} />
+              <Detail label="Created" value={fmtDate(proforma.created_at)} />
+              <Detail label="Last updated" value={fmtDate(proforma.updated_at)} />
+              <Detail label="Status" value={proforma.status} />
+              <Detail label="Proforma status" value={proforma.proforma_status?.replace("_", " ")} />
+            </div>
+            {proforma.proforma_review_comments && (
+              <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Review comments</div>
+                <p className="mt-1 text-xs italic">"{proforma.proforma_review_comments}"</p>
+              </div>
+            )}
+            {proforma.notes && (
+              <div className="mt-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
+                <p className="mt-1 text-xs text-muted-foreground">{proforma.notes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Counterparty details */}
+          {cp && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Debtor" : "Supplier"}
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Name" value={cp.name} />
+                <Detail label="Contact" value={cp.contact_name || "—"} />
+                <Detail label="Email" value={cp.contact_email || "—"} />
+                <Detail label="Phone" value={cp.contact_phone || "—"} />
+                {cp.industry && <Detail label="Industry" value={cp.industry} />}
+                {cp.address_line && <Detail label="Address" value={[cp.address_line, cp.city, cp.country].filter(Boolean).join(", ")} />}
+              </div>
+            </div>
+          )}
+
+          {/* Client info */}
+          {proforma.client && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <User className="mr-1 inline h-3.5 w-3.5" />Client
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
+                <Detail label="Company" value={proforma.client.company_name || "—"} />
+                <Detail label="Contact" value={proforma.client.contact_name || "—"} />
+                <Detail label="Email" value={proforma.client.email || "—"} />
+              </div>
+            </div>
+          )}
+
+          {/* Funding details */}
+          {proforma.proforma_status === "funded" && proforma.proforma_funded_amount != null && (
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-success">
+                <DollarSign className="mr-1 inline h-3.5 w-3.5" />Funding details
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Funded amount" value={fmtMoney(proforma.proforma_funded_amount)} />
+                <Detail label="Funded date" value={proforma.proforma_funded_at ? fmtDate(proforma.proforma_funded_at) : "—"} />
+                <Detail label="Reference" value={proforma.proforma_funding_reference || "—"} />
+              </div>
+            </div>
+          )}
+
+          {/* Linked advances */}
+          {advances.length > 0 && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />Linked advances ({advances.length})
+              </h4>
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Date</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Reference</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {advances.map((a: any) => (
+                      <tr key={a.id} className="border-b border-border/60">
+                        <td className="px-4 py-2.5">{fmtDate(a.advance_date)}</td>
+                        <td className="px-4 py-2.5 text-right num text-primary">{fmtMoney(a.amount)}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{a.reference || "—"}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            a.status === "applied" ? "border-success/50 text-success"
+                            : a.status === "refunded" ? "border-muted text-muted-foreground"
+                            : "border-warning/50 text-warning"
+                          }`}>{a.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

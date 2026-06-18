@@ -1,8 +1,7 @@
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
 import { config } from "./config.js";
 import { putItem, scanTable, TABLES } from "./db/client.js";
-import { nowISO } from "./utils/helpers.js";
+import { generateId, nowISO } from "./utils/helpers.js";
 import type { User, Profile, UserRole, AppRole } from "./types/index.js";
 
 /**
@@ -40,7 +39,7 @@ export async function seedAdmin(): Promise<void> {
       return;
     }
 
-    const id = uuidv4();
+    const id = generateId();
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
@@ -69,7 +68,7 @@ export async function seedAdmin(): Promise<void> {
     }
 
     // Assign factor_admin role
-    const roleId = uuidv4();
+    const roleId = generateId();
     const userRole: UserRole = { id: roleId, user_id: id, role: "factor_admin" as AppRole };
     try {
       await putItem(TABLES.USER_ROLES, userRole as any);

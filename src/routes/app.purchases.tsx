@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2, Save } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
@@ -13,14 +13,16 @@ export const Route = createFileRoute("/app/purchases")({
 });
 
 function PurchasesPage() {
-  const { user, isAdmin, isChecker, isClient, isTreasury, canWrite } = useAuth();
+  const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
   const canEdit = canWrite("purchase-invoices");
   const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
@@ -36,6 +38,16 @@ function PurchasesPage() {
     queryKey: ["invoices-by-pi"],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
+
+  const stockMovementsQ = useQuery({
+    queryKey: ["stock_movements"],
+    queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
+  });
+
+  const viewedInventory = useMemo(() => {
+    if (!viewing) return [];
+    return (stockMovementsQ.data ?? []).filter((m: any) => m.purchase_invoice_id === viewing.id);
+  }, [viewing, stockMovementsQ.data]);
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
 
@@ -60,7 +72,19 @@ function PurchasesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (piQ.data ?? []).filter((p: any) => filter === "all" || p.status === filter);
+  const filtered = (piQ.data ?? []).filter((p: any) => {
+    if (filter !== "all" && p.status !== filter) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      p.invoice_number?.toLowerCase().includes(q) ||
+      p.po_number?.toLowerCase().includes(q) ||
+      p.vendor?.name?.toLowerCase().includes(q) ||
+      p.status?.toLowerCase().includes(q) ||
+      p.client?.company_name?.toLowerCase().includes(q) ||
+      p.client?.contact_name?.toLowerCase().includes(q)
+    );
+  });
 
   const totals = (piQ.data ?? []).reduce(
     (a: any, p: any) => {
@@ -106,6 +130,10 @@ function PurchasesPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search purchases by invoice, supplier, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {piQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -117,6 +145,7 @@ function PurchasesPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">PO</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
@@ -140,6 +169,7 @@ function PurchasesPage() {
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
+                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.contact_name || p.client?.company_name || "—"}</td>}
                         <td className="px-5 py-3">{p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
                           {p.po_number ? (
@@ -170,6 +200,9 @@ function PurchasesPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap justify-end gap-1">
+                            <button onClick={() => setViewing(p)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                              <Eye className="h-3 w-3" /> View
+                            </button>
                             {p.status === "pending" && (
                               canReview ? (
                                 <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
@@ -211,6 +244,15 @@ function PurchasesPage() {
           onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
       )}
+
+      {viewing && (
+        <PurchaseInvoiceDetailModal
+          invoice={viewing}
+          salesLinks={linkedSales(viewing.id)}
+          inventory={viewedInventory}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -224,6 +266,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
     po_date: editing?.po_date ?? "",
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
+    payment_terms_days: String(editing?.payment_terms_days ?? "30"),
+    bl_date: editing?.bl_date ?? "",
+    due_date_source: editing?.due_date_source ?? "invoice",
     notes: editing?.notes ?? "",
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
@@ -253,11 +298,11 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
 
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
-  const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
-  const termsDays = Number(selectedVendor?.payment_terms_days ?? 30) || 30;
+  const termsDays = Number(form.payment_terms_days) || 30;
   const computedDue = (() => {
-    if (!form.issue_date) return "";
-    const d = new Date(form.issue_date);
+    const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
+    if (!base) return "";
+    const d = new Date(base);
     d.setDate(d.getDate() + termsDays);
     return d.toISOString().slice(0, 10);
   })();
@@ -276,6 +321,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
         po_date: form.po_date || null,
         issue_date: form.issue_date,
         due_date: effectiveDue || null,
+        payment_terms_days: Number(form.payment_terms_days) || 30,
+        bl_date: form.bl_date || null,
+        due_date_source: form.due_date_source,
         notes: form.notes || null,
         documents: docs,
       };
@@ -363,7 +411,15 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
             </L>
             <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
-            <L label={`Due date${selectedVendor ? ` (auto: ${termsDays}d net)` : ""}`}><input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></L>
+            <L label="BL date"><input type="date" className="inp" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} /></L>
+            <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></L>
+            <L label="Due date source">
+              <select className="inp" value={form.due_date_source} onChange={(e) => setForm({ ...form, due_date_source: e.target.value })}>
+                <option value="invoice">From invoice date</option>
+                <option value="bl">From BL date</option>
+              </select>
+            </L>
+            <L label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}><input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></L>
           </div>
 
           <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
@@ -421,6 +477,203 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
           </div>
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }: { invoice: any; salesLinks: any[]; inventory: any[]; onClose: () => void }) {
+  const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
+  const vendor = invoice.vendor;
+
+  const openDoc = async (d: DocMeta) => {
+    try {
+      const { signedUrl } = await api.get<{ signedUrl: string }>(`/upload/signed-url/${encodeURIComponent(d.path)}`);
+      window.open(signedUrl, "_blank", "noopener");
+    } catch {
+      toast.error("Could not open document");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-lg">{invoice.invoice_number}</h3>
+            <StatusPill status={invoice.status} />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Invoice summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Purchase invoice details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+              <Detail label="Amount" value={fmtMoney(invoice.amount)} />
+              <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
+              <Detail label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
+              {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
+              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
+              <Detail label="Advance paid date" value={invoice.advance_paid_date ? fmtDate(invoice.advance_paid_date) : "—"} />
+              <Detail label="Funded date" value={invoice.funded_date ? fmtDate(invoice.funded_date) : "—"} />
+              <Detail label="Created" value={fmtDate(invoice.created_at)} />
+              <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
+              {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
+              {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
+            </div>
+            {invoice.notes && (
+              <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
+                <p className="mt-1 text-xs italic">{invoice.notes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Supplier / Vendor details */}
+          {vendor && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Supplier
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Name" value={vendor.name} />
+                <Detail label="Contact" value={vendor.contact_name || "—"} />
+                <Detail label="Email" value={vendor.contact_email || "—"} />
+                <Detail label="Phone" value={vendor.contact_phone || "—"} />
+                <Detail label="Industry" value={vendor.industry || "—"} />
+                {vendor.address_line && <Detail label="Address" value={[vendor.address_line, vendor.city, vendor.country].filter(Boolean).join(", ")} />}
+                {vendor.website && <Detail label="Website" value={vendor.website} />}
+              </div>
+            </div>
+          )}
+
+          {/* Client info */}
+          {invoice.client && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <User className="mr-1 inline h-3.5 w-3.5" />Client
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
+                <Detail label="Company" value={invoice.client.company_name || "—"} />
+                <Detail label="Contact" value={invoice.client.contact_name || "—"} />
+                <Detail label="Email" value={invoice.client.email || "—"} />
+              </div>
+            </div>
+          )}
+
+          {/* Linked sales invoices */}
+          {salesLinks.length > 0 && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked sales invoices ({salesLinks.length})
+              </h4>
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Invoice</th>
+                      <th className="px-4 py-2 text-left font-normal">Debtor</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesLinks.map((s: any) => (
+                      <tr key={s.id} className="border-b border-border/60">
+                        <td className="px-4 py-2.5 font-mono text-xs">
+                          <Link to="/app/invoices" className="text-primary hover:underline">{s.invoice_number}</Link>
+                        </td>
+                        <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>
+                        <td className="px-4 py-2.5"><StatusPill status={s.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <FileText className="mr-1 inline h-3.5 w-3.5" />Attachments ({invDocs.length})
+            </h4>
+            {invDocs.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No documents attached to this purchase invoice.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {invDocs.map((d) => (
+                  <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate" title={d.name}>{d.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
+                    </div>
+                    <button type="button" onClick={() => openDoc(d)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                      <Download className="h-3 w-3" /> Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Inventory movements */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <Package className="mr-1 inline h-3.5 w-3.5" />Inventory entries ({inventory.length})
+            </h4>
+            {inventory.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No inventory movements linked to this purchase invoice.</div>
+            ) : (
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Item</th>
+                      <th className="px-4 py-2 text-left font-normal">SKU</th>
+                      <th className="px-4 py-2 text-right font-normal">Qty</th>
+                      <th className="px-4 py-2 text-left font-normal">Unit</th>
+                      <th className="px-4 py-2 text-right font-normal">Unit cost</th>
+                      <th className="px-4 py-2 text-left font-normal">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventory.map((m: any) => (
+                      <tr key={m.id} className="border-b border-border/60">
+                        <td className="px-4 py-2.5">{m.item_name}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "—"}</td>
+                        <td className="px-4 py-2.5 text-right num">{Number(m.quantity).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.unit}</td>
+                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
+                        <td className="px-4 py-2.5">{fmtDate(m.movement_date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -26,9 +26,9 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
 // ── POST /api/alerts ──
 const createAlertSchema = z.object({
-  client_id: z.string().uuid().nullable().optional(),
-  debtor_id: z.string().uuid().nullable().optional(),
-  invoice_id: z.string().uuid().nullable().optional(),
+  client_id: z.string().nullable().optional(),
+  debtor_id: z.string().nullable().optional(),
+  invoice_id: z.string().nullable().optional(),
   type: z.enum(["overdue", "credit_limit", "risk_change", "large_invoice", "payment_received"]),
   severity: z.enum(["info", "warning", "critical"]),
   message: z.string().min(1),

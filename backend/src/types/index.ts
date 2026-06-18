@@ -60,7 +60,7 @@ export interface Debtor {
   industry: string | null;
   credit_limit: number;
   risk_score: number;
-  payment_terms_days: number;
+  payment_terms_days?: number;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -104,7 +104,7 @@ export interface Supplier {
   contact_designation: string | null;
   contact_email: string | null;
   contact_phone: string | null;
-  payment_terms_days: number;
+  payment_terms_days?: number;
   advance_rate: number;
   fee_rate: number;
   notes: string | null;
@@ -141,6 +141,9 @@ export interface Invoice {
   po_date: string | null;
   purchase_invoice_id: string | null;
   purchase_order_id: string | null;
+  payment_terms_days: number;
+  bl_date: string | null;
+  due_date_source: "invoice" | "bl";
   documents: DocMeta[];
   created_at: string;
   updated_at: string;
@@ -165,6 +168,9 @@ export interface PurchaseInvoice {
   status: PurchaseInvoiceStatus;
   documents: DocMeta[];
   purchase_order_id: string | null;
+  payment_terms_days: number;
+  bl_date: string | null;
+  due_date_source: "invoice" | "bl";
   created_at: string;
   updated_at: string;
 }

@@ -48,9 +48,15 @@ function Dashboard() {
     queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
   });
 
+  const proformasQ = useQuery({
+    queryKey: ["proformas"],
+    queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [],
+  });
+
   const invoices = invoicesQ.data ?? [];
   const purchases = purchasesQ.data ?? [];
   const expenses = expensesQ.data ?? [];
+  const proformas = proformasQ.data ?? [];
 
   const totalOutstanding = invoices
     .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
@@ -109,7 +115,7 @@ function Dashboard() {
     { current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
   );
 
-  const eyebrow = isAdmin ? "Factor console" : isTreasury ? "Treasury desk" : "Trader portal";
+  const eyebrow = isAdmin ? "Trading console" : isTreasury ? "Treasury desk" : "Trader portal";
   const titleText = isAdmin ? "Portfolio command" : isTreasury ? "Funding overview" : "Trading ledger";
 
   return (
@@ -259,6 +265,46 @@ function Dashboard() {
                       <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}</td>
                       <td className={`px-5 py-3 text-right num ${Number(i.late_days) > 0 ? "text-warning" : "text-muted-foreground"}`}>{i.late_days != null ? i.late_days : "—"}</td>
                       <td className="px-5 py-3"><StatusPill status={i.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Recent proformas" action={<Link to="/app/proformas" className="text-xs text-primary">View all →</Link>}>
+          {proformas.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">No proformas yet.</div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Proforma</th>
+                    <th className="px-5 py-2 text-left font-normal">PO #</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-left font-normal">Side</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proformas.slice(0, 6).map((p: any) => (
+                    <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? p.po_number}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{p.po_number}</td>
+                      <td className="px-5 py-3">{p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                      <td className="px-5 py-3">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                          p.proforma_status === "funded" || p.status === "invoiced" ? "border-success/50 text-success"
+                          : p.proforma_status === "approved" ? "border-primary/50 text-primary"
+                          : p.proforma_status === "rejected" || p.status === "cancelled" ? "border-destructive/50 text-destructive"
+                          : "border-warning/50 text-warning"
+                        }`}>{p.proforma_status?.replace("_", " ") || p.status}</span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

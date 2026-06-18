@@ -52,6 +52,7 @@ function QueuePage() {
   const isTreasury = canAct;
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
@@ -208,6 +209,11 @@ function QueuePage() {
     })),
   ]
     .filter((r) => side === "all" || r.kind === side || (side === "sale" && r.kind === "proforma" && r.side === "sales") || (side === "purchase" && r.kind === "proforma" && r.side === "purchase"))
+    .filter((r) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
+    })
     .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
 
   const balanceToPay = rows.filter((r) => r.kind === "purchase").reduce((s, r) => s + r.balance, 0);
@@ -246,6 +252,10 @@ function QueuePage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search queue by invoice, party, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

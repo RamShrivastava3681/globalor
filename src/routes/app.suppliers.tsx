@@ -26,7 +26,6 @@ type Supplier = {
   contact_designation: string | null;
   contact_email: string | null;
   contact_phone: string | null;
-  payment_terms_days: number;
   advance_rate: number;
   fee_rate: number;
   notes: string | null;
@@ -47,7 +46,6 @@ const emptyForm = {
   contact_designation: "",
   contact_email: "",
   contact_phone: "",
-  payment_terms_days: 30,
   advance_rate: 0.8,
   fee_rate: 0.025,
   notes: "",
@@ -60,6 +58,7 @@ function SuppliersPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const suppliersQ = useQuery({
     queryKey: ["suppliers"],
@@ -84,7 +83,6 @@ function SuppliersPage() {
         contact_designation: form.contact_designation || null,
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
-        payment_terms_days: Number(form.payment_terms_days) || 30,
         advance_rate: Number(form.advance_rate),
         fee_rate: Number(form.fee_rate),
         notes: form.notes || null,
@@ -138,7 +136,6 @@ function SuppliersPage() {
       contact_designation: s.contact_designation ?? "",
       contact_email: s.contact_email ?? "",
       contact_phone: s.contact_phone ?? "",
-      payment_terms_days: Number(s.payment_terms_days) || 30,
       advance_rate: Number(s.advance_rate),
       fee_rate: Number(s.fee_rate),
       notes: s.notes ?? "",
@@ -176,7 +173,6 @@ function SuppliersPage() {
                   <th className="px-3 py-3 text-left">Location</th>
                   <th className="px-3 py-3 text-right">Advance</th>
                   <th className="px-3 py-3 text-right">Fee</th>
-                  <th className="px-3 py-3 text-right">Terms</th>
                   <th className="px-3 py-3" />
                 </tr>
               </thead>
@@ -193,7 +189,15 @@ function SuppliersPage() {
                     </td>
                   </tr>
                 )}
-                {suppliers.map((s: any) => (
+                <div className="mb-4">
+                  <input type="text" placeholder="Search suppliers by name, industry, contact..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+                </div>
+                {suppliers.filter((s: any) => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase();
+                  return s.company_name?.toLowerCase().includes(q) || s.industry?.toLowerCase().includes(q) || s.contact_name?.toLowerCase().includes(q) || s.contact_email?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q);
+                }).map((s: any) => (
                   <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
                     <td className="px-3 py-3">
                       <div className="font-medium">{s.company_name}</div>
@@ -208,7 +212,6 @@ function SuppliersPage() {
                     </td>
                     <td className="px-3 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
                     <td className="px-3 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
-                    <td className="px-3 py-3 text-right text-muted-foreground">Net {s.payment_terms_days}</td>
                     <td className="px-3 py-3 text-right">
                       {canEdit && (
                         <>
@@ -270,7 +273,6 @@ function SuppliersPage() {
               {/* ── Terms ── */}
               <Section title="Terms">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <F label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: Number(e.target.value) })} /></F>
                   <F label="Advance rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.8)" className="inp" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} /></F>
                   <F label="Fee rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.025)" className="inp" value={form.fee_rate} onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} /></F>
                   <F label="Notes" full><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></F>

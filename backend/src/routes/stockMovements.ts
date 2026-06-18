@@ -51,8 +51,8 @@ const createSchema = z.object({
   unit: z.string().optional().default("unit"),
   unit_cost: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
-  invoice_id: z.string().uuid().nullable().optional(),
-  purchase_invoice_id: z.string().uuid().nullable().optional(),
+  invoice_id: z.string().nullable().optional(),
+  purchase_invoice_id: z.string().nullable().optional(),
   movement_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
 });
 

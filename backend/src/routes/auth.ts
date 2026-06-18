@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import {
   getItem,
@@ -9,7 +8,7 @@ import {
   TABLES,
 } from "../db/client.js";
 import { generateToken, requireAuth, countUsers, type AuthRequest } from "../middleware/auth.js";
-import { nowISO } from "../utils/helpers.js";
+import { generateId, nowISO } from "../utils/helpers.js";
 import type { User, Profile, UserRole, AppRole } from "../types/index.js";
 
 const router = Router();
@@ -43,7 +42,7 @@ router.post("/signup", async (req: Request, res: Response) => {
     const userCount = await countUsers();
     const isFirstUser = userCount === 0;
 
-    const id = uuidv4();
+    const id = generateId();
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
@@ -61,7 +60,7 @@ router.post("/signup", async (req: Request, res: Response) => {
 
     // Assign role: first user = factor_admin, otherwise "client"
     const defaultRole: AppRole = isFirstUser ? "factor_admin" : "client";
-    const roleId = uuidv4();
+    const roleId = generateId();
     const userRole: UserRole = { id: roleId, user_id: id, role: defaultRole };
     await putItem(TABLES.USER_ROLES, userRole as any);
 

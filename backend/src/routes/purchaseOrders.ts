@@ -71,8 +71,8 @@ router.get("/by-po/:poNumber", requireAuth, async (req: AuthRequest, res: Respon
 // ── POST /api/purchase-orders ──
 const createSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().uuid().nullable().optional(),
-  vendor_id: z.string().uuid().nullable().optional(),
+  debtor_id: z.string().nullable().optional(),
+  vendor_id: z.string().nullable().optional(),
   po_number: z.string().min(1).max(80),
   proforma_number: z.string().min(1).max(80).optional(),
   proforma_date: z.string().optional(),

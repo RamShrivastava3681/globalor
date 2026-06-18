@@ -75,9 +75,9 @@ const createSchema = z.object({
   advance_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   reference: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
-  purchase_order_id: z.string().uuid().nullable().optional(),
-  invoice_id: z.string().uuid().nullable().optional(),
-  purchase_invoice_id: z.string().uuid().nullable().optional(),
+  purchase_order_id: z.string().nullable().optional(),
+  invoice_id: z.string().nullable().optional(),
+  purchase_invoice_id: z.string().nullable().optional(),
 });
 
 router.post("/", requireAuth, requireWriteAccess("advances"), async (req: AuthRequest, res: Response) => {

@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tan
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, Search, User
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -78,17 +78,12 @@ function AppLayout() {
         { to: "/app/settings", label: "Settings", icon: Settings },
       ];
 
-  const consoleLabel = isAdmin ? "Factor console" : isOperations ? "Operations desk" : isTreasury ? "Treasury desk" : isChecker ? "Checker desk" : "Trading portal";
-
   return (
     <div className="flex h-screen w-full overflow-hidden">
       {/* Sidebar */}
       <aside className="hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex items-center gap-3 p-6 border-b border-sidebar-border">
           <img src="/logo.png" alt="Globalor Limited" className="h-10 w-auto object-contain bg-white p-1 rounded-md" />
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{consoleLabel}</div>
-          </div>
         </div>
         <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
           {nav.map((n) => {
@@ -125,11 +120,6 @@ function AppLayout() {
         {/* Top Command Center Header */}
         <header className="h-16 flex-none flex items-center justify-between border-b border-border px-6 md:px-10 bg-[linear-gradient(90deg,rgba(0,191,255,0.08),transparent)]">
           <div className="flex items-center gap-4">
-            <span className="hidden md:inline-flex rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-[10px] text-primary font-medium tracking-[0.2em] uppercase">Trading Portal</span>
-            <div className="relative hidden md:block ml-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input type="text" placeholder="Search network..." className="h-9 w-64 rounded-full border border-border bg-black/20 pl-9 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all placeholder:text-muted-foreground/50" />
-            </div>
           </div>
           <div className="flex items-center gap-4">
             <button className="relative p-2 text-muted-foreground hover:text-foreground transition-colors">

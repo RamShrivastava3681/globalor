@@ -1,8 +1,9 @@
-import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 
 export function generateId(): string {
-  return uuidv4();
+  const timestamp = Date.now();
+  const random = crypto.randomBytes(4).toString("hex");
+  return `${timestamp}-${random}`;
 }
 
 export function generateNoaToken(): string {

@@ -48,8 +48,8 @@ const createSchema = z.object({
   description: z.string().nullable().optional(),
   amount: z.number().positive(),
   expense_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
-  invoice_id: z.string().uuid().nullable().optional(),
-  purchase_invoice_id: z.string().uuid().nullable().optional(),
+  invoice_id: z.string().nullable().optional(),
+  purchase_invoice_id: z.string().nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
 });
 

@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
@@ -13,19 +13,44 @@ export const Route = createFileRoute("/app/invoices")({
 });
 
 function InvoicesPage() {
-  const { isAdmin, isChecker, isClient, isTreasury, user, canWrite } = useAuth();
+  const { isAdmin, isChecker, isClient, isTreasury, isOperations, user, canWrite } = useAuth();
   const canReview = isAdmin || isChecker;
   const canCreate = canWrite("invoices");
   const canEdit = canWrite("invoices");
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
+
+  const stockMovementsQ = useQuery({
+    queryKey: ["stock_movements"],
+    queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
+  });
+
+  const viewedInventory = useMemo(() => {
+    if (!viewing) return [];
+    return (stockMovementsQ.data ?? []).filter((m: any) => m.invoice_id === viewing.id);
+  }, [viewing, stockMovementsQ.data]);
+
+  const availableInventory = useMemo(() => {
+    const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number }>();
+    for (const r of (stockMovementsQ.data ?? []) as any[]) {
+      const skuKey = r.sku || r.item_name;
+      const k = `${skuKey}|${r.unit}`;
+      const sign = r.direction === "in" ? 1 : -1;
+      const cur = m.get(k) ?? { sku: r.sku || "", item_name: r.item_name, unit: r.unit || "unit", qty: 0 };
+      cur.qty += sign * Number(r.quantity);
+      m.set(k, cur);
+    }
+    return [...m.values()].filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
+  }, [stockMovementsQ.data]);
 
   const debtorsQ = useQuery({
     queryKey: ["debtors"],
@@ -69,7 +94,19 @@ function InvoicesPage() {
     toast.success("NOA link copied");
   };
 
-  const filtered = (invoicesQ.data ?? []).filter((i: any) => filter === "all" || i.status === filter);
+  const filtered = (invoicesQ.data ?? []).filter((i: any) => {
+    if (filter !== "all" && i.status !== filter) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      i.invoice_number?.toLowerCase().includes(q) ||
+      i.debtor?.name?.toLowerCase().includes(q) ||
+      i.po_number?.toLowerCase().includes(q) ||
+      i.status?.toLowerCase().includes(q) ||
+      i.client?.company_name?.toLowerCase().includes(q) ||
+      i.client?.contact_name?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div>
@@ -100,6 +137,10 @@ function InvoicesPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {invoicesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -155,6 +196,9 @@ function InvoicesPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap justify-end gap-1">
+                            <button onClick={() => setViewing(i)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                              <Eye className="h-3 w-3" /> View
+                            </button>
                             {canSendNoa && i.noa_status === "not_sent" && (
                               <button onClick={() => sendNoa.mutate(i.id)} className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
                                 <Send className="h-3 w-3" /> Send NOA
@@ -199,7 +243,15 @@ function InvoicesPage() {
         </Card>
       </div>
 
-      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} />}
+      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
+
+      {viewing && (
+        <InvoiceDetailModal
+          invoice={viewing}
+          inventory={viewedInventory}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -216,7 +268,7 @@ function NoaBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
 }
 
-function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[] }) {
+function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number }> }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
@@ -225,13 +277,28 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
     advance_rate: String(editing?.advance_rate ?? "80"),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
+    payment_terms_days: String(editing?.payment_terms_days ?? "30"),
+    bl_date: editing?.bl_date ?? "",
+    due_date_source: editing?.due_date_source ?? "invoice",
     po_number: editing?.po_number ?? "",
     po_date: editing?.po_date ?? "",
     purchase_invoice_id: editing?.purchase_invoice_id ?? "",
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
   const [invEnabled, setInvEnabled] = useState(false);
+  const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
+
+  const filteredInv = useMemo(() => {
+    if (!invSearch.trim() || !availableInventory) return [];
+    const q = invSearch.toLowerCase();
+    return availableInventory.filter((i) => i.sku.toLowerCase().includes(q) || i.item_name.toLowerCase().includes(q));
+  }, [invSearch, availableInventory]);
+
+  const addInvItem = (item: { sku: string; item_name: string; unit: string; qty: number }) => {
+    if (invItems.some((it) => it.sku === item.sku)) return;
+    setInvItems((prev) => [...prev, { item_name: item.item_name, sku: item.sku, quantity: "", unit: item.unit, unit_cost: "" }]);
+  };
 
   const poLookupQ = useQuery({
     queryKey: ["po-lookup-sales", form.po_number],
@@ -242,9 +309,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
     },
   });
 
-  const advancesTotal = ((poLookupQ.data?.advances ?? []) as any[])
-    .filter((a: any) => a.status !== "refunded")
-    .reduce((s: number, a: any) => s + Number(a.amount), 0);
   useEffect(() => {
     if (!editing && poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
@@ -254,13 +318,11 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
     }
   }, [poLookupQ.data]);
 
-  const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
-
-  const selectedDebtor = debtors.find((d: any) => d.id === form.debtor_id);
-  const termsDays = Number(selectedDebtor?.payment_terms_days ?? 30) || 30;
+  const termsDays = Number(form.payment_terms_days) || 30;
   const computedDue = (() => {
-    if (!form.issue_date) return "";
-    const d = new Date(form.issue_date);
+    const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
+    if (!base) return "";
+    const d = new Date(base);
     d.setDate(d.getDate() + termsDays);
     return d.toISOString().slice(0, 10);
   })();
@@ -277,6 +339,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
         fee_rate: 0,
         issue_date: form.issue_date,
         due_date: effectiveDue,
+        payment_terms_days: Number(form.payment_terms_days) || 30,
+        bl_date: form.bl_date || null,
+        due_date_source: form.due_date_source,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         purchase_invoice_id: form.purchase_invoice_id || null,
@@ -331,27 +396,20 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
             </div>
           </div>
 
-          {form.po_number.trim() && (
+          {form.po_number.trim() && poLookupQ.data?.proformas && poLookupQ.data.proformas.filter((p: any) => p.side === "sales").length > 0 && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-              <div className="mb-1 uppercase tracking-widest text-primary">Advances received against PO {form.po_number}</div>
-              {poLookupQ.isFetching ? (
-                <div className="text-muted-foreground">Looking up…</div>
-              ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
-                <div className="text-muted-foreground">No advances recorded for this PO number on the sales side.</div>
-              ) : (
-                <ul className="space-y-0.5">
-                  {((poLookupQ.data?.advances ?? []) as any[]).map((a: any) => (
-                    <li key={a.id} className="flex justify-between"><span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span><span className="num text-primary">{fmtMoney(a.amount)}</span></li>
-                  ))}
-                </ul>
-              )}
-              <div className="mt-2 flex justify-between border-t border-border pt-2">
-                <span>Total invoice amount</span><span className="num">{fmtMoney(Number(form.amount || 0))}</span>
-              </div>
-              <div className="flex justify-between"><span>Advance received</span><span className="num text-primary">{fmtMoney(advancesTotal)}</span></div>
-              <div className="flex justify-between font-medium border-t border-border pt-1 mt-1">
-                <span>Balance outstanding</span><span className="num">{fmtMoney(balanceDue)}</span>
-              </div>
+              <div className="mb-1 uppercase tracking-widest text-primary">Proforma linked to PO {form.po_number}</div>
+              {(() => {
+                const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
+                if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
+                return (
+                  <div className="space-y-1">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -368,7 +426,23 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
-            <Field label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
+            <Field label="BL date">
+              <input type="date" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} className="inp" />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Payment terms (days)">
+              <input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} />
+            </Field>
+            <Field label="Due date source">
+              <select className="inp" value={form.due_date_source} onChange={(e) => setForm({ ...form, due_date_source: e.target.value })}>
+                <option value="invoice">From invoice date</option>
+                <option value="bl">From BL date</option>
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
               <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
             </Field>
           </div>
@@ -394,35 +468,58 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
               </label>
               {invEnabled && (
                 <div className="mt-3 space-y-4">
+                  {/* SKU search to add items from available stock */}
+                  {availableInventory.length > 0 && (
+                    <div className="relative">
+                      <input type="text" placeholder="Search by SKU or item name..." value={invSearch}
+                        onChange={(e) => setInvSearch(e.target.value)}
+                        className="w-full rounded-md border border-border bg-background p-2 text-sm" />
+                      {invSearch.trim() && (
+                        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                          {filteredInv.length === 0 ? (
+                            <div className="p-2 text-xs text-muted-foreground">No matching items in stock</div>
+                          ) : filteredInv.map((avail) => (
+                            <button key={avail.sku} type="button"
+                              onClick={() => { addInvItem(avail); setInvSearch(""); }}
+                              className="flex w-full items-center justify-between px-3 py-2 text-xs hover:bg-muted/50 transition-colors">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-primary">{avail.sku || avail.item_name}</span>
+                                <span className="text-muted-foreground">{avail.item_name}</span>
+                              </div>
+                              <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {availableInventory.length === 0 && (
+                    <div className="text-xs text-muted-foreground">No stock available. Add inventory via purchase invoices first.</div>
+                  )}
+                  {/* Selected items */}
                   {invItems.map((item, idx) => (
                     <div key={idx} className="relative rounded-md border border-border bg-background/40 p-3 pt-5">
                       <button type="button" onClick={() => setInvItems((prev) => prev.filter((_, i) => i !== idx))}
                         className="absolute right-2 top-2 text-muted-foreground hover:text-destructive" aria-label="Remove item">
                         <X className="h-3.5 w-3.5" />
                       </button>
-                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                        <Field label="Item *">
-                          <input className="inp" value={item.item_name} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, item_name: e.target.value } : it))} />
-                        </Field>
-                        <Field label="SKU">
-                          <input className="inp" value={item.sku} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, sku: e.target.value } : it))} />
-                        </Field>
-                        <Field label="Quantity *">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="font-mono text-xs text-primary">{item.sku}</span>
+                        <span className="text-xs text-muted-foreground">{item.item_name} · {item.unit}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Qty to sell *">
                           <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
                         </Field>
-                        <Field label="Unit">
-                          <input className="inp" value={item.unit} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit: e.target.value } : it))} />
-                        </Field>
-                        <Field label="Unit cost">
+                        <Field label="Unit cost (selling price)">
                           <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
                         </Field>
                       </div>
                     </div>
                   ))}
-                  <button type="button" onClick={() => setInvItems((prev) => [...prev, { item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" }])}
-                    className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">
-                    <Plus className="h-3.5 w-3.5" /> Add item
-                  </button>
+                  {invItems.length === 0 && availableInventory.length > 0 && (
+                    <div className="text-xs text-muted-foreground">Search and select items above to add them to this invoice.</div>
+                  )}
                 </div>
               )}
             </div>
@@ -438,6 +535,214 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases }: { editing: a
           </div>
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
+  const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
+  const debtor = invoice.debtor;
+  const purchase = invoice.purchase;
+  const adv = (Number(invoice.amount) * Number(invoice.advance_rate)) / 100;
+
+  const openDoc = async (d: DocMeta) => {
+    try {
+      const { signedUrl } = await api.get<{ signedUrl: string }>(`/upload/signed-url/${encodeURIComponent(d.path)}`);
+      window.open(signedUrl, "_blank", "noopener");
+    } catch {
+      toast.error("Could not open document");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-lg">{invoice.invoice_number}</h3>
+            <StatusPill status={invoice.status} />
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+              invoice.noa_status === "accepted" ? "border-success/50 text-success"
+              : invoice.noa_status === "rejected" ? "border-destructive/50 text-destructive"
+              : invoice.noa_status === "sent" ? "border-warning/50 text-warning"
+              : "border-border text-muted-foreground"
+            }`}>
+              NOA: {invoice.noa_status?.replace("_", " ")}
+            </span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Invoice summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Invoice details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+              <Detail label="Amount" value={fmtMoney(invoice.amount)} />
+              <Detail label="Advance ({(invoice.advance_rate ?? 0)}%)" value={fmtMoney(adv)} />
+              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
+              <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
+              <Detail label="Due date" value={fmtDate(invoice.due_date)} />
+              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
+              {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
+              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
+              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "—"} />
+              <Detail label="Created" value={fmtDate(invoice.created_at)} />
+              <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
+              {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
+              {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
+              {invoice.short_payment != null && <Detail label="Short payment" value={fmtMoney(invoice.short_payment)} />}
+              {invoice.late_days != null && <Detail label="Late days" value={String(invoice.late_days)} />}
+            </div>
+            {invoice.noa_comments && (
+              <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">NOA comments</div>
+                <p className="mt-1 text-xs italic">"{invoice.noa_comments}"</p>
+              </div>
+            )}
+          </div>
+
+          {/* Debtor details */}
+          {debtor && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Name" value={debtor.name} />
+                <Detail label="Contact" value={debtor.contact_name || "—"} />
+                <Detail label="Email" value={debtor.contact_email || "—"} />
+                <Detail label="Phone" value={debtor.contact_phone || "—"} />
+                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
+                <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
+                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
+                {debtor.website && <Detail label="Website" value={debtor.website} />}
+              </div>
+              {debtor.notes && (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Linked purchase invoice / supplier */}
+          {purchase && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked purchase invoice
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Invoice #" value={purchase.invoice_number} />
+                <Detail label="Amount" value={fmtMoney(purchase.amount)} />
+                <Detail label="Status" value={purchase.status} />
+                {purchase.vendor && (
+                  <>
+                    <Detail label="Supplier" value={purchase.vendor.name} />
+                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "—"} />
+                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
+                  </>
+                )}
+                {purchase.due_date && <Detail label="Due date" value={fmtDate(purchase.due_date)} />}
+                {purchase.po_number && <Detail label="PO number" value={purchase.po_number} />}
+              </div>
+            </div>
+          )}
+
+          {/* Client info */}
+          {invoice.client && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <User className="mr-1 inline h-3.5 w-3.5" />Client
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
+                <Detail label="Company" value={invoice.client.company_name || "—"} />
+                <Detail label="Contact" value={invoice.client.contact_name || "—"} />
+                <Detail label="Email" value={invoice.client.email || "—"} />
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <FileText className="mr-1 inline h-3.5 w-3.5" />Attachments ({invDocs.length})
+            </h4>
+            {invDocs.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No documents attached to this invoice.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {invDocs.map((d) => (
+                  <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate" title={d.name}>{d.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
+                    </div>
+                    <button type="button" onClick={() => openDoc(d)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                      <Download className="h-3 w-3" /> Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Inventory movements */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <Package className="mr-1 inline h-3.5 w-3.5" />Inventory entries ({inventory.length})
+            </h4>
+            {inventory.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No inventory movements linked to this invoice.</div>
+            ) : (
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Item</th>
+                      <th className="px-4 py-2 text-left font-normal">SKU</th>
+                      <th className="px-4 py-2 text-right font-normal">Qty</th>
+                      <th className="px-4 py-2 text-left font-normal">Unit</th>
+                      <th className="px-4 py-2 text-right font-normal">Unit cost</th>
+                      <th className="px-4 py-2 text-left font-normal">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventory.map((m: any) => (
+                      <tr key={m.id} className="border-b border-border/60">
+                        <td className="px-4 py-2.5">{m.item_name}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "—"}</td>
+                        <td className="px-4 py-2.5 text-right num">{Number(m.quantity).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.unit}</td>
+                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
+                        <td className="px-4 py-2.5">{fmtDate(m.movement_date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
       </div>
     </div>
   );

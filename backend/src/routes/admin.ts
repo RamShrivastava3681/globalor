@@ -1,6 +1,5 @@
 import { Router, Response } from "express";
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import {
   putItem,
@@ -46,7 +45,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
       return;
     }
 
-    const id = uuidv4();
+    const id = generateId();
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
@@ -63,7 +62,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     await putItem(TABLES.PROFILES, profile as any);
 
     // Assign the specified role
-    const roleId = uuidv4();
+    const roleId = generateId();
     const userRole: UserRole = { id: roleId, user_id: id, role: role as AppRole };
     await putItem(TABLES.USER_ROLES, userRole as any);
 
@@ -118,7 +117,7 @@ router.get("/roles", requireAuth, requireRole("factor_admin"), async (req: AuthR
 
 // ── POST /api/admin/roles ──
 const upsertRoleSchema = z.object({
-  user_id: z.string().uuid(),
+  user_id: z.string().min(1),
   role: z.enum(["client", "factor_admin", "treasury", "checker"]),
   add: z.boolean(),
 });

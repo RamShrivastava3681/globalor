@@ -36,6 +36,7 @@ function CheckerPage() {
   const canReview = canWrite("checker-desk");
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const salesQ = useQuery({
     queryKey: ["checker-sales"],
@@ -173,7 +174,13 @@ function CheckerPage() {
       proforma_number: p.proforma_number,
       proforma_review_comments: p.proforma_review_comments,
     })),
-  ].filter((r) => side === "all" || r.kind === side || (side === "sale" && r.kind === "proforma" && r.side === "sales") || (side === "purchase" && r.kind === "proforma" && r.side === "purchase"));
+  ].filter((r) => {
+    const sideMatch = side === "all" || r.kind === side || (side === "sale" && r.kind === "proforma" && r.side === "sales") || (side === "purchase" && r.kind === "proforma" && r.side === "purchase");
+    if (!sideMatch) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
+  });
 
   const pendingSales = (salesQ.data ?? []).length;
   const pendingPurchases = (purchasesQ.data ?? []).length;
@@ -216,6 +223,10 @@ function CheckerPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search by invoice, party, client..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

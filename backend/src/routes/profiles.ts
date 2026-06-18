@@ -32,7 +32,7 @@ const updateProfileSchema = z.object({
   contact_name: z.string().nullable().optional(),
 });
 
-router.put("/me", requireAuth, async (req: AuthRequest, res: Response) => {
+router.patch("/me", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const parsed = updateProfileSchema.parse(req.body);
     const updates: Record<string, unknown> = {

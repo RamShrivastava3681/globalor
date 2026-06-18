@@ -11,7 +11,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseInvoice, Vendor, DocMeta } from "../types/index.js";
+import type { PurchaseInvoice, Vendor, Profile, DocMeta } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 
 const router = Router();
@@ -24,7 +24,8 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const enriched = await Promise.all(
       invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (pi) => {
         const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-        return { ...pi, vendor };
+        const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
+        return { ...pi, vendor, client };
       }),
     );
 
@@ -52,13 +53,16 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
 
 // ── POST /api/purchase-invoices ──
 const createSchema = z.object({
-  vendor_id: z.string().uuid(),
+  vendor_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number().positive(),
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
+  payment_terms_days: z.number().min(0).optional().default(30),
+  bl_date: z.string().nullable().optional(),
+  due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   notes: z.string().nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
@@ -76,11 +80,10 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
     const id = generateId();
     const now = nowISO();
 
-    // Lookup vendor for payment terms
-    const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
-    const termsDays = vendor?.payment_terms_days ?? 30;
+    const termsDays = parsed.payment_terms_days;
     const due_date = parsed.due_date || (() => {
-      const d = new Date(parsed.issue_date);
+      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+      const d = new Date(base);
       d.setDate(d.getDate() + termsDays);
       return d.toISOString().slice(0, 10);
     })();
@@ -99,6 +102,9 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       paid_date: null,
       funded_date: null,
       advance_paid_date: null,
+      payment_terms_days: parsed.payment_terms_days,
+      bl_date: parsed.bl_date || null,
+      due_date_source: parsed.due_date_source,
       notes: parsed.notes || null,
       status: "pending",
       documents: parsed.documents as DocMeta[],

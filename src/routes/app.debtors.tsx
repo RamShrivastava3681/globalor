@@ -16,6 +16,7 @@ function DebtorsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-full"],
@@ -60,6 +61,10 @@ function DebtorsPage() {
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
+              <div className="mb-4 px-5">
+                <input type="text" placeholder="Search debtors by name, industry, city..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+              </div>
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -67,12 +72,15 @@ function DebtorsPage() {
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     <th className="px-5 py-2 text-right font-normal">Credit limit</th>
                     <th className="px-5 py-2 text-left font-normal">Risk</th>
-                    <th className="px-5 py-2 text-right font-normal">Terms</th>
                     {canEdit && <th className="px-5 py-2" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {(debtorsQ.data ?? []).map((d: any) => {
+                  {(debtorsQ.data ?? []).filter((d: any) => {
+                    if (!searchQuery.trim()) return true;
+                    const q = searchQuery.toLowerCase();
+                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.city?.toLowerCase().includes(q) || d.country?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
+                  }).map((d: any) => {
                     const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
                       <tr key={d.id} className="border-b border-border/60">
@@ -87,7 +95,6 @@ function DebtorsPage() {
                             <span className={`num text-xs ${riskTone}`}>{d.risk_score}</span>
                           </div>
                         </td>
-                        <td className="px-5 py-3 text-right text-muted-foreground">Net {d.payment_terms_days}</td>
                         {canEdit && (
                           <td className="px-5 py-3 text-right">
                             <button onClick={() => { setEditing(d); setOpen(true); }} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
@@ -118,7 +125,6 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
     industry: editing?.industry ?? "",
     credit_limit: String(editing?.credit_limit ?? "100000"),
     risk_score: String(editing?.risk_score ?? "70"),
-    payment_terms_days: String(editing?.payment_terms_days ?? "30"),
     address_line: editing?.address_line ?? "",
     city: editing?.city ?? "",
     country: editing?.country ?? "",
@@ -143,7 +149,6 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
         industry: form.industry || null,
         credit_limit: Number(form.credit_limit),
         risk_score: Number(form.risk_score),
-        payment_terms_days: Number(form.payment_terms_days),
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,
@@ -206,10 +211,9 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
           </Section>
 
           <Section title="Credit terms">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <L label="Credit limit"><input required type="number" min="0" className="inp" value={form.credit_limit} onChange={set("credit_limit")} /></L>
               <L label="Risk score (0–100)"><input required type="number" min="0" max="100" className="inp" value={form.risk_score} onChange={set("risk_score")} /></L>
-              <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={set("payment_terms_days")} /></L>
             </div>
           </Section>
 

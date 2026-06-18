@@ -92,16 +92,19 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
 
 // ── POST /api/invoices ──
 const createInvoiceSchema = z.object({
-  debtor_id: z.string().uuid(),
+  debtor_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number().positive(),
   advance_rate: z.number().min(0).max(100).optional().default(80),
   fee_rate: z.number().min(0).optional().default(0),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().optional(),
+  payment_terms_days: z.number().min(0).optional().default(30),
+  bl_date: z.string().nullable().optional(),
+  due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
-  purchase_invoice_id: z.string().uuid().nullable().optional(),
+  purchase_invoice_id: z.string().nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
     item_name: z.string().min(1),
@@ -119,11 +122,10 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const now = nowISO();
     const noa_token = generateNoaToken();
 
-    // Lookup debtor for payment terms
-    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
-    const termsDays = debtor?.payment_terms_days ?? 30;
+    const termsDays = parsed.payment_terms_days;
     const dueDate = parsed.due_date || (() => {
-      const d = new Date(parsed.issue_date);
+      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+      const d = new Date(base);
       d.setDate(d.getDate() + termsDays);
       return d.toISOString().slice(0, 10);
     })();
@@ -155,6 +157,9 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       po_date: parsed.po_date || null,
       purchase_invoice_id: parsed.purchase_invoice_id || null,
       purchase_order_id: null,
+      payment_terms_days: parsed.payment_terms_days,
+      bl_date: parsed.bl_date || null,
+      due_date_source: parsed.due_date_source,
       documents: parsed.documents as DocMeta[],
       created_at: now,
       updated_at: now,

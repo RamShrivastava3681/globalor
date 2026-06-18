@@ -17,13 +17,29 @@ function AdvancesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
   const [tab, setTab] = useState<"sales" | "purchase">("sales");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const advancesQ = useQuery({
     queryKey: ["advances"],
     queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
   });
 
-  const rows = (advancesQ.data ?? []).filter((a: any) => a.side === tab);
+  const rows = (advancesQ.data ?? []).filter((a: any) => {
+    if (a.side !== tab) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const inv = a.side === "sales" ? a.invoice : a.purchase;
+    const cp = a.order
+      ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
+      : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+    return (
+      a.reference?.toLowerCase().includes(q) ||
+      (cp ?? "").toLowerCase().includes(q) ||
+      (inv?.invoice_number ?? "").toLowerCase().includes(q) ||
+      a.status?.toLowerCase().includes(q) ||
+      a.amount?.toString().includes(q)
+    );
+  });
 
   const totals = useMemo(() => {
     const r = { sales: 0, purchase: 0 };
@@ -87,6 +103,10 @@ function AdvancesPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search advances by reference, party, invoice..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card>
           {advancesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

@@ -15,6 +15,7 @@ function VendorsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const vendorsQ = useQuery({
     queryKey: ["vendors"],
@@ -54,6 +55,10 @@ function VendorsPage() {
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
+              <div className="mb-4 px-5">
+                <input type="text" placeholder="Search suppliers by name, industry, contact..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+              </div>
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -65,7 +70,11 @@ function VendorsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(vendorsQ.data ?? []).map((v: any) => (
+                  {(vendorsQ.data ?? []).filter((v: any) => {
+                    if (!searchQuery.trim()) return true;
+                    const q = searchQuery.toLowerCase();
+                    return v.name?.toLowerCase().includes(q) || v.industry?.toLowerCase().includes(q) || v.contact_name?.toLowerCase().includes(q) || v.contact_email?.toLowerCase().includes(q) || v.city?.toLowerCase().includes(q);
+                  }).map((v: any) => (
                     <tr key={v.id} className="border-b border-border/60">
                       <td className="px-5 py-3">
                         <div className="font-medium">{v.name}</div>

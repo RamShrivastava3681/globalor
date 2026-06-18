@@ -17,25 +17,37 @@ function InventoryPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "in" | "out">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
-  const rows = (movementsQ.data ?? []).filter((m: any) => filter === "all" || m.direction === filter);
+  const rows = (movementsQ.data ?? []).filter((m: any) => {
+    if (filter !== "all" && m.direction !== filter) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      m.item_name?.toLowerCase().includes(q) ||
+      (m.sku ?? "").toLowerCase().includes(q) ||
+      m.invoice?.invoice_number?.toLowerCase().includes(q) ||
+      m.purchase?.invoice_number?.toLowerCase().includes(q)
+    );
+  });
 
   const balances = useMemo(() => {
-    const m = new Map<string, { item: string; unit: string; qty: number; value: number }>();
+    const m = new Map<string, { sku: string; item: string; unit: string; qty: number; value: number }>();
     for (const r of (movementsQ.data ?? []) as any[]) {
-      const k = `${r.item_name}|${r.unit}`;
+      const skuKey = r.sku || r.item_name;
+      const k = `${skuKey}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(k) ?? { item: r.item_name, unit: r.unit, qty: 0, value: 0 };
+      const cur = m.get(k) ?? { sku: r.sku || "—", item: r.item_name, unit: r.unit, qty: 0, value: 0 };
       cur.qty += sign * Number(r.quantity);
       cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
       m.set(k, cur);
     }
-    return [...m.values()].sort((a, b) => a.item.localeCompare(b.item));
+    return [...m.values()].sort((a, b) => a.sku.localeCompare(b.sku));
   }, [movementsQ.data]);
 
   const del = useMutation({
@@ -72,6 +84,7 @@ function InventoryPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">SKU</th>
                     <th className="px-5 py-2 text-left font-normal">Item</th>
                     <th className="px-5 py-2 text-right font-normal">On hand</th>
                     <th className="px-5 py-2 text-left font-normal">Unit</th>
@@ -80,7 +93,8 @@ function InventoryPage() {
                 </thead>
                 <tbody>
                   {balances.map((b) => (
-                    <tr key={`${b.item}|${b.unit}`} className="border-b border-border/60">
+                    <tr key={`${b.sku}|${b.unit}`} className="border-b border-border/60">
+                      <td className="px-5 py-2.5 font-mono text-xs">{b.sku}</td>
                       <td className="px-5 py-2.5">{b.item}</td>
                       <td className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}>{b.qty.toLocaleString()}</td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.unit}</td>
@@ -102,6 +116,10 @@ function InventoryPage() {
           ))}
         </div>
 
+        <div className="relative">
+          <input type="text" placeholder="Search inventory by SKU, item, invoice..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+        </div>
         <Card title="Movements">
           {movementsQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -113,31 +131,32 @@ function InventoryPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Direction</th>
+                    <th className="px-5 py-2 text-left font-normal">SKU</th>
                     <th className="px-5 py-2 text-left font-normal">Item</th>
                     <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-right font-normal">Unit cost</th>
+                    <th className="px-5 py-2 text-right font-normal">Price</th>
+                    <th className="px-5 py-2 text-right font-normal">Credit</th>
+                    <th className="px-5 py-2 text-right font-normal">Debit</th>
                     <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((m: any) => (
+                  {rows.map((m: any) => {
+                    const totalValue = Number(m.quantity) * Number(m.unit_cost ?? 0);
+                    return (
                     <tr key={m.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(m.movement_date)}</td>
-                      <td className="px-5 py-3">
-                        {m.direction === "in" ? (
-                          <span className="inline-flex items-center gap-1 text-success"><ArrowDownToLine className="h-3.5 w-3.5" /> Credit</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-warning"><ArrowUpFromLine className="h-3.5 w-3.5" /> Debit</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div>{m.item_name}</div>
-                        {m.sku && <div className="text-[10px] text-muted-foreground">SKU {m.sku}</div>}
-                      </td>
+                      <td className="px-5 py-3 font-mono text-xs">{m.sku || <span className="text-muted-foreground italic">—</span>}</td>
+                      <td className="px-5 py-3">{m.item_name}</td>
                       <td className="px-5 py-3 text-right num">{Number(m.quantity).toLocaleString()} <span className="text-[10px] text-muted-foreground">{m.unit}</span></td>
                       <td className="px-5 py-3 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
+                      <td className="px-5 py-3 text-right num text-success">
+                        {m.direction === "in" ? <><span>{Number(m.quantity).toLocaleString()} {m.unit}</span><div className="text-[10px]">{fmtMoney(totalValue)}</div></> : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-5 py-3 text-right num text-warning">
+                        {m.direction === "out" ? <><span>{Number(m.quantity).toLocaleString()} {m.unit}</span><div className="text-[10px]">{fmtMoney(totalValue)}</div></> : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td className="px-5 py-3">
                         {m.invoice ? (
                           <Link to="/app/invoices" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.invoice.invoice_number}</Link>
@@ -151,7 +170,8 @@ function InventoryPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>
