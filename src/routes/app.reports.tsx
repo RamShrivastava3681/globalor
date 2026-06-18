@@ -121,18 +121,14 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       return [
         { key: "invoice_number", label: "Invoice #", render: (r: any) => r.invoice_number ?? "" },
         { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor_name ?? "" },
-        { key: "client_name", label: "Client", render: (r: any) => r.client_name ?? "" },
-        { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
+        { key: "amount", label: "Total", render: (r: any) => fmtMoney(r.amount) },
         { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
-        { key: "aging_bucket", label: "Aging Bucket", render: (r: any) => r.aging_bucket ?? "—" },
-        { key: "aging_days", label: "Days Overdue", render: (r: any) => r.is_overdue ? `${r.aging_days} days` : "—" },
-        { key: "days_remaining", label: "Days Remaining", render: (r: any) => !r.is_overdue ? `${r.days_remaining} days` : "—" },
-        { key: "is_overdue", label: "Status", render: (r: any) => r.is_overdue ? "Overdue" : "Open" },
-        { key: "status", label: "Invoice Status", render: (r: any) => r.status ?? "" },
-        { key: "advance_rate", label: "Advance Rate", render: (r: any) => `${r.advance_rate ?? 0}%` },
-        { key: "fee_rate", label: "Fee Rate", render: (r: any) => `${r.fee_rate ?? 0}%` },
-        { key: "issue_date", label: "Issue Date", render: (r: any) => fmtDate(r.issue_date) },
-        { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
+        { key: "bucket_1_30", label: "1-30 days", render: (r: any) => r.aging_bucket === "1–30 days" ? fmtMoney(r.amount) : "—" },
+        { key: "bucket_31_60", label: "31-60 days", render: (r: any) => r.aging_bucket === "31–60 days" ? fmtMoney(r.amount) : "—" },
+        { key: "bucket_61_90", label: "61-90 days", render: (r: any) => r.aging_bucket === "61–90 days" ? fmtMoney(r.amount) : "—" },
+        { key: "bucket_90_plus", label: "90+ days", render: (r: any) => r.aging_bucket === "90+ days" ? fmtMoney(r.amount) : "—" },
+        { key: "aging_days", label: "Days", render: (r: any) => r.is_overdue ? `${r.aging_days}d` : r.days_remaining > 0 ? `${r.days_remaining}d left` : "—" },
+        { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
       ];
     case "debtors":
       return [

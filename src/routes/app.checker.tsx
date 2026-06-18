@@ -144,7 +144,7 @@ function CheckerPage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: amt,
         po_number: i.po_number, advance: adv, net: Math.max(0, amt - adv),
         issue_date: i.issue_date, due_date: i.due_date,
-        party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—", client_id: i.client_id,
+        party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
       };
     }),

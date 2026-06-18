@@ -25,11 +25,11 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           let invoice, purchase;
           if (m.invoice_id) {
             const inv = await getItem(TABLES.INVOICES, { id: m.invoice_id }) as any;
-            if (inv) invoice = { invoice_number: inv.invoice_number };
+            if (inv) invoice = { id: inv.id, invoice_number: inv.invoice_number };
           }
           if (m.purchase_invoice_id) {
             const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: m.purchase_invoice_id }) as any;
-            if (pi) purchase = { invoice_number: pi.invoice_number };
+            if (pi) purchase = { id: pi.id, invoice_number: pi.invoice_number };
           }
           return { ...m, invoice, purchase };
         }),

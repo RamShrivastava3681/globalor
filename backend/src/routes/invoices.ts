@@ -95,7 +95,7 @@ const createInvoiceSchema = z.object({
   debtor_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number().positive(),
-  advance_rate: z.number().min(0).max(100).optional().default(80),
+  advance_rate: z.number().min(0).max(100).optional().default(0),
   fee_rate: z.number().min(0).optional().default(0),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().optional(),

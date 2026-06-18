@@ -21,8 +21,8 @@ function AppLayout() {
   // Role-based route wall
   useEffect(() => {
     if (loading || !user) return;
-    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/inventory", "/app/proformas", "/app/suppliers", "/app/admin"];
-    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/proformas", "/app/debtors", "/app/suppliers", "/app/admin"];
+    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/inventory", "/app/suppliers", "/app/admin"];
+    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/debtors", "/app/suppliers", "/app/admin"];
     const operationsBlocked: string[] = []; // operations can access everything
     if (isTreasury && !isAdmin && !isChecker && treasuryBlocked.some((p) => pathname.startsWith(p))) {
       navigate({ to: "/app/queue" });
@@ -46,6 +46,7 @@ function AppLayout() {
     ? [
         { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { to: "/app/queue", label: "Funding queue", icon: Banknote },
+        { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
@@ -58,6 +59,7 @@ function AppLayout() {
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
+        { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]

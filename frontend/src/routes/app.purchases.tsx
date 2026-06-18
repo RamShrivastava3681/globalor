@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
@@ -9,10 +9,15 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
 export const Route = createFileRoute("/app/purchases")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    view: (search.view as string) || undefined,
+  }),
   component: PurchasesPage,
 });
 
 function PurchasesPage() {
+  const { view } = Route.useSearch();
+  const navigate = useNavigate();
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
   const canEdit = canWrite("purchase-invoices");
@@ -50,6 +55,17 @@ function PurchasesPage() {
   }, [viewing, stockMovementsQ.data]);
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
+
+  // Auto-open detail modal when navigating from a linked invoice
+  useEffect(() => {
+    if (view && piQ.data) {
+      const found = piQ.data.find((p: any) => p.id === view);
+      if (found) {
+        setViewing(found);
+        navigate({ to: "/app/purchases", search: { view: undefined }, replace: true });
+      }
+    }
+  }, [view, piQ.data]);
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -169,7 +185,7 @@ function PurchasesPage() {
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.contact_name || p.client?.company_name || "—"}</td>}
+                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
                           {p.po_number ? (
@@ -190,7 +206,7 @@ function PurchasesPage() {
                           ) : (
                             <div className="space-y-0.5">
                               {links.map((s: any) => (
-                                <Link key={s.id} to="/app/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                <Link key={s.id} to="/app/invoices" search={{ view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
                                   <Link2 className="h-3 w-3" />{s.invoice_number}
                                   <span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
                                 </Link>
@@ -596,7 +612,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                     {salesLinks.map((s: any) => (
                       <tr key={s.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5 font-mono text-xs">
-                          <Link to="/app/invoices" className="text-primary hover:underline">{s.invoice_number}</Link>
+                          <Link to="/app/invoices" search={{ view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
                         </td>
                         <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>

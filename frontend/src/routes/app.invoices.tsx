@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
@@ -9,10 +9,15 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
 export const Route = createFileRoute("/app/invoices")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    view: (search.view as string) || undefined,
+  }),
   component: InvoicesPage,
 });
 
 function InvoicesPage() {
+  const { view } = Route.useSearch();
+  const navigate = useNavigate();
   const { isAdmin, isChecker, isClient, isTreasury, isOperations, user, canWrite } = useAuth();
   const canReview = isAdmin || isChecker;
   const canCreate = canWrite("invoices");
@@ -40,13 +45,14 @@ function InvoicesPage() {
   }, [viewing, stockMovementsQ.data]);
 
   const availableInventory = useMemo(() => {
-    const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number }>();
+    const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number; value: number }>();
     for (const r of (stockMovementsQ.data ?? []) as any[]) {
       const skuKey = r.sku || r.item_name;
       const k = `${skuKey}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(k) ?? { sku: r.sku || "", item_name: r.item_name, unit: r.unit || "unit", qty: 0 };
+      const cur = m.get(k) ?? { sku: r.sku || "", item_name: r.item_name, unit: r.unit || "unit", qty: 0, value: 0 };
       cur.qty += sign * Number(r.quantity);
+      cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
       m.set(k, cur);
     }
     return [...m.values()].filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
@@ -93,6 +99,17 @@ function InvoicesPage() {
     navigator.clipboard?.writeText(link).catch(() => {});
     toast.success("NOA link copied");
   };
+
+  // Auto-open detail modal when navigating from a linked invoice
+  useEffect(() => {
+    if (view && invoicesQ.data) {
+      const found = invoicesQ.data.find((i: any) => i.id === view);
+      if (found) {
+        setViewing(found);
+        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
+      }
+    }
+  }, [view, invoicesQ.data]);
 
   const filtered = (invoicesQ.data ?? []).filter((i: any) => {
     if (filter !== "all" && i.status !== filter) return false;
@@ -153,9 +170,7 @@ function InvoicesPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-right font-normal">Advance</th>
+                    <th className="px-5 py-2 text-left font-normal">Debtor</th>                        <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
@@ -166,7 +181,6 @@ function InvoicesPage() {
                 </thead>
                 <tbody>
                   {filtered.map((i: any) => {
-                    const adv = (Number(i.amount) * Number(i.advance_rate)) / 100;
                     const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
                     const lateDays = i.status === "paid"
                       ? (i.late_days != null ? Number(i.late_days) : 0)
@@ -177,15 +191,14 @@ function InvoicesPage() {
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
                           {i.purchase && (
-                            <Link to="/app/purchases" className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+                            <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
                               <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
                             </Link>
                           )}
                         </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.contact_name || i.client?.company_name || "—"}</td>}
+                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
-                        <td className="px-5 py-3 text-right num text-primary">{fmtMoney(adv)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
                         <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
@@ -268,13 +281,12 @@ function NoaBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
 }
 
-function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number }> }) {
+function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }> }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
     debtor_id: editing?.debtor_id ?? "",
     amount: String(editing?.amount ?? ""),
-    advance_rate: String(editing?.advance_rate ?? "80"),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
     payment_terms_days: String(editing?.payment_terms_days ?? "30"),
@@ -295,7 +307,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     return availableInventory.filter((i) => i.sku.toLowerCase().includes(q) || i.item_name.toLowerCase().includes(q));
   }, [invSearch, availableInventory]);
 
-  const addInvItem = (item: { sku: string; item_name: string; unit: string; qty: number }) => {
+  const addInvItem = (item: { sku: string; item_name: string; unit: string; qty: number; value: number }) => {
     if (invItems.some((it) => it.sku === item.sku)) return;
     setInvItems((prev) => [...prev, { item_name: item.item_name, sku: item.sku, quantity: "", unit: item.unit, unit_cost: "" }]);
   };
@@ -335,7 +347,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
         debtor_id: form.debtor_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
-        advance_rate: Number(form.advance_rate),
         fee_rate: 0,
         issue_date: form.issue_date,
         due_date: effectiveDue,
@@ -420,10 +431,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
               {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
-            <Field label="Advance % (0–100)"><input required type="number" step="0.1" min="0" max="100" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: e.target.value })} className="inp" /></Field>
-          </div>
+          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
             <Field label="BL date">
@@ -457,9 +465,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
               </select>
             </Field>
           )}
-          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground">
-            Advance preview: <span className="num text-primary">{fmtMoney((Number(form.amount || 0) * Number(form.advance_rate || 0)) / 100)}</span>
-          </div>
           {!editing && (
             <div className="rounded-md border border-border p-3">
               <label className="flex items-center gap-2 text-xs">
@@ -486,7 +491,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                                 <span className="font-mono text-primary">{avail.sku || avail.item_name}</span>
                                 <span className="text-muted-foreground">{avail.item_name}</span>
                               </div>
-                              <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand</span>
+                              <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand · {fmtMoney(avail.qty > 0 ? avail.value / avail.qty : 0)}/unit</span>
                             </button>
                           ))}
                         </div>
@@ -506,6 +511,13 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                       <div className="mb-2 flex items-center gap-2">
                         <span className="font-mono text-xs text-primary">{item.sku}</span>
                         <span className="text-xs text-muted-foreground">{item.item_name} · {item.unit}</span>
+                      </div>
+                      <div className="mb-3 text-[10px] text-muted-foreground">Available: {(() => { const a = availableInventory.find((i: any) => i.sku === item.sku); return a ? `${a.qty} ${a.unit}` : "—"; })()}</div>
+                      <div className="mb-2 text-[10px] text-muted-foreground">
+                        Stock-in price: {(() => {
+                          const a = availableInventory.find((i: any) => i.sku === item.sku);
+                          return a && a.qty > 0 ? fmtMoney(a.value / a.qty) : "—";
+                        })()}
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Qty to sell *">
@@ -553,8 +565,6 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
   const debtor = invoice.debtor;
   const purchase = invoice.purchase;
-  const adv = (Number(invoice.amount) * Number(invoice.advance_rate)) / 100;
-
   const openDoc = async (d: DocMeta) => {
     try {
       const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
@@ -592,7 +602,6 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Invoice details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
-              <Detail label="Advance ({(invoice.advance_rate ?? 0)}%)" value={fmtMoney(adv)} />
               <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="Due date" value={fmtDate(invoice.due_date)} />

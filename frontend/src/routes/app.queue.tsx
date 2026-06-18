@@ -176,7 +176,7 @@ function QueuePage() {
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
         due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.contact_name || i.client?.company_name || "—",
+        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {

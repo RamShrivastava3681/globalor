@@ -65,7 +65,6 @@ function VendorsPage() {
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">Contact</th>
                     <th className="px-5 py-2 text-left font-normal">Location</th>
-                    <th className="px-5 py-2 text-right font-normal">Terms</th>
                     <th className="px-5 py-2 text-right font-normal">Open AP</th>
                   </tr>
                 </thead>
@@ -87,7 +86,6 @@ function VendorsPage() {
                       <td className="px-5 py-3 text-muted-foreground">
                         {[v.city, v.country].filter(Boolean).join(", ") || "—"}
                       </td>
-                      <td className="px-5 py-3 text-right text-muted-foreground">Net {v.payment_terms_days}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(openFor(v.id))}</td>
                     </tr>
                   ))}
@@ -110,7 +108,7 @@ function VendorsPage() {
 
 function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    name: "", industry: "", payment_terms_days: "30",
+    name: "", industry: "",
     address_line: "", city: "", country: "", postal_code: "", phone: "", website: "",
     contact_name: "", contact_email: "", contact_designation: "", contact_phone: "",
   });
@@ -123,7 +121,6 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
       await api.post("/vendors", {
         name: form.name.trim(),
         industry: form.industry || null,
-        payment_terms_days: Number(form.payment_terms_days) || 30,
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,
@@ -175,11 +172,7 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
           </Section>
 
-          <Section title="Terms">
-            <div className="grid gap-3 md:grid-cols-3">
-              <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={set("payment_terms_days")} /></L>
-            </div>
-          </Section>
+
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>

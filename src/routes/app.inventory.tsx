@@ -88,6 +88,7 @@ function InventoryPage() {
                     <th className="px-5 py-2 text-left font-normal">Item</th>
                     <th className="px-5 py-2 text-right font-normal">On hand</th>
                     <th className="px-5 py-2 text-left font-normal">Unit</th>
+                    <th className="px-5 py-2 text-right font-normal">Unit price</th>
                     <th className="px-5 py-2 text-right font-normal">Inventory value</th>
                   </tr>
                 </thead>
@@ -98,6 +99,7 @@ function InventoryPage() {
                       <td className="px-5 py-2.5">{b.item}</td>
                       <td className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}>{b.qty.toLocaleString()}</td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.unit}</td>
+                      <td className="px-5 py-2.5 text-right num">{b.qty > 0 ? fmtMoney(b.value / b.qty) : "—"}</td>
                       <td className="px-5 py-2.5 text-right num">{fmtMoney(b.value)}</td>
                     </tr>
                   ))}
@@ -159,9 +161,9 @@ function InventoryPage() {
                       </td>
                       <td className="px-5 py-3">
                         {m.invoice ? (
-                          <Link to="/app/invoices" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.invoice.invoice_number}</Link>
+                          <Link to="/app/invoices" search={{ view: m.invoice_id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.invoice.invoice_number}</Link>
                         ) : m.purchase ? (
-                          <Link to="/app/purchases" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.purchase.invoice_number}</Link>
+                          <Link to="/app/purchases" search={{ view: m.purchase_invoice_id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.purchase.invoice_number}</Link>
                         ) : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-5 py-3 text-right">

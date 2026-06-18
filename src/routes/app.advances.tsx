@@ -137,13 +137,12 @@ function AdvancesPage() {
                     return (
                       <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
-                        <td className="px-5 py-3">
-                          {a.order ? (
-                            <Link to="/app/proformas" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                        <td className="px-5 py-3">                            {a.order ? (
+                            <Link to="/app/proformas" search={{ view: a.order.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                               <Link2 className="h-3 w-3" />PO {a.order.po_number}
                             </Link>
                           ) : inv ? (
-                            <Link to={a.side === "sales" ? "/app/invoices" : "/app/purchases"} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <Link to={a.side === "sales" ? "/app/invoices" : "/app/purchases"} search={{ view: inv.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                               <Link2 className="h-3 w-3" />{inv.invoice_number}
                             </Link>
                           ) : <span className="text-muted-foreground">—</span>}

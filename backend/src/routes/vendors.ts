@@ -28,7 +28,6 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 const createVendorSchema = z.object({
   name: z.string().min(1).max(200),
   industry: z.string().max(100).nullable().optional(),
-  payment_terms_days: z.number().min(0).optional().default(30),
   address_line: z.string().max(300).nullable().optional(),
   city: z.string().max(100).nullable().optional(),
   country: z.string().max(100).nullable().optional(),
@@ -52,7 +51,6 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
       client_id: req.user!.id,
       name: parsed.name,
       industry: parsed.industry || null,
-      payment_terms_days: parsed.payment_terms_days,
       address_line: parsed.address_line || null,
       city: parsed.city || null,
       country: parsed.country || null,

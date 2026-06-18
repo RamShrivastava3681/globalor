@@ -1,13 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { z } from "zod";
+
 export const Route = createFileRoute("/app/proformas")({
+  validateSearch: z.object({ view: z.string().optional() }),
   component: ProformasPage,
 });
 
@@ -31,6 +34,8 @@ type PF = {
 };
 
 function ProformasPage() {
+  const { view } = Route.useSearch();
+  const navigate = useNavigate();
   const { user, isAdmin, isClient, isChecker, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-orders");
   const qc = useQueryClient();
@@ -49,6 +54,19 @@ function ProformasPage() {
     queryKey: ["advances"],
     queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
   });
+
+  // Auto-open detail modal when navigating via search param
+  const [initialViewDone, setInitialViewDone] = useState(false);
+  useEffect(() => {
+    if (view && listQ.data && !initialViewDone) {
+      const found = (listQ.data as any[]).find((p: any) => p.id === view);
+      if (found) {
+        setViewing(found);
+        setInitialViewDone(true);
+        navigate({ to: "/app/proformas", search: { view: undefined }, replace: true });
+      }
+    }
+  }, [view, listQ.data, initialViewDone, navigate]);
 
   const viewedAdvances = useMemo(() => {
     if (!viewing) return [];
@@ -190,7 +208,7 @@ function ProformasPage() {
                           )}
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.contact_name || p.client?.company_name || "—"}</td>}
+                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{cp ?? "—"}</td>
                         <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
