@@ -49,31 +49,33 @@ app.use((req, _res, next) => {
 });
 
 // ── Routes ──
+// All routes mounted under /api to match frontend API_BASE
+
 // Auth endpoints get a stricter rate limiter
-app.use("/auth", authLimiter, authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 
 // Standard API routes
-app.use("/profiles", profileRoutes);
-app.use("/debtors", debtorRoutes);
-app.use("/vendors", vendorRoutes);
-app.use("/suppliers", supplierRoutes);
-app.use("/invoices", invoiceRoutes);
-app.use("/purchase-invoices", purchaseInvoiceRoutes);
-app.use("/purchase-orders", purchaseOrderRoutes);
-app.use("/advances", advanceRoutes);
-app.use("/alerts", alertRoutes);
-app.use("/expenses", expenseRoutes);
-app.use("/stock-movements", stockMovementRoutes);
-app.use("/admin", adminRoutes);
+app.use("/api/profiles", profileRoutes);
+app.use("/api/debtors", debtorRoutes);
+app.use("/api/vendors", vendorRoutes);
+app.use("/api/suppliers", supplierRoutes);
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/purchase-invoices", purchaseInvoiceRoutes);
+app.use("/api/purchase-orders", purchaseOrderRoutes);
+app.use("/api/advances", advanceRoutes);
+app.use("/api/alerts", alertRoutes);
+app.use("/api/expenses", expenseRoutes);
+app.use("/api/stock-movements", stockMovementRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Public NOA endpoints get a moderate limiter
-app.use("/noa", publicLimiter, noaRoutes);
+app.use("/api/noa", publicLimiter, noaRoutes);
 
 // Upload endpoints get a upload-specific limiter
-app.use("/upload", uploadLimiter, uploadRoutes);
+app.use("/api/upload", uploadLimiter, uploadRoutes);
 
 // Reports
-app.use("/reports", requireAuth, reportRoutes);
+app.use("/api/reports", requireAuth, reportRoutes);
 
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
