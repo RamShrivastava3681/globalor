@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api-client";
+import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download } from "lucide-react";
@@ -557,8 +557,10 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
 
   const openDoc = async (d: DocMeta) => {
     try {
-      const { signedUrl } = await api.get<{ signedUrl: string }>(`/upload/signed-url/${encodeURIComponent(d.path)}`);
-      window.open(signedUrl, "_blank", "noopener");
+      const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
+      const token = getToken();
+      const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4444";
+      window.open(`${baseUrl}/upload/signed-url/${encodedPath}?token=${token}`, "_blank", "noopener");
     } catch {
       toast.error("Could not open document");
     }

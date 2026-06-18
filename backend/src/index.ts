@@ -37,8 +37,8 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-// Global rate limiter applied to all /api routes (overridden per-group below as needed)
-app.use("/api", apiLimiter);
+// Global rate limiter applied to all routes
+app.use(apiLimiter);
 
 // ── Request logging ──
 app.use((req, _res, next) => {
@@ -50,33 +50,33 @@ app.use((req, _res, next) => {
 
 // ── Routes ──
 // Auth endpoints get a stricter rate limiter
-app.use("/api/auth", authLimiter, authRoutes);
+app.use("/auth", authLimiter, authRoutes);
 
 // Standard API routes
-app.use("/api/profiles", profileRoutes);
-app.use("/api/debtors", debtorRoutes);
-app.use("/api/vendors", vendorRoutes);
-app.use("/api/suppliers", supplierRoutes);
-app.use("/api/invoices", invoiceRoutes);
-app.use("/api/purchase-invoices", purchaseInvoiceRoutes);
-app.use("/api/purchase-orders", purchaseOrderRoutes);
-app.use("/api/advances", advanceRoutes);
-app.use("/api/alerts", alertRoutes);
-app.use("/api/expenses", expenseRoutes);
-app.use("/api/stock-movements", stockMovementRoutes);
-app.use("/api/admin", adminRoutes);
+app.use("/profiles", profileRoutes);
+app.use("/debtors", debtorRoutes);
+app.use("/vendors", vendorRoutes);
+app.use("/suppliers", supplierRoutes);
+app.use("/invoices", invoiceRoutes);
+app.use("/purchase-invoices", purchaseInvoiceRoutes);
+app.use("/purchase-orders", purchaseOrderRoutes);
+app.use("/advances", advanceRoutes);
+app.use("/alerts", alertRoutes);
+app.use("/expenses", expenseRoutes);
+app.use("/stock-movements", stockMovementRoutes);
+app.use("/admin", adminRoutes);
 
 // Public NOA endpoints get a moderate limiter
-app.use("/api/noa", publicLimiter, noaRoutes);
+app.use("/noa", publicLimiter, noaRoutes);
 
 // Upload endpoints get a upload-specific limiter
-app.use("/api/upload", uploadLimiter, uploadRoutes);
+app.use("/upload", uploadLimiter, uploadRoutes);
 
 // Reports
-app.use("/api/reports", requireAuth, reportRoutes);
+app.use("/reports", requireAuth, reportRoutes);
 
 // ── Health check (no rate limit) ──
-app.get("/api/health", (_req, res) => {
+app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -102,7 +102,7 @@ app.listen(config.port, async () => {
   // Seed admin user from env vars
   await seedAdmin();
 
-  console.log(`   API docs: http://localhost:${config.port}/api/health\n`);
+  console.log(`   API docs: http://localhost:${config.port}/health\n`);
 });
 
 export default app;
