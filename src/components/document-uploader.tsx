@@ -97,8 +97,11 @@ export function DocumentList({ docs }: { docs: DocMeta[] }) {
   const open = async (d: DocMeta) => {
     setBusyPath(d.path);
     try {
-      const { signedUrl } = await api.get<{ signedUrl: string }>(`/upload/signed-url/${encodeURIComponent(d.path)}`);
-      window.open(signedUrl, "_blank", "noopener");
+      // Open the backend file proxy directly — never exposes AWS credentials to the client
+      const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
+      const token = getToken();
+      const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4444";
+      window.open(`${baseUrl}/api/upload/signed-url/${encodedPath}?token=${token}`, "_blank", "noopener");
     } catch (err) {
       toast.error("Could not open document");
     } finally {

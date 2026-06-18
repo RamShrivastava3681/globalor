@@ -4,7 +4,6 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "../config.js";
 
 const s3Client = new S3Client({
@@ -38,12 +37,12 @@ export async function deleteFile(key: string) {
   await s3Client.send(command);
 }
 
-export async function getSignedDownloadUrl(key: string, expiresInSeconds = 60) {
+export async function getFileStream(key: string) {
   const command = new GetObjectCommand({
     Bucket: config.s3.bucketName,
     Key: key,
   });
-  return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+  return s3Client.send(command);
 }
 
 export { s3Client };

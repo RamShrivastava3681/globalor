@@ -16,6 +16,7 @@ import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
@@ -62,6 +63,11 @@ const AppSuppliersRoute = AppSuppliersRouteImport.update({
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
 const AppQueueRoute = AppQueueRouteImport.update({
@@ -141,6 +147,7 @@ export interface FileRoutesByFullPath {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/reports': typeof AppReportsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -162,6 +169,7 @@ export interface FileRoutesByTo {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/reports': typeof AppReportsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -184,6 +192,7 @@ export interface FileRoutesById {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/reports': typeof AppReportsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
@@ -311,6 +323,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/app/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/reports': {
+      id: '/app/reports'
+      path: '/reports'
+      fullPath: '/app/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/queue': {
@@ -413,6 +432,7 @@ interface AppRouteChildren {
   AppProformasRoute: typeof AppProformasRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppVendorsRoute: typeof AppVendorsRoute
@@ -431,6 +451,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProformasRoute: AppProformasRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
+  AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppVendorsRoute: AppVendorsRoute,

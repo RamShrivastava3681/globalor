@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tan
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -48,6 +48,7 @@ function AppLayout() {
         { to: "/app/queue", label: "Funding queue", icon: Banknote },
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
+        { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : isChecker && !isAdmin
@@ -56,16 +57,17 @@ function AppLayout() {
         { to: "/app/checker", label: "Checker desk", icon: ClipboardCheck },
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
+        { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : [
         { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
         ...(isAdmin || isChecker ? [{ to: "/app/checker", label: "Checker desk", icon: ClipboardCheck }] : []),
-        { to: "/app/queue", label: "Funding queue", icon: Banknote },
-        { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+        { to: "/app/queue", label: "Funding queue", icon: Banknote },          { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
+        { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/expenses", label: "Expenses", icon: Receipt },
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/inventory", label: "Inventory", icon: Boxes },

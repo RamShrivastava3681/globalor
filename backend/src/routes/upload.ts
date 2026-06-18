@@ -1,7 +1,8 @@
 import { Router, Response } from "express";
 import multer from "multer";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
-import { uploadFile, deleteFile, getSignedDownloadUrl } from "../s3/client.js";
+import { Readable } from "stream";
+import { requireAuth, requireWriteAccess, verifyToken, type AuthRequest } from "../middleware/auth.js";
+import { uploadFile, deleteFile, getFileStream } from "../s3/client.js";
 import { generateId } from "../utils/helpers.js";
 
 const router = Router();
@@ -72,15 +73,64 @@ router.delete("/", requireAuth, requireWriteAccess("upload"), async (req: AuthRe
 });
 
 // ── GET /api/upload/signed-url/* ──
-router.get("/signed-url/**", requireAuth, async (req: AuthRequest, res: Response) => {
+// Streams the file from S3 directly so AWS credentials never reach the client
+router.get("/signed-url/**", async (req: AuthRequest, res: Response) => {
   try {
-    // Reconstruct the key from the path (may contain slashes)
-    const key = req.path.replace("/api/upload/signed-url/", "");
-    const url = await getSignedDownloadUrl(key, 60);
-    res.json({ signedUrl: url });
+    // Support auth via query param ?token= (for opening in a new tab) or via Bearer header
+    let user: { id: string; email: string; roles: any[] } | null = null;
+
+    const queryToken = req.query.token as string | undefined;
+    if (queryToken) {
+      try {
+        const decoded = verifyToken(queryToken);
+        user = { id: decoded.sub, email: decoded.email, roles: decoded.roles };
+      } catch { /* fall through to header check */ }
+    }
+
+    if (!user) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        try {
+          const decoded = verifyToken(authHeader.replace("Bearer ", ""));
+          user = { id: decoded.sub, email: decoded.email, roles: decoded.roles };
+        } catch { /* ignore */ }
+      }
+    }
+
+    if (!user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    req.user = user;
+
+    // Extract the S3 key from the path (relative to mount point /api/upload)
+    const rawKey = req.path.replace("/signed-url/", "");
+    const key = decodeURIComponent(rawKey);
+
+    const s3Response = await getFileStream(key);
+
+    if (!s3Response.Body) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+
+    // Set content headers so the browser renders inline (PDFs, images, etc.)
+    const contentType = s3Response.ContentType || "application/octet-stream";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", "inline");
+    if (s3Response.ContentLength) {
+      res.setHeader("Content-Length", s3Response.ContentLength.toString());
+    }
+
+    // Pipe the S3 stream directly to the client — no AWS credentials exposed
+    const bodyStream = s3Response.Body as Readable;
+    bodyStream.pipe(res);
   } catch (err) {
-    console.error("Generate signed URL error:", err);
-    res.status(500).json({ error: "Failed to generate URL" });
+    console.error("Stream file error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to download file" });
+    }
   }
 });
 

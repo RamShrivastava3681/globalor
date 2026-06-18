@@ -9,7 +9,7 @@ import { Link } from "@tanstack/react-router";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  BarChart, Bar, Legend,
+  BarChart, Bar, Legend, Cell,
 } from "recharts";
 
 export const Route = createFileRoute("/app/dashboard")({
@@ -189,29 +189,53 @@ function Dashboard() {
         )}
 
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card title="Aging waterfall" className="lg:col-span-2">
-            <div className="space-y-3">
-              {[
-                { label: "Current", val: aging.current, tone: "bg-success" },
-                { label: "1–30 days", val: aging.b1, tone: "bg-primary" },
-                { label: "31–60 days", val: aging.b2, tone: "bg-warning" },
-                { label: "61–90 days", val: aging.b3, tone: "bg-warning" },
-                { label: "90+ days", val: aging.b4, tone: "bg-destructive" },
-              ].map((b) => {
+          <Card title="Aging distribution" className="lg:col-span-2">
+            <div className="h-64">
+              {(() => {
                 const total = Object.values(aging).reduce((a: number, x: number) => a + x, 0) || 1;
-                const pct = (b.val / total) * 100;
+                const chartData = [
+                  { name: "Current", amount: aging.current, fill: "oklch(0.88 0.18 118)" },
+                  { name: "1–30 days", amount: aging.b1, fill: "oklch(0.78 0.14 200)" },
+                  { name: "31–60 days", amount: aging.b2, fill: "oklch(0.85 0.15 80)" },
+                  { name: "61–90 days", amount: aging.b3, fill: "oklch(0.75 0.18 50)" },
+                  { name: "90+ days", amount: aging.b4, fill: "oklch(0.65 0.22 30)" },
+                ];
                 return (
-                  <div key={b.label}>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">{b.label}</span>
-                      <span className="num">{fmtMoney(b.val)}</span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className={`h-full ${b.tone}`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData}>
+                      <CartesianGrid stroke="oklch(0.30 0.014 250)" strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" stroke="oklch(0.68 0.018 250)" fontSize={11} />
+                      <YAxis stroke="oklch(0.68 0.018 250)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip
+                        contentStyle={{ background: "oklch(0.22 0.014 250)", border: "1px solid oklch(0.30 0.014 250)", borderRadius: 8, fontSize: 12 }}
+                        formatter={(v: number, name: string) => [fmtMoney(v), name]}
+                        cursor={{ fill: "oklch(0.30 0.014 250)" }}
+                      />
+                      <Bar dataKey="amount" name="Outstanding" radius={[6, 6, 0, 0]}>
+                        {chartData.map((entry, idx) => (
+                          <Cell key={idx} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 );
-              })}
+              })()}
+            </div>
+            {/* Summary stats below chart */}
+            <div className="mt-4 grid grid-cols-5 gap-2 border-t border-border pt-4">
+              {[
+                { label: "Current", val: aging.current, cls: "text-success" },
+                { label: "1–30d", val: aging.b1, cls: "text-info" },
+                { label: "31–60d", val: aging.b2, cls: "text-warning" },
+                { label: "61–90d", val: aging.b3, cls: "text-warning" },
+                { label: "90+d", val: aging.b4, cls: "text-destructive" },
+              ].map((b) => (
+                <div key={b.label} className="text-center">
+                  <div className={`text-xs font-medium ${b.cls}`}>{b.label}</div>
+                  <div className="mt-1 text-[10px] text-muted-foreground">{fmtMoney(b.val)}</div>
+                  <div className="text-[10px] text-muted-foreground">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
+                </div>
+              ))}
             </div>
           </Card>
 

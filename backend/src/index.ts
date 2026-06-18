@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import { config } from "./config.js";
 
+import { requireAuth } from "./middleware/auth.js";
+
 // Rate limiters
 import { apiLimiter, authLimiter, uploadLimiter, publicLimiter } from "./middleware/rateLimiter.js";
 
@@ -27,6 +29,7 @@ import stockMovementRoutes from "./routes/stockMovements.js";
 import adminRoutes from "./routes/admin.js";
 import noaRoutes from "./routes/noa.js";
 import uploadRoutes from "./routes/upload.js";
+import reportRoutes from "./routes/reports.js";
 
 const app = express();
 
@@ -68,6 +71,9 @@ app.use("/api/noa", publicLimiter, noaRoutes);
 
 // Upload endpoints get a upload-specific limiter
 app.use("/api/upload", uploadLimiter, uploadRoutes);
+
+// Reports
+app.use("/api/reports", requireAuth, reportRoutes);
 
 // ── Health check (no rate limit) ──
 app.get("/api/health", (_req, res) => {
