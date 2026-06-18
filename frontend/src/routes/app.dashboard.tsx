@@ -192,7 +192,6 @@ function Dashboard() {
           <Card title="Aging distribution" className="lg:col-span-2">
             <div className="h-64">
               {(() => {
-                const total = Object.values(aging).reduce((a: number, x: number) => a + x, 0) || 1;
                 const chartData = [
                   { name: "Current", amount: aging.current, fill: "oklch(0.88 0.18 118)" },
                   { name: "1–30 days", amount: aging.b1, fill: "oklch(0.78 0.14 200)" },
@@ -223,19 +222,22 @@ function Dashboard() {
             </div>
             {/* Summary stats below chart */}
             <div className="mt-4 grid grid-cols-5 gap-2 border-t border-border pt-4">
-              {[
-                { label: "Current", val: aging.current, cls: "text-success" },
-                { label: "1–30d", val: aging.b1, cls: "text-info" },
-                { label: "31–60d", val: aging.b2, cls: "text-warning" },
-                { label: "61–90d", val: aging.b3, cls: "text-warning" },
-                { label: "90+d", val: aging.b4, cls: "text-destructive" },
-              ].map((b) => (
-                <div key={b.label} className="text-center">
-                  <div className={`text-xs font-medium ${b.cls}`}>{b.label}</div>
-                  <div className="mt-1 text-[10px] text-muted-foreground">{fmtMoney(b.val)}</div>
-                  <div className="text-[10px] text-muted-foreground">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
-                </div>
-              ))}
+              {(() => {
+                const total = Object.values(aging).reduce((a: number, x: number) => a + x, 0) || 1;
+                return [
+                  { label: "Current", val: aging.current, cls: "text-success" },
+                  { label: "1–30d", val: aging.b1, cls: "text-info" },
+                  { label: "31–60d", val: aging.b2, cls: "text-warning" },
+                  { label: "61–90d", val: aging.b3, cls: "text-warning" },
+                  { label: "90+d", val: aging.b4, cls: "text-destructive" },
+                ].map((b) => (
+                  <div key={b.label} className="text-center">
+                    <div className={`text-xs font-medium ${b.cls}`}>{b.label}</div>
+                    <div className="mt-1 text-[10px] text-muted-foreground">{fmtMoney(b.val)}</div>
+                    <div className="text-[10px] text-muted-foreground">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
+                  </div>
+                ));
+              })()}
             </div>
           </Card>
 
