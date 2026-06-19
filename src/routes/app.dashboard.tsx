@@ -94,14 +94,21 @@ function Dashboard() {
   invoices.forEach((i: any) => bump(i.issue_date ?? "", "sales", Number(i.amount)));
   purchases.forEach((p: any) => bump(p.issue_date ?? "", "purchases", Number(p.amount)));
   expenses.forEach((e: any) => bump(e.expense_date ?? "", "expenses", Number(e.amount)));
-  const incomeTrend = Array.from(monthMap.entries())
-    .sort()
-    .slice(-8)
-    .map(([m, v]) => ({
+  // Generate last 6 calendar months (current month + 5 prior) so every month always appears
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const incomeTrend = months.map((m) => {
+    const v = monthMap.get(m) ?? { sales: 0, purchases: 0, expenses: 0 };
+    return {
       month: m.slice(5),
       gross: Math.round(v.sales - v.purchases),
       net: Math.round(v.sales - v.purchases - v.expenses),
-    }));
+    };
+  });
 
   const aging = invoices.reduce(
     (acc: any, i: any) => {
@@ -163,8 +170,8 @@ function Dashboard() {
           <Stat label="On-time settlements" value={String(paidInvoices.length - lateInvoices.length)} delta={`of ${paidInvoices.length} closed`} tone="good" />
         </div>
 
-        {!isTreasury && incomeTrend.length > 0 && (
-          <Card title="Gross vs net income" action={<span className="text-xs text-muted-foreground">Last 8 months</span>}>
+        {!isTreasury && (
+          <Card title="Gross vs net income" action={<span className="text-xs text-muted-foreground">Last 6 months</span>}>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={incomeTrend}>
