@@ -8,8 +8,8 @@ import { Activity, Paperclip, X, Link2 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-  BarChart, Bar, Legend, Cell,
+  ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
+  BarChart, Bar, Cell, PieChart, Pie,
 } from "recharts";
 
 export const Route = createFileRoute("/app/dashboard")({
@@ -80,33 +80,6 @@ function Dashboard() {
   const net = gross - expenseTotal;
   const marginPct = salesTotal > 0 ? (gross / salesTotal) * 100 : 0;
 
-  const monthMap = new Map<string, { sales: number; purchases: number; expenses: number }>();
-  const bump = (key: string, field: "sales" | "purchases" | "expenses", val: number) => {
-    if (!key) return;
-    const k = key.slice(0, 7);
-    const cur = monthMap.get(k) ?? { sales: 0, purchases: 0, expenses: 0 };
-    cur[field] += val;
-    monthMap.set(k, cur);
-  };
-  invoices.forEach((i: any) => bump(i.issue_date ?? "", "sales", Number(i.amount)));
-  purchases.forEach((p: any) => bump(p.issue_date ?? "", "purchases", Number(p.amount)));
-  expenses.forEach((e: any) => bump(e.expense_date ?? "", "expenses", Number(e.amount)));
-  // Generate last 6 calendar months (current month + 5 prior) so every month always appears
-  const now = new Date();
-  const months: string[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-  const incomeTrend = months.map((m) => {
-    const v = monthMap.get(m) ?? { sales: 0, purchases: 0, expenses: 0 };
-    return {
-      month: m.slice(5),
-      gross: Math.round(v.sales - v.purchases),
-      net: Math.round(v.sales - v.purchases - v.expenses),
-    };
-  });
-
   const aging = invoices.reduce(
     (acc: any, i: any) => {
       if (i.status === "paid" || i.status === "rejected") return acc;
@@ -168,29 +141,49 @@ function Dashboard() {
         </div>
 
         {!isTreasury && (
-          <Card title="Gross vs net income" action={<span className="text-xs text-muted-foreground">Last 6 months</span>}>
-            <div className="h-64">
+          <Card title="Gross vs net income" action={<span className="text-xs text-muted-foreground">Current period</span>}>
+            <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={incomeTrend}>
-                  <defs>
-                    <linearGradient id="ig" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.88 0.18 118)" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="oklch(0.88 0.18 118)" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="ng" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.78 0.14 200)" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="oklch(0.78 0.14 200)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="oklch(0.30 0.014 250)" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" stroke="oklch(0.68 0.018 250)" fontSize={11} />
-                  <YAxis stroke="oklch(0.68 0.018 250)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: "oklch(0.22 0.014 250)", border: "1px solid oklch(0.30 0.014 250)", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => fmtMoney(v)} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Area type="monotone" dataKey="gross" name="Gross" stroke="oklch(0.88 0.18 118)" strokeWidth={2} fill="url(#ig)" />
-                  <Area type="monotone" dataKey="net" name="Net" stroke="oklch(0.78 0.14 200)" strokeWidth={2} fill="url(#ng)" />
-                </AreaChart>
+                <PieChart>
+                  <Pie
+                    data={[
+                      { name: "Net income", value: Math.max(0, net), fill: "oklch(0.78 0.14 200)" },
+                      { name: "Expenses", value: Math.max(0, expenseTotal), fill: "oklch(0.65 0.22 30)" },
+                    ]}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={65}
+                    outerRadius={105}
+                    paddingAngle={4}
+                    dataKey="value"
+                    label={({ name, value, percent }: any) =>
+                      `${name}: ${fmtMoney(value)} (${(percent * 100).toFixed(1)}%)`
+                    }
+                    labelLine={true}
+                  >
+                    <Cell key="net" fill="oklch(0.78 0.14 200)" />
+                    <Cell key="expenses" fill="oklch(0.65 0.22 30)" />
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "oklch(0.22 0.014 250)", border: "1px solid oklch(0.30 0.014 250)", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number, name: string) => [fmtMoney(v), name]}
+                  />
+                </PieChart>
               </ResponsiveContainer>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
+              <div>
+                <div className="text-xs" style={{ color: "oklch(0.88 0.18 118)" }}>Gross income</div>
+                <div className="text-[10px] text-muted-foreground">{fmtMoney(gross)}</div>
+              </div>
+              <div>
+                <div className="text-xs" style={{ color: "oklch(0.78 0.14 200)" }}>Net income</div>
+                <div className="text-[10px] text-muted-foreground">{fmtMoney(net)}</div>
+              </div>
+              <div>
+                <div className="text-xs" style={{ color: "oklch(0.65 0.22 30)" }}>Expenses</div>
+                <div className="text-[10px] text-muted-foreground">{fmtMoney(expenseTotal)}</div>
+              </div>
             </div>
           </Card>
         )}
