@@ -463,7 +463,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
             </Field>
           </div>
 
-          {!editing && (
             <Field label="Link to purchase invoice (optional)">
               <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
                 <option value="">— No link —</option>
@@ -472,7 +471,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                 ))}
               </select>
             </Field>
-          )}
           {!editing && (
             <div className="rounded-md border border-border p-3">
               <label className="flex items-center gap-2 text-xs">

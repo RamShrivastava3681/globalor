@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -42,6 +42,11 @@ function PurchasesPage() {
   const salesQ = useQuery({
     queryKey: ["invoices-by-pi"],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+  });
+
+  const miniInvoicesQ = useQuery({
+    queryKey: ["invoices-mini-for-link"],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
   });
 
   const stockMovementsQ = useQuery({
@@ -256,8 +261,10 @@ function PurchasesPage() {
         <PurchaseInvoiceFormModal
           editing={editing}
           vendors={vendorsQ.data ?? []}
+          invoices={miniInvoicesQ.data ?? []}
+          linkedSales={editing ? linkedSales(editing.id) : []}
           onClose={() => { setOpen(false); setEditing(null); }}
-          onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
+          onDone={() => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); qc.invalidateQueries({ queryKey: ["invoices-by-pi"] }); }}
         />
       )}
 
@@ -273,7 +280,7 @@ function PurchasesPage() {
   );
 }
 
-function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editing: any | null; vendors: any[]; onClose: () => void; onDone: () => void }) {
+function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
@@ -291,6 +298,10 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
   const [invEnabled, setInvEnabled] = useState(false);
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
+  const [linkedSalesInvoiceId, setLinkedSalesInvoiceId] = useState(() => {
+    return editing && linkedSales.length > 0 ? linkedSales[0].id : "";
+  });
+  const initialLinkedIdsRef = useRef<string[]>(editing ? linkedSales.map((s: any) => s.id) : []);
 
   const poLookupQ = useQuery({
     queryKey: ["po-lookup-purchase", form.po_number],
@@ -358,6 +369,19 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
       }
       if (editing) {
         await api.patch(`/purchase-invoices/${editing.id}`, payload);
+        // Handle linking/unlinking sales invoices
+        const prevIds = initialLinkedIdsRef.current;
+        const newId = linkedSalesInvoiceId;
+        // Unlink previously linked sales that are no longer selected
+        for (const oldId of prevIds) {
+          if (oldId !== newId) {
+            await api.patch(`/invoices/${oldId}`, { purchase_invoice_id: null });
+          }
+        }
+        // Link the newly selected sales invoice
+        if (newId && !prevIds.includes(newId)) {
+          await api.patch(`/invoices/${newId}`, { purchase_invoice_id: editing.id });
+        }
       } else {
         await api.post("/purchase-invoices", payload);
       }
@@ -441,6 +465,17 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
           </div>
 
           <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
+
+          {editing && (
+            <L label="Link to sales invoice (optional)">
+              <select className="inp" value={linkedSalesInvoiceId} onChange={(e) => setLinkedSalesInvoiceId(e.target.value)}>
+                <option value="">— No link —</option>
+                {invoices.map((inv: any) => (
+                  <option key={inv.id} value={inv.id}>{inv.invoice_number} · {fmtMoney(inv.amount)}</option>
+                ))}
+              </select>
+            </L>
+          )}
 
           {!editing && (
             <div className="rounded-md border border-border p-3">

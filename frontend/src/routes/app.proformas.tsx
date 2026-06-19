@@ -431,7 +431,20 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
   const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+
+  const deletePf = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/purchase-orders/${proforma.id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success("Proforma deleted");
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete proforma"),
+  });
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -597,7 +610,23 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <div>
+              {(proforma.status === "cancelled" || proforma.proforma_status === "rejected" || proforma.proforma_status === "pending_review") && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Permanently delete proforma ${proforma.proforma_number || proforma.po_number}? This cannot be undone.`)) {
+                      deletePf.mutate();
+                    }
+                  }}
+                  disabled={deletePf.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  {deletePf.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  Delete
+                </button>
+              )}
+            </div>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
           </div>
         </div>
