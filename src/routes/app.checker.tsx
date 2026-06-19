@@ -113,14 +113,14 @@ function CheckerPage() {
       const allAdvances = await api.get<any[]>("/advances") ?? [];
 
       for (const po of salePos) {
-        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const salesOrders = (orders.proformas ?? []).filter((o: any) => o.side === "sales");
         const pfIds = salesOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
         map[`sales::${po}`] = advs.reduce((s: number, a: any) => s + Number(a.amount), 0);
       }
       for (const po of purPos) {
-        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const purOrders = (orders.proformas ?? []).filter((o: any) => o.side === "purchase");
         const pfIds = purOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
@@ -139,10 +139,10 @@ function CheckerPage() {
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
       const adv = advFor("sales", i.po_number);
-      const amt = Number(i.amount);
+      const net = Number(i.amount); // amount is already net of advances (backend deducts on create)
       return {
-        kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: amt,
-        po_number: i.po_number, advance: adv, net: Math.max(0, amt - adv),
+        kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: net + adv, // reconstruct gross
+        po_number: i.po_number, advance: adv, net,
         issue_date: i.issue_date, due_date: i.due_date,
         party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
@@ -150,10 +150,10 @@ function CheckerPage() {
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
       const adv = advFor("purchase", p.po_number);
-      const amt = Number(p.amount);
+      const net = Number(p.amount); // amount is already net of advances (backend deducts on create)
       return {
-        kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount: amt,
-        po_number: p.po_number, advance: adv, net: Math.max(0, amt - adv),
+        kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount: net + adv, // reconstruct gross
+        po_number: p.po_number, advance: adv, net,
         issue_date: p.issue_date, due_date: p.due_date,
         party: p.vendor?.name ?? "—", client: "—", client_id: p.client_id,
       };

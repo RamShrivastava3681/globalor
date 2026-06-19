@@ -362,6 +362,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
       }
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
       onDone();
       toast.success(editing ? "Purchase invoice updated" : "Purchase invoice recorded");
       onClose();

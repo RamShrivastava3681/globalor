@@ -39,7 +39,7 @@ router.get("/:token", async (req: Request, res: Response) => {
       due_date: inv.due_date,
       noa_status: inv.noa_status,
       noa_comments: inv.noa_comments || "",
-      client_company: client?.contact_name || client?.company_name || "Unknown",
+      client_company: client?.company_name || client?.contact_name || "Unknown",
       debtor_name: debtor?.name || "Unknown",
       debtor_contact_name: debtor?.contact_name || "",
       debtor_contact_email: debtor?.contact_email || "",

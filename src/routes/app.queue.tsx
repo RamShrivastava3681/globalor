@@ -91,7 +91,7 @@ function QueuePage() {
 
       for (const po of salePos) {
         const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
-        const salesOrders = (orders.proformas ?? []).filter((o: any) => o.side === "sales");
+        const salesOrders = (orders?.proformas ?? []).filter((o: any) => o.side === "sales");
         const pfIds = salesOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
         map[`sales::${po}`] = advs.reduce((s: number, a: any) => s + Number(a.amount), 0);
@@ -169,23 +169,23 @@ function QueuePage() {
 
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
-      const amount = Number(i.amount);
+      const net = Number(i.amount); // amount is already net of advances (backend deducts on create)
       const advance = advFor("sales", i.po_number);
       return {
-        kind: "sale", id: i.id, invoice_number: i.invoice_number, amount,
+        kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: net + advance, // reconstruct gross
         po_number: i.po_number ?? null, advance,
-        balance: Math.max(0, amount - advance),
+        balance: net, // net amount is the balance receivable
         due_date: i.due_date, issue_date: i.issue_date,
         status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
-      const amount = Number(p.amount);
+      const net = Number(p.amount); // amount is already net of advances (backend deducts on create)
       const advance = advFor("purchase", p.po_number);
       return {
-        kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount,
+        kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount: net + advance, // reconstruct gross
         po_number: p.po_number ?? null, advance,
-        balance: Math.max(0, amount - advance),
+        balance: net, // net amount is the balance to pay
         due_date: p.due_date, issue_date: p.issue_date,
         status: p.status, party: p.vendor?.name ?? "—", client: "—",
       };

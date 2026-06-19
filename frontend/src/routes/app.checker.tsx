@@ -113,14 +113,14 @@ function CheckerPage() {
       const allAdvances = await api.get<any[]>("/advances") ?? [];
 
       for (const po of salePos) {
-        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const salesOrders = (orders.proformas ?? []).filter((o: any) => o.side === "sales");
         const pfIds = salesOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");
         map[`sales::${po}`] = advs.reduce((s: number, a: any) => s + Number(a.amount), 0);
       }
       for (const po of purPos) {
-        const orders = await api.get<any[]>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
+        const orders = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(po)}`);
         const purOrders = (orders.proformas ?? []).filter((o: any) => o.side === "purchase");
         const pfIds = purOrders.map((o: any) => o.id);
         const advs = allAdvances.filter((a: any) => pfIds.includes(a.purchase_order_id) && a.status !== "refunded");

@@ -380,6 +380,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["advances"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
       toast.success(editing ? "Invoice updated" : "Invoice submitted for review.");
       onClose();
     },

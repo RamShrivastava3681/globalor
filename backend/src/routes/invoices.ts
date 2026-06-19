@@ -165,9 +165,8 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       updated_at: now,
     };
 
-    await putItem(TABLES.INVOICES, invoice as any);
-
-    // Apply open advances for matching PO (sales side)
+    // ── Deduct open advances from invoice amount ──
+    let openAdvances: any[] = [];
     if (parsed.po_number) {
       const orders = await queryByIndex<any>(TABLES.PURCHASE_ORDERS, "po_number-index", "po_number = :pn", { ":pn": parsed.po_number });
       const salesOrders = orders.filter((o: any) => o.side === "sales");
@@ -177,10 +176,20 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
           expressionAttributeNames: { "#status": "status" },
           expressionAttributeValues: { ":poid": po.id, ":status": "open" },
         });
-        for (const adv of advances) {
-          await updateItem(TABLES.ADVANCES, { id: adv.id }, { status: "applied" });
-        }
+        openAdvances.push(...advances);
       }
+    }
+
+    const totalAdvanceDeduction = openAdvances.reduce((sum, a) => sum + Number(a.amount), 0);
+    if (totalAdvanceDeduction > 0) {
+      invoice.amount = Math.max(0, invoice.amount - totalAdvanceDeduction);
+    }
+
+    await putItem(TABLES.INVOICES, invoice as any);
+
+    // Link open advances to this invoice and mark as applied
+    for (const adv of openAdvances) {
+      await updateItem(TABLES.ADVANCES, { id: adv.id }, { status: "applied", invoice_id: id });
     }
 
     // Create inventory movements if enabled

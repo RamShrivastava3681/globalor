@@ -11,7 +11,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile } from "../types/index.js";
+import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta } from "../types/index.js";
 
 const router = Router();
 
@@ -79,6 +79,7 @@ const createSchema = z.object({
   amount: z.number().positive(),
   currency: z.string().optional().default("USD"),
   notes: z.string().nullable().optional(),
+  documents: z.array(z.any()).optional().default([]),
 });
 
 router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
@@ -111,6 +112,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
       proforma_funded_by: null,
       proforma_funding_reference: null,
       notes: parsed.notes || null,
+      documents: parsed.documents as DocMeta[],
       created_at: now,
       updated_at: now,
     };

@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2 } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download } from "lucide-react";
 import { toast } from "sonner";
 
 import { z } from "zod";
+import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { getToken } from "@/lib/api-client";
 
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
@@ -285,6 +287,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
     po_number: "", proforma_number: "", proforma_date: new Date().toISOString().slice(0, 10),
     party_id: "", amount: "", currency: "USD", notes: "",
   });
+  const [docs, setDocs] = useState<DocMeta[]>([]);
 
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
@@ -311,6 +314,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
         amount: amt,
         currency: form.currency,
         notes: form.notes || null,
+        documents: docs,
       });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Proforma submitted for review"); onClose(); },
@@ -333,6 +337,8 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
           <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         </div>
         <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
+        <DocumentUploader userId={""} scope="purchase_orders" docs={docs} onChange={setDocs}
+          hint="Attach the proforma invoice, supplier quote, or other supporting paperwork." />
         <Actions onClose={onClose} pending={create.isPending} label="Submit" />
       </form>
     </Modal>
@@ -463,6 +469,46 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
               </div>
             </div>
           )}
+
+          {/* Documents */}
+          {(() => {
+            const pDocs: DocMeta[] = Array.isArray(proforma.documents) ? proforma.documents : [];
+            return (
+              <div className="rounded-lg border border-border bg-background/40 p-4">
+                <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                  <FileText className="mr-1 inline h-3.5 w-3.5" />Attachments ({pDocs.length})
+                </h4>
+                {pDocs.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">No documents attached to this proforma.</div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {pDocs.map((d) => (
+                      <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-xs">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileText className="h-4 w-4 shrink-0 text-primary" />
+                          <span className="truncate" title={d.name}>{d.name}</span>
+                          <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
+                        </div>
+                        <button type="button" onClick={async () => {
+                          try {
+                            const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
+                            const token = getToken();
+                            const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:4444";
+                            window.open(`${baseUrl}/upload/signed-url/${encodedPath}?token=${token}`, "_blank", "noopener");
+                          } catch {
+                            toast.error("Could not open document");
+                          }
+                        }}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                          <Download className="h-3 w-3" /> Open
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Linked advances */}
           {advances.length > 0 && (

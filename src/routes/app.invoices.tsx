@@ -380,6 +380,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["advances"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
       toast.success(editing ? "Invoice updated" : "Invoice submitted for review.");
       onClose();
     },
@@ -409,15 +410,40 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
 
           {form.po_number.trim() && poLookupQ.data?.proformas && poLookupQ.data.proformas.filter((p: any) => p.side === "sales").length > 0 && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-              <div className="mb-1 uppercase tracking-widest text-primary">Proforma linked to PO {form.po_number}</div>
+              <div className="mb-1 uppercase tracking-widest text-primary">Proforma & advances for PO {form.po_number}</div>
               {(() => {
-                const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
+                const salesPfs = poLookupQ.data.proformas.filter((p: any) => p.side === "sales");
+                const salesPf = salesPfs[0];
                 if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
+                const salesPfIds = salesPfs.map((p: any) => p.id);
+                const advances = (poLookupQ.data?.advances ?? []).filter((a: any) => salesPfIds.includes(a.purchase_order_id) && a.status !== "refunded");
+                const advancesTotal = advances.reduce((s: number, a: any) => s + Number(a.amount), 0);
+                const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
                 return (
                   <div className="space-y-1">
                     <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
+                    {advances.length > 0 && (
+                      <>
+                        <div className="mt-2 border-t border-primary/20 pt-2">
+                          <div className="mb-1 text-[10px] uppercase tracking-widest text-primary">Advances received</div>
+                          {advances.map((a: any) => (
+                            <div key={a.id} className="flex justify-between">
+                              <span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span>
+                              <span className="num text-success">{fmtMoney(a.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 flex justify-between border-t border-primary/20 pt-2">
+                          <span>Total invoice amount</span><span className="num">{fmtMoney(Number(form.amount || 0))}</span>
+                        </div>
+                        <div className="flex justify-between"><span>Advance received</span><span className="num text-success">− {fmtMoney(advancesTotal)}</span></div>
+                        <div className="flex justify-between font-medium border-t border-primary/20 pt-1 mt-1">
+                          <span>Balance receivable</span><span className="num">{fmtMoney(balanceDue)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })()}

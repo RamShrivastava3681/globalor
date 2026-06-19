@@ -199,6 +199,7 @@ export interface PurchaseOrder {
   proforma_funded_by: string | null;
   proforma_funding_reference: string | null;
   notes: string | null;
+  documents: DocMeta[];
   created_at: string;
   updated_at: string;
 }
