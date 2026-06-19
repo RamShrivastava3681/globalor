@@ -4,10 +4,11 @@ import {
   putItem,
   getItem,
   updateItem,
+  deleteItem,
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Vendor } from "../types/index.js";
 
@@ -79,7 +80,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
 });
 
 // ── PATCH /api/vendors/:id ──
-router.patch("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+router.patch("/:id", requireAuth, requireWriteAccess("vendors"), async (req: AuthRequest, res: Response) => {
   try {
     const updates: Record<string, unknown> = { ...req.body, updated_at: nowISO() };
     delete updates.id;
@@ -90,6 +91,16 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     res.json(updated);
   } catch (err) {
     console.error("Update vendor error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+// ── DELETE /api/vendors/:id ──
+router.delete("/:id", requireAuth, requireWriteAccess("vendors"), async (req: AuthRequest, res: Response) => {
+  try {
+    await deleteItem(TABLES.VENDORS, { id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete vendor error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Building2 } from "lucide-react";
+import { Plus, X, Loader2, Building2, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/vendors")({
@@ -12,9 +12,11 @@ export const Route = createFileRoute("/app/vendors")({
 });
 
 function VendorsPage() {
-  const { user } = useAuth();
+  const { user, canWrite } = useAuth();
+  const canEdit = canWrite("vendors");
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const vendorsQ = useQuery({
@@ -27,10 +29,31 @@ function VendorsPage() {
     queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
   });
 
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/vendors/${id}`);
+    },
+    onSuccess: () => {
+      toast.success("Supplier removed");
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   const openFor = (id: string) =>
     (piQ.data ?? [])
       .filter((p: any) => p.vendor_id === id && p.status !== "paid")
       .reduce((s: number, p: any) => s + Number(p.amount), 0);
+
+  const openNew = () => {
+    setEditing(null);
+    setOpen(true);
+  };
+
+  const openEdit = (v: any) => {
+    setEditing(v);
+    setOpen(true);
+  };
 
   return (
     <div>
@@ -39,9 +62,13 @@ function VendorsPage() {
         title="Suppliers"
         description="The vendors you buy from. Track contacts, terms, and open payables."
         actions={
-          <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-            <Plus className="h-4 w-4" /> Add supplier
-          </button>
+          canEdit ? (
+            <button onClick={openNew} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              <Plus className="h-4 w-4" /> Add supplier
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
+          )
         }
       />
 
@@ -51,7 +78,7 @@ function VendorsPage() {
             <div className="py-12 text-center text-sm text-muted-foreground">
               <Building2 className="mx-auto mb-3 h-6 w-6" />
               No suppliers yet.
-              <div className="mt-3"><button onClick={() => setOpen(true)} className="text-primary">Add one →</button></div>
+              <div className="mt-3"><button onClick={openNew} className="text-primary">Add one →</button></div>
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
@@ -66,6 +93,7 @@ function VendorsPage() {
                     <th className="px-5 py-2 text-left font-normal">Contact</th>
                     <th className="px-5 py-2 text-left font-normal">Location</th>
                     <th className="px-5 py-2 text-right font-normal">Open AP</th>
+                    <th className="px-5 py-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -74,7 +102,7 @@ function VendorsPage() {
                     const q = searchQuery.toLowerCase();
                     return v.name?.toLowerCase().includes(q) || v.industry?.toLowerCase().includes(q) || v.contact_name?.toLowerCase().includes(q) || v.contact_email?.toLowerCase().includes(q) || v.city?.toLowerCase().includes(q);
                   }).map((v: any) => (
-                    <tr key={v.id} className="border-b border-border/60">
+                    <tr key={v.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">
                         <div className="font-medium">{v.name}</div>
                         <div className="text-xs text-muted-foreground">{v.industry ?? "—"}</div>
@@ -87,6 +115,17 @@ function VendorsPage() {
                         {[v.city, v.country].filter(Boolean).join(", ") || "—"}
                       </td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(openFor(v.id))}</td>
+                      <td className="px-5 py-3 text-right">
+                        {canEdit && (
+                          <>
+                            <button onClick={() => openEdit(v)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
+                            <button onClick={() => { if (confirm(`Remove ${v.name}?`)) remove.mutate(v.id); }}
+                              className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -98,7 +137,8 @@ function VendorsPage() {
 
       {open && user && (
         <AddVendorModal
-          onClose={() => setOpen(false)}
+          editing={editing}
+          onClose={() => { setOpen(false); setEditing(null); }}
           onCreated={() => qc.invalidateQueries({ queryKey: ["vendors"] })}
         />
       )}
@@ -106,19 +146,19 @@ function VendorsPage() {
   );
 }
 
-function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({
-    name: "", industry: "",
-    address_line: "", city: "", country: "", postal_code: "", phone: "", website: "",
-    contact_name: "", contact_email: "", contact_designation: "", contact_phone: "",
-  });
+function AddVendorModal({ editing, onClose, onCreated }: { editing: any | null; onClose: () => void; onCreated: () => void }) {
+  const [form, setForm] = useState(() => ({
+    name: editing?.name ?? "", industry: editing?.industry ?? "",
+    address_line: editing?.address_line ?? "", city: editing?.city ?? "", country: editing?.country ?? "", postal_code: editing?.postal_code ?? "", phone: editing?.phone ?? "", website: editing?.website ?? "",
+    contact_name: editing?.contact_name ?? "", contact_email: editing?.contact_email ?? "", contact_designation: editing?.contact_designation ?? "", contact_phone: editing?.contact_phone ?? "",
+  }));
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
-  const create = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("Name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
-      await api.post("/vendors", {
+      const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
         address_line: form.address_line || null,
@@ -131,9 +171,14 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
         contact_email: form.contact_email || null,
         contact_designation: form.contact_designation || null,
         contact_phone: form.contact_phone || null,
-      });
+      };
+      if (editing) {
+        await api.patch(`/vendors/${editing.id}`, payload);
+      } else {
+        await api.post("/vendors", payload);
+      }
     },
-    onSuccess: () => { onCreated(); toast.success("Supplier added"); onClose(); },
+    onSuccess: () => { onCreated(); toast.success(editing ? "Supplier updated" : "Supplier added"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -141,10 +186,10 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">Add supplier</h3>
+          <h3 className="font-display text-lg">{editing ? "Edit supplier" : "Add supplier"}</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-5 p-5">
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           <Section title="Company">
             <div className="grid gap-3 md:grid-cols-2">
               <L label="Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
@@ -172,12 +217,10 @@ function AddVendorModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
           </Section>
 
-
-
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Create
+            <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Create"}
             </button>
           </div>
         </form>

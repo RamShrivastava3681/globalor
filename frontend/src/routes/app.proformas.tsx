@@ -43,6 +43,7 @@ function ProformasPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [editingPf, setEditingPf] = useState<any | null>(null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,14 +77,14 @@ function ProformasPage() {
     return (advancesQ.data ?? []).filter((a: any) => a.purchase_order_id === viewing.id);
   }, [viewing, advancesQ.data]);
 
-  const rows = ((listQ.data ?? []) as PF[])
-    .filter((p) => tab === "all" || p.side === tab)
-    .filter((p) => {
+  const rows = ((listQ.data ?? []) as any[])
+    .filter((p: any) => tab === "all" || p.side === tab)
+    .filter((p: any) => {
       if (queue === "all") return true;
       if (queue === "approved") return p.proforma_status === "approved";
       return p.proforma_status === queue;
     })
-    .filter((p) => {
+    .filter((p: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
@@ -232,11 +233,14 @@ function ProformasPage() {
                             {p.proforma_status === "funded" && (
                               <span className="text-[10px] uppercase tracking-widest text-success">Funded</span>
                             )}
+                            {canCreate && (p.proforma_status === "pending_review" || p.proforma_status === "rejected") && (
+                              <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
+                            )}
                             {canCreate && p.status !== "invoiced" && p.status !== "cancelled" && p.proforma_status !== "funded" && (
                               <button onClick={() => cancel.mutate(p.id)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
                             )}
-                            {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected") && (
-                              <button onClick={() => del.mutate(p.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                            {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected" || p.proforma_status === "pending_review") && (
+                              <button onClick={() => { if (confirm(`Remove proforma ${p.proforma_number || p.po_number}?`)) del.mutate(p.id); }} className="text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                             )}
                           </div>
                         </td>
@@ -261,6 +265,13 @@ function ProformasPage() {
 
       {open && user && <NewProformaModal side={open} onClose={() => setOpen(null)} />}
 
+      {editingPf && (
+        <EditProformaModal
+          proforma={editingPf}
+          onClose={() => setEditingPf(null)}
+        />
+      )}
+
       {viewing && (
         <ProformaDetailModal
           proforma={viewing}
@@ -269,6 +280,44 @@ function ProformasPage() {
         />
       )}
     </div>
+  );
+}
+
+function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    amount: String(proforma.amount ?? ""),
+    notes: proforma.notes ?? "",
+    proforma_number: proforma.proforma_number ?? "",
+    proforma_date: proforma.proforma_date ?? new Date().toISOString().slice(0, 10),
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const amt = Number(form.amount);
+      if (!amt || amt <= 0) throw new Error("Amount must be > 0");
+      if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
+      await api.patch(`/purchase-orders/${proforma.id}`, {
+        amount: amt,
+        notes: form.notes || null,
+        proforma_number: form.proforma_number.trim(),
+        proforma_date: form.proforma_date,
+      });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Proforma updated"); onClose(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <Modal title={`Edit proforma — ${proforma.proforma_number || proforma.po_number}`} onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
+        <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} /></L>
+        <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
+        <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+        <L label="Notes"><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
+        <Actions onClose={onClose} pending={save.isPending} label="Save changes" />
+      </form>
+    </Modal>
   );
 }
 
