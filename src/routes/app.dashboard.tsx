@@ -23,16 +23,19 @@ function Dashboard() {
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchase_invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const expensesQ = useQuery({
     queryKey: ["expenses", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/expenses")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const alertsQ = useQuery({
