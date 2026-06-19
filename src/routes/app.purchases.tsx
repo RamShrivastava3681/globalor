@@ -274,6 +274,7 @@ function PurchasesPage() {
 }
 
 function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editing: any | null; vendors: any[]; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
     vendor_id: editing?.vendor_id ?? "",
