@@ -37,17 +37,25 @@ function InventoryPage() {
   });
 
   const balances = useMemo(() => {
-    const m = new Map<string, { sku: string; item: string; unit: string; qty: number; value: number }>();
+    // Track purchase costs (stock-in) separately from selling prices (stock-out)
+    const m = new Map<string, { sku: string; item: string; unit: string; qty: number; inQty: number; inValue: number }>();
     for (const r of (movementsQ.data ?? []) as any[]) {
       const skuKey = r.sku || r.item_name;
       const k = `${skuKey}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(k) ?? { sku: r.sku || "—", item: r.item_name, unit: r.unit, qty: 0, value: 0 };
+      const cur = m.get(k) ?? { sku: r.sku || "—", item: r.item_name, unit: r.unit, qty: 0, inQty: 0, inValue: 0 };
       cur.qty += sign * Number(r.quantity);
-      cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
+      // Only stock-in movements contribute to inventory cost basis
+      if (r.direction === "in") {
+        cur.inQty += Number(r.quantity);
+        cur.inValue += Number(r.quantity) * Number(r.unit_cost ?? 0);
+      }
       m.set(k, cur);
     }
-    return [...m.values()].sort((a, b) => a.sku.localeCompare(b.sku));
+    return [...m.values()].map(c => {
+      const avgCost = c.inQty > 0 ? c.inValue / c.inQty : 0;
+      return { ...c, unitPrice: avgCost, inventoryValue: c.qty * avgCost };
+    }).sort((a, b) => a.sku.localeCompare(b.sku));
   }, [movementsQ.data]);
 
   const del = useMutation({
@@ -99,8 +107,8 @@ function InventoryPage() {
                       <td className="px-5 py-2.5">{b.item}</td>
                       <td className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}>{b.qty.toLocaleString()}</td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.unit}</td>
-                      <td className="px-5 py-2.5 text-right num">{b.qty > 0 ? fmtMoney(b.value / b.qty) : "—"}</td>
-                      <td className="px-5 py-2.5 text-right num">{fmtMoney(b.value)}</td>
+                      <td className="px-5 py-2.5 text-right num">{fmtMoney(b.unitPrice)}</td>
+                      <td className="px-5 py-2.5 text-right num">{fmtMoney(b.inventoryValue)}</td>
                     </tr>
                   ))}
                 </tbody>

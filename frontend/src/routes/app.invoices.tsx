@@ -45,17 +45,24 @@ function InvoicesPage() {
   }, [viewing, stockMovementsQ.data]);
 
   const availableInventory = useMemo(() => {
-    const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number; value: number }>();
+    const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number; inQty: number; inValue: number }>();
     for (const r of (stockMovementsQ.data ?? []) as any[]) {
       const skuKey = r.sku || r.item_name;
       const k = `${skuKey}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(k) ?? { sku: r.sku || "", item_name: r.item_name, unit: r.unit || "unit", qty: 0, value: 0 };
+      const cur = m.get(k) ?? { sku: r.sku || "", item_name: r.item_name, unit: r.unit || "unit", qty: 0, inQty: 0, inValue: 0 };
       cur.qty += sign * Number(r.quantity);
-      cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
+      // Only stock-in movements contribute to inventory cost basis
+      if (r.direction === "in") {
+        cur.inQty += Number(r.quantity);
+        cur.inValue += Number(r.quantity) * Number(r.unit_cost ?? 0);
+      }
       m.set(k, cur);
     }
-    return [...m.values()].filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
+    return [...m.values()].map(c => {
+      const avgCost = c.inQty > 0 ? c.inValue / c.inQty : 0;
+      return { ...c, value: c.qty > 0 ? c.qty * avgCost : 0 };
+    }).filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
   }, [stockMovementsQ.data]);
 
   const debtorsQ = useQuery({
