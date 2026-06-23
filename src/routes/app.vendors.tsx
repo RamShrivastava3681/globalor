@@ -1,10 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Building2, Save, Trash2 } from "lucide-react";
+import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { Plus, X, Loader2, Building2, Save, Trash2, Eye, FileText, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/vendors")({
@@ -17,6 +17,7 @@ function VendorsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const vendorsQ = useQuery({
@@ -116,6 +117,9 @@ function VendorsPage() {
                       </td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(openFor(v.id))}</td>
                       <td className="px-5 py-3 text-right">
+                        <button onClick={() => setViewing(v)} className="mr-2 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary">
+                          <Eye className="mr-1 inline h-3 w-3" />View
+                        </button>
                         {canEdit && (
                           <>
                             <button onClick={() => openEdit(v)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
@@ -140,6 +144,14 @@ function VendorsPage() {
           editing={editing}
           onClose={() => { setOpen(false); setEditing(null); }}
           onCreated={() => qc.invalidateQueries({ queryKey: ["vendors"] })}
+        />
+      )}
+
+      {viewing && (
+        <VendorDetailModal
+          vendor={viewing}
+          invoices={((piQ.data ?? []).filter((p: any) => p.vendor_id === viewing.id))}
+          onClose={() => setViewing(null)}
         />
       )}
     </div>
@@ -226,6 +238,137 @@ function AddVendorModal({ editing, onClose, onCreated }: { editing: any | null; 
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
+    </div>
+  );
+}
+
+function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoices: any[]; onClose: () => void }) {
+  const totalAmount = invoices.reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const paidInvoices = invoices.filter((p: any) => p.status === "paid");
+  const totalPaid = paidInvoices.reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const openAP = invoices
+    .filter((p: any) => p.status !== "paid")
+    .reduce((s: number, p: any) => s + Number(p.amount), 0);
+  // Average payment days: for paid purchase invoices, days between issue_date and paid_date
+  const paymentDays = paidInvoices
+    .map((p: any) => p.issue_date && p.paid_date ? daysBetween(p.issue_date, p.paid_date) : null)
+    .filter((d: number | null): d is number => d !== null && d >= 0);
+  const avgPaymentDays = paymentDays.length > 0
+    ? Math.round(paymentDays.reduce((a, b) => a + b, 0) / paymentDays.length)
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <Building2 className="h-5 w-5 text-primary" />
+            <h3 className="font-display text-lg">{vendor.name}</h3>
+            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">{vendor.industry || "—"}</span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Vendor info summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Supplier details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+              <Detail label="Contact" value={vendor.contact_name || "—"} />
+              <Detail label="Email" value={vendor.contact_email || "—"} />
+              <Detail label="Phone" value={vendor.contact_phone || "—"} />
+              <Detail label="Website" value={vendor.website || "—"} />
+              {vendor.address_line && <Detail label="Address" value={[vendor.address_line, vendor.city, vendor.country].filter(Boolean).join(", ")} />}
+              <Detail label="City" value={vendor.city || "—"} />
+              <Detail label="Country" value={vendor.country || "—"} />
+            </div>
+          </div>
+
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <StatsCard label="Total invoices" value={String(invoices.length)} />
+            <StatsCard label="Total invoiced" value={fmtMoney(totalAmount)} />
+            <StatsCard label="Total paid" value={fmtMoney(totalPaid)} />
+            <StatsCard label="Avg payment days" value={avgPaymentDays != null ? `${avgPaymentDays}d` : "—"} />
+            <StatsCard label="Open AP" value={fmtMoney(openAP)} accent={openAP > 0 ? "text-warning" : ""} />
+          </div>
+
+          {/* Purchase invoices table */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <ShoppingCart className="mr-1 inline h-3.5 w-3.5" />Purchase invoices ({invoices.length})
+            </h4>
+            {invoices.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No purchase invoices linked to this supplier.</div>
+            ) : (
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Invoice</th>
+                      <th className="px-4 py-2 text-left font-normal">PO</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Issue</th>
+                      <th className="px-4 py-2 text-left font-normal">Due</th>
+                      <th className="px-4 py-2 text-left font-normal">Paid</th>
+                      <th className="px-4 py-2 text-right font-normal">Payment days</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.sort((a: any, b: any) => b.issue_date?.localeCompare(a.issue_date ?? "") ?? 0).map((p: any) => {
+                      const paymentDays = p.status === "paid" && p.issue_date && p.paid_date
+                        ? daysBetween(p.issue_date, p.paid_date)
+                        : null;
+                      return (
+                        <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-4 py-2.5">
+                            <Link to="/app/purchases" search={{ view: p.id }} className="font-mono text-xs text-primary hover:underline">
+                              {p.invoice_number}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground">{p.po_number || "—"}</td>
+                          <td className="px-4 py-2.5 text-right num">{fmtMoney(p.amount)}</td>
+                          <td className="px-4 py-2.5 text-sm">{fmtDate(p.issue_date)}</td>
+                          <td className="px-4 py-2.5 text-sm">{p.due_date ? fmtDate(p.due_date) : "—"}</td>
+                          <td className="px-4 py-2.5 text-sm">{p.status === "paid" ? fmtDate(p.paid_date) : "—"}</td>
+                          <td className={`px-4 py-2.5 text-right num ${paymentDays != null && paymentDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {paymentDays != null ? `${paymentDays}d` : "—"}
+                          </td>
+                          <td className="px-4 py-2.5"><StatusPill status={p.status} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatsCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/40 p-3">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-semibold num ${accent ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
     </div>
   );
 }

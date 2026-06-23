@@ -15,6 +15,75 @@ export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
 });
 
+const datePresets = [
+  {
+    label: "Today",
+    getRange: () => {
+      const today = new Date().toISOString().slice(0, 10);
+      return { from: today, to: today };
+    },
+  },
+  {
+    label: "This week",
+    getRange: () => {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const from = new Date(now);
+      from.setDate(now.getDate() - dayOfWeek);
+      const to = new Date(now);
+      to.setDate(from.getDate() + 6);
+      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+    },
+  },
+  {
+    label: "This month",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "Last month",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "This quarter",
+    getRange: () => {
+      const now = new Date();
+      const q = Math.floor(now.getMonth() / 3);
+      const from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), (q + 1) * 3, 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "Last quarter",
+    getRange: () => {
+      const now = new Date();
+      const q = Math.floor(now.getMonth() / 3);
+      const from = new Date(now.getFullYear(), (q - 1) * 3, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), q * 3, 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "This year",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), 11, 31).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+];
+
 function InvoicesPage() {
   const { view } = Route.useSearch();
   const navigate = useNavigate();
@@ -28,6 +97,8 @@ function InvoicesPage() {
   const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [issueDateFrom, setIssueDateFrom] = useState("");
+  const [issueDateTo, setIssueDateTo] = useState("");
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -120,7 +191,8 @@ function InvoicesPage() {
 
   const filtered = (invoicesQ.data ?? []).filter((i: any) => {
     if (filter !== "all" && i.status !== filter) return false;
-    if (!searchQuery.trim()) return true;
+    if (issueDateFrom && i.issue_date && i.issue_date < issueDateFrom) return false;
+    if (issueDateTo && i.issue_date && i.issue_date > issueDateTo) return false;
     const q = searchQuery.toLowerCase();
     return (
       i.invoice_number?.toLowerCase().includes(q) ||
@@ -161,6 +233,46 @@ function InvoicesPage() {
           ))}
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {datePresets.map((preset) => {
+            const range = preset.getRange();
+            const active = issueDateFrom === range.from && issueDateTo === range.to;
+            return (
+              <button key={preset.label} onClick={() => {
+                const r = preset.getRange();
+                setIssueDateFrom(r.from);
+                setIssueDateTo(r.to);
+              }}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}>
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
+            <input type="date" value={issueDateFrom}
+              onChange={(e) => setIssueDateFrom(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
+            <input type="date" value={issueDateTo}
+              onChange={(e) => setIssueDateTo(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          {(issueDateFrom || issueDateTo) && (
+            <button onClick={() => { setIssueDateFrom(""); setIssueDateTo(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline">
+              Clear dates
+            </button>
+          )}
+        </div>
         <div className="relative">
           <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
@@ -177,7 +289,9 @@ function InvoicesPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>                        <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                    <th className="px-5 py-2 text-left font-normal">Issue</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
@@ -209,6 +323,7 @@ function InvoicesPage() {
                         </td>
                         {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
                         <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>

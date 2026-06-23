@@ -97,12 +97,14 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
     const now = nowISO();
 
     const termsDays = parsed.payment_terms_days;
-    const due_date = parsed.due_date || (() => {
-      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
-      const d = new Date(base);
-      d.setDate(d.getDate() + termsDays);
-      return d.toISOString().slice(0, 10);
-    })();
+    const due_date = parsed.due_date !== null
+      ? (parsed.due_date || (() => {
+          const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+          const d = new Date(base);
+          d.setDate(d.getDate() + termsDays);
+          return d.toISOString().slice(0, 10);
+        })())
+      : null;
 
     const invoice: PurchaseInvoice = {
       id,

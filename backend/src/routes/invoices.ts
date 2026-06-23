@@ -107,7 +107,7 @@ const createInvoiceSchema = z.object({
   advance_rate: z.number().min(0).max(100).optional().default(0),
   fee_rate: z.number().min(0).optional().default(0),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
-  due_date: z.string().optional(),
+  due_date: z.string().nullable().optional(),
   payment_terms_days: z.number().min(0).optional().default(30),
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
@@ -132,12 +132,14 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const noa_token = generateNoaToken();
 
     const termsDays = parsed.payment_terms_days;
-    const dueDate = parsed.due_date || (() => {
-      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
-      const d = new Date(base);
-      d.setDate(d.getDate() + termsDays);
-      return d.toISOString().slice(0, 10);
-    })();
+    const dueDate = parsed.due_date !== null
+      ? (parsed.due_date || (() => {
+          const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+          const d = new Date(base);
+          d.setDate(d.getDate() + termsDays);
+          return d.toISOString().slice(0, 10);
+        })())
+      : null;
 
     const invoice: Invoice = {
       id,

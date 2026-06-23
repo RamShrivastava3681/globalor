@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tan
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -50,6 +50,7 @@ function AppLayout() {
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
+        { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : isChecker && !isAdmin
@@ -60,6 +61,7 @@ function AppLayout() {
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+        { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
@@ -75,6 +77,7 @@ function AppLayout() {
         { to: "/app/inventory", label: "Inventory", icon: Boxes },
         { to: "/app/debtors", label: "Debtors", icon: Building2 },
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
+        { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         ...(isAdmin ? [
           { to: "/app/admin", label: "Operations", icon: Shield },

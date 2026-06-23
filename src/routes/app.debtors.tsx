@@ -1,10 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert, Trash2 } from "lucide-react";
+import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/debtors")({
@@ -16,11 +16,17 @@ function DebtorsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-full"],
     queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  });
+
+  const invoicesQ = useQuery({
+    queryKey: ["invoices-for-debtors"],
+    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const remove = useMutation({
@@ -95,15 +101,20 @@ function DebtorsPage() {
                             <span className={`num text-xs ${riskTone}`}>{d.risk_score}</span>
                           </div>
                         </td>
-                        {canEdit && (
-                          <td className="px-5 py-3 text-right">
-                            <button onClick={() => { setEditing(d); setOpen(true); }} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
-                            <button onClick={() => { if (confirm(`Remove ${d.name}?`)) remove.mutate(d.id); }}
-                              className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        )}
+                        <td className="px-5 py-3 text-right">
+                          <button onClick={() => setViewing(d)} className="mr-2 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary">
+                            <Eye className="mr-1 inline h-3 w-3" />View
+                          </button>
+                          {canEdit && (
+                            <>
+                              <button onClick={() => { setEditing(d); setOpen(true); }} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
+                              <button onClick={() => { if (confirm(`Remove ${d.name}?`)) remove.mutate(d.id); }}
+                                className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -115,6 +126,14 @@ function DebtorsPage() {
       </div>
 
       {open && <DebtorFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} onDone={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
+
+      {viewing && (
+        <DebtorDetailModal
+          debtor={viewing}
+          invoices={(invoicesQ.data ?? []).filter((i: any) => i.debtor_id === viewing.id)}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -227,6 +246,135 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
+    </div>
+  );
+}
+
+function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoices: any[]; onClose: () => void }) {
+  const totalAmount = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
+  const paidInvoices = invoices.filter((i: any) => i.status === "paid");
+  const totalPaid = paidInvoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
+  const overdueCount = invoices.filter((i: any) => i.status === "overdue").length;
+
+  // Average payment days: for paid invoices, days between issue_date and paid_date
+  const paymentDays = paidInvoices
+    .map((i: any) => i.issue_date && i.paid_date ? daysBetween(i.paid_date, i.issue_date) : null)
+    .filter((d: number | null): d is number => d !== null && d >= 0);
+  const avgPaymentDays = paymentDays.length > 0
+    ? Math.round(paymentDays.reduce((a, b) => a + b, 0) / paymentDays.length)
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <Building2 className="h-5 w-5 text-primary" />
+            <h3 className="font-display text-lg">{debtor.name}</h3>
+            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">{debtor.industry || "—"}</span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Debtor info summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Debtor details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+              <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
+              <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
+              <Detail label="Contact" value={debtor.contact_name || "—"} />
+              <Detail label="Email" value={debtor.contact_email || "—"} />
+              {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
+              <Detail label="Phone" value={debtor.contact_phone || "—"} />
+              <Detail label="City" value={debtor.city || "—"} />
+              <Detail label="Country" value={debtor.country || "—"} />
+            </div>
+          </div>
+
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <StatsCard label="Total invoices" value={String(invoices.length)} />
+            <StatsCard label="Total invoiced" value={fmtMoney(totalAmount)} />
+            <StatsCard label="Total paid" value={fmtMoney(totalPaid)} />
+            <StatsCard label="Avg payment days" value={avgPaymentDays != null ? `${avgPaymentDays}d` : "—"} />
+            <StatsCard label="Overdue" value={String(overdueCount)} accent={overdueCount > 0 ? "text-destructive" : ""} />
+          </div>
+
+          {/* Invoices table */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <FileText className="mr-1 inline h-3.5 w-3.5" />Linked invoices ({invoices.length})
+            </h4>
+            {invoices.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No invoices linked to this debtor.</div>
+            ) : (
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Invoice</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Issue</th>
+                      <th className="px-4 py-2 text-left font-normal">Due</th>
+                      <th className="px-4 py-2 text-left font-normal">Paid</th>
+                      <th className="px-4 py-2 text-right font-normal">Payment days</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.sort((a: any, b: any) => b.issue_date?.localeCompare(a.issue_date ?? "") ?? 0).map((inv: any) => {
+                      const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
+                        ? daysBetween(inv.issue_date, inv.paid_date)
+                        : null;
+                      return (
+                        <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-4 py-2.5">
+                            <Link to="/app/invoices" search={{ view: inv.id }} className="font-mono text-xs text-primary hover:underline">
+                              {inv.invoice_number}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-2.5 text-right num">{fmtMoney(inv.amount)}</td>
+                          <td className="px-4 py-2.5 text-sm">{fmtDate(inv.issue_date)}</td>
+                          <td className="px-4 py-2.5 text-sm">{inv.due_date ? fmtDate(inv.due_date) : "—"}</td>
+                          <td className="px-4 py-2.5 text-sm">{inv.status === "paid" ? fmtDate(inv.paid_date) : "—"}</td>
+                          <td className={`px-4 py-2.5 text-right num ${paymentDays != null && paymentDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {paymentDays != null ? `${paymentDays}d` : "—"}
+                          </td>
+                          <td className="px-4 py-2.5"><StatusPill status={inv.status} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatsCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/40 p-3">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-semibold num ${accent ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
     </div>
   );
 }

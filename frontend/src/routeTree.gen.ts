@@ -29,6 +29,7 @@ import { Route as AppCheckerRouteImport } from './routes/app.checker'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
+import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -130,6 +131,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
+  id: '/credit-debit-notes',
+  path: '/credit-debit-notes',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
@@ -161,6 +168,7 @@ export interface FileRoutesByTo {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
@@ -184,6 +192,7 @@ export interface FileRoutesById {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/checker'
+    | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/expenses'
@@ -230,6 +240,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/checker'
+    | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/expenses'
@@ -252,6 +263,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/checker'
+    | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/expenses'
@@ -416,6 +428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/credit-debit-notes': {
+      id: '/app/credit-debit-notes'
+      path: '/credit-debit-notes'
+      fullPath: '/app/credit-debit-notes'
+      preLoaderRoute: typeof AppCreditDebitNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -424,6 +443,7 @@ interface AppRouteChildren {
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
   AppCheckerRoute: typeof AppCheckerRoute
+  AppCreditDebitNotesRoute: typeof AppCreditDebitNotesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDebtorsRoute: typeof AppDebtorsRoute
   AppExpensesRoute: typeof AppExpensesRoute
@@ -443,6 +463,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
   AppCheckerRoute: AppCheckerRoute,
+  AppCreditDebitNotesRoute: AppCreditDebitNotesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDebtorsRoute: AppDebtorsRoute,
   AppExpensesRoute: AppExpensesRoute,
