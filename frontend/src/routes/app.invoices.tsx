@@ -308,6 +308,13 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
   const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
 
+  const [hasDueDate, setHasDueDate] = useState(() => {
+    if (editing?.due_date) return true;
+    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
+    return !!base;
+  });
+
   const filteredInv = useMemo(() => {
     if (!invSearch.trim() || !availableInventory) return [];
     const q = invSearch.toLowerCase();
@@ -356,7 +363,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
         amount: Number(form.amount),
         fee_rate: 0,
         issue_date: form.issue_date,
-        due_date: effectiveDue,
+        due_date: hasDueDate ? effectiveDue : null,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
@@ -459,7 +466,20 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
-              <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={hasDueDate} onChange={(e) => {
+                    const v = e.target.checked;
+                    setHasDueDate(v);
+                    if (!v) setForm({ ...form, due_date: "" });
+                    else setForm({ ...form, due_date: computedDue });
+                  }} />
+                  Enable due date
+                </label>
+                {hasDueDate && (
+                  <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+                )}
+              </div>
             </Field>
           </div>
 
