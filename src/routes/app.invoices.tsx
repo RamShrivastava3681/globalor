@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -197,10 +197,14 @@ function InvoicesPage() {
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
-                          {i.purchase && (
-                            <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-                              <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
-                            </Link>
+                                          {(i.purchases ?? []).length > 0 && (
+                            <div className="mt-0.5 space-y-0.5">
+                              {(i.purchases ?? []).map((p: any) => (
+                                <Link key={p.id} to="/app/purchases" search={{ view: p.id }} className="flex items-center gap-1 text-[10px] text-primary hover:underline">
+                                  <Link2 className="h-2.5 w-2.5" /> {p.invoice_number} · {p.vendor?.name ?? ""}
+                                </Link>
+                              ))}
+                            </div>
                           )}
                         </td>
                         {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
@@ -301,12 +305,24 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     due_date_source: editing?.due_date_source ?? "invoice",
     po_number: editing?.po_number ?? "",
     po_date: editing?.po_date ?? "",
-    purchase_invoice_id: editing?.purchase_invoice_id ?? "",
+    purchase_invoice_ids: editing?.purchase_invoice_ids ?? [],
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
   const [invEnabled, setInvEnabled] = useState(false);
   const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
+  const [debtorSearch, setDebtorSearch] = useState("");
+  const [debtorOpen, setDebtorOpen] = useState(false);
+  const [piSearch, setPiSearch] = useState("");
+  const [piOpen, setPiOpen] = useState(false);
+  const [hasDueDate, setHasDueDate] = useState(() => {
+    if (editing?.due_date) return true;
+    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
+    return !!base;
+  });
+  const debtorRef = useRef<HTMLDivElement>(null);
+  const piRef = useRef<HTMLDivElement>(null);
 
   const filteredInv = useMemo(() => {
     if (!invSearch.trim() || !availableInventory) return [];
@@ -337,6 +353,20 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     }
   }, [poLookupQ.data]);
 
+  // Close debtor dropdown on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (debtorRef.current && !debtorRef.current.contains(e.target as Node)) setDebtorOpen(false); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  // Close purchase invoice dropdown on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (piRef.current && !piRef.current.contains(e.target as Node)) setPiOpen(false); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
   const termsDays = Number(form.payment_terms_days) || 30;
   const computedDue = (() => {
     const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
@@ -356,13 +386,13 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
         amount: Number(form.amount),
         fee_rate: 0,
         issue_date: form.issue_date,
-        due_date: effectiveDue,
+        due_date: hasDueDate ? effectiveDue : null,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
-        purchase_invoice_id: form.purchase_invoice_id || null,
+        purchase_invoice_ids: form.purchase_invoice_ids,
         documents: docs,
       };
       if (!editing && invEnabled) {
@@ -458,13 +488,39 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           )}
 
           <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-          <Field label="Debtor">
-            <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-              <option value="">Select debtor</option>
-              {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+          <Field label="Debtor *">
+            <div className="relative" ref={debtorRef}>
+              {form.debtor_id ? (
+                <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                  <span className="text-sm truncate">{debtors.find((d: any) => d.id === form.debtor_id)?.name ?? "Unknown"}</span>
+                  <button type="button" onClick={() => { setForm({ ...form, debtor_id: "" }); setDebtorSearch(""); }} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Clear">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input className="inp" placeholder="Search debtors…" value={debtorSearch}
+                    onChange={(e) => { setDebtorSearch(e.target.value); setDebtorOpen(true); }}
+                    onFocus={() => setDebtorOpen(true)} />
+                  {debtorOpen && debtorSearch.trim() && (
+                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                      {debtors.filter((d: any) => d.name?.toLowerCase().includes(debtorSearch.toLowerCase())).length === 0 ? (
+                        <div className="p-3 text-xs text-muted-foreground">No matching debtors.</div>
+                      ) : (
+                        debtors.filter((d: any) => d.name?.toLowerCase().includes(debtorSearch.toLowerCase())).slice(0, 20).map((d: any) => (
+                          <button key={d.id} type="button" onClick={() => { setForm({ ...form, debtor_id: d.id }); setDebtorSearch(""); setDebtorOpen(false); }}
+                            className="flex w-full items-center px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors text-left">
+                            {d.name}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </Field>
-          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
             <Field label="BL date">
@@ -484,18 +540,80 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
-              <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={hasDueDate} onChange={(e) => {
+                    const v = e.target.checked;
+                    setHasDueDate(v);
+                    if (!v) setForm({ ...form, due_date: "" });
+                    else setForm({ ...form, due_date: computedDue });
+                  }} />
+                  Enable due date
+                </label>
+                {hasDueDate && (
+                  <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+                )}
+              </div>
             </Field>
           </div>
 
           {!editing && (
-            <Field label="Link to purchase invoice (optional)">
-              <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-                <option value="">— No link —</option>
-                {purchases.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
-                ))}
-              </select>
+            <Field label="Link to purchase invoices (optional)">
+              <div className="space-y-2">
+                {/* Selected chips */}
+                {form.purchase_invoice_ids.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.purchase_invoice_ids.map((piId: string) => {
+                      const pi = purchases.find((p: any) => p.id === piId);
+                      return (
+                        <span key={piId} className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px]">
+                          <span className="font-mono truncate max-w-[120px]">{pi?.invoice_number ?? piId.slice(0, 8)}</span>
+                          {pi && <span className="text-muted-foreground">{fmtMoney(pi.amount)}</span>}
+                          <button type="button" onClick={() => setForm({ ...form, purchase_invoice_ids: form.purchase_invoice_ids.filter((id: string) => id !== piId) })}
+                            className="text-muted-foreground hover:text-destructive" aria-label="Remove">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Search + dropdown */}
+                <div className="relative" ref={piRef}>
+                  <input className="inp" placeholder="Search purchase invoices…" value={piSearch}
+                    onChange={(e) => { setPiSearch(e.target.value); setPiOpen(true); }}
+                    onFocus={() => setPiOpen(true)} />
+                  {piOpen && piSearch.trim() && (
+                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                      {purchases.filter((p: any) => p.invoice_number?.toLowerCase().includes(piSearch.toLowerCase())).length === 0 ? (
+                        <div className="p-3 text-xs text-muted-foreground">No matching purchase invoices.</div>
+                      ) : (
+                        purchases.filter((p: any) => p.invoice_number?.toLowerCase().includes(piSearch.toLowerCase())).slice(0, 20).map((p: any) => {
+                          const alreadySelected = form.purchase_invoice_ids.includes(p.id);
+                          return (
+                            <button key={p.id} type="button"
+                              onClick={() => {
+                                if (alreadySelected) {
+                                  setForm({ ...form, purchase_invoice_ids: form.purchase_invoice_ids.filter((id: string) => id !== p.id) });
+                                } else {
+                                  setForm({ ...form, purchase_invoice_ids: [...form.purchase_invoice_ids, p.id] });
+                                }
+                                setPiSearch("");
+                              }}
+                              className={`flex w-full items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors ${alreadySelected ? "bg-primary/5" : ""}`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                {alreadySelected && <span className="text-primary shrink-0">✓</span>}
+                                <span className="font-mono truncate">{p.invoice_number}</span>
+                              </div>
+                              <span className="num text-muted-foreground shrink-0 ml-2">{fmtMoney(p.amount)}</span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </Field>
           )}
           {!editing && (
@@ -554,10 +672,10 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Qty to sell *">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
                         </Field>
                         <Field label="Unit cost (selling price)">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
                         </Field>
                       </div>
                     </div>
@@ -597,7 +715,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
   const debtor = invoice.debtor;
-  const purchase = invoice.purchase;
+  const purchases = invoice.purchases;
   const openDoc = async (d: DocMeta) => {
     try {
       const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
@@ -683,25 +801,37 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             </div>
           )}
 
-          {/* Linked purchase invoice / supplier */}
-          {purchase && (
+          {/* Linked purchase invoices / suppliers */}
+          {purchases && purchases.length > 0 && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked purchase invoice
+                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked purchase invoices ({purchases.length})
               </h4>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
-                <Detail label="Invoice #" value={purchase.invoice_number} />
-                <Detail label="Amount" value={fmtMoney(purchase.amount)} />
-                <Detail label="Status" value={purchase.status} />
-                {purchase.vendor && (
-                  <>
-                    <Detail label="Supplier" value={purchase.vendor.name} />
-                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "—"} />
-                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
-                  </>
-                )}
-                {purchase.due_date && <Detail label="Due date" value={fmtDate(purchase.due_date)} />}
-                {purchase.po_number && <Detail label="PO number" value={purchase.po_number} />}
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-4 py-2 text-left font-normal">Invoice #</th>
+                      <th className="px-4 py-2 text-left font-normal">Supplier</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Due</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchases.map((p: any) => (
+                      <tr key={p.id} className="border-b border-border/60">
+                        <td className="px-4 py-2.5 font-mono text-xs">
+                          <Link to="/app/purchases" search={{ view: p.id }} className="text-primary hover:underline">{p.invoice_number}</Link>
+                        </td>
+                        <td className="px-4 py-2.5">{p.vendor?.name ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-4 py-2.5">{p.due_date ? fmtDate(p.due_date) : "—"}</td>
+                        <td className="px-4 py-2.5"><StatusPill status={p.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

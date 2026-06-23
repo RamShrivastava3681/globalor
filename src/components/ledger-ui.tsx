@@ -66,12 +66,20 @@ export function StatusPill({ status }: { status: string }) {
 
 export function fmtMoney(n: number | string | null | undefined) {
   const v = Number(n ?? 0);
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
 }
 
 export function fmtDate(d: string | null | undefined) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function fmtDateTime(d: string | null | undefined) {
+  if (!d) return "—";
+  return new Date(d).toLocaleString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
 }
 
 export function daysBetween(a: string, b: string = new Date().toISOString()) {

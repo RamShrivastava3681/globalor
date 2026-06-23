@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Supplier } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -75,6 +76,15 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
     };
 
     await putItem(TABLES.SUPPLIERS, supplier as any);
+
+    // Create activity alert
+    createActivityAlert({
+      client_id: req.user!.id,
+      type: "supplier_created",
+      severity: "info",
+      message: `Factor supplier "${parsed.company_name}" added to the system`,
+    });
+
     res.status(201).json(supplier);
   } catch (err) {
     if (err instanceof z.ZodError) {

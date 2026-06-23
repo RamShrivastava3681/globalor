@@ -12,14 +12,20 @@ const router = Router();
 async function enrichInvoice(inv: Invoice) {
   const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
   const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
-  let purchase: (PurchaseInvoice & { vendor?: Vendor }) | undefined;
-  if (inv.purchase_invoice_id) {
-    purchase = await getItem(TABLES.PURCHASE_INVOICES, { id: inv.purchase_invoice_id }) as any;
-    if (purchase?.vendor_id) {
-      purchase.vendor = await getItem(TABLES.VENDORS, { id: purchase.vendor_id }) as Vendor | undefined;
-    }
+  let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+  if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+    const results = await Promise.all(
+      inv.purchase_invoice_ids.map(async (piId) => {
+        const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as any;
+        if (pi?.vendor_id) {
+          pi.vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+        }
+        return pi;
+      }),
+    );
+    purchases = results.filter(Boolean);
   }
-  return { ...inv, debtor, client, purchase };
+  return { ...inv, debtor, client, purchases };
 }
 
 // ── Helper: enrich a purchase invoice with vendor ──

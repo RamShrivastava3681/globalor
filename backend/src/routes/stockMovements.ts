@@ -10,6 +10,7 @@ import {
 import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -79,6 +80,16 @@ router.post("/", requireAuth, requireWriteAccess("stock-movements"), async (req:
     };
 
     await putItem(TABLES.STOCK_MOVEMENTS, movement as any);
+
+    // Create activity alert
+    const directionLabel = parsed.direction === "in" ? "Stock-in" : "Stock-out";
+    createActivityAlert({
+      client_id: req.user!.id,
+      type: "stock_movement_created",
+      severity: "info",
+      message: `${directionLabel}: ${parsed.quantity} ${parsed.unit} of "${parsed.item_name}"${parsed.sku ? ` (${parsed.sku})` : ""} recorded`,
+    });
+
     res.status(201).json(movement);
   } catch (err) {
     if (err instanceof z.ZodError) {

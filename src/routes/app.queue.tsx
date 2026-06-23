@@ -404,7 +404,7 @@ function FundProformaModal({ row, onClose, onSubmit }: { row: Row; onClose: () =
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount ({row.currency ?? "USD"}) *</span>
-            <input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
+            <input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Date *</span>
@@ -441,7 +441,7 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount received</span>
-            <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
+            <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="w-full rounded-md border border-border bg-background p-2" value={amt} onChange={(e) => setAmt(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Receipt date</span>

@@ -313,7 +313,7 @@ function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () =
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} /></L>
         <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
-        <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+        <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
         <L label="Notes"><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
         <Actions onClose={onClose} pending={save.isPending} label="Save changes" />
       </form>
@@ -383,7 +383,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
           </select>
         </L>
         <div className="grid grid-cols-2 gap-3">
-          <L label={`Advance amount * (${form.currency})`}><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+          <L label={`Advance amount * (${form.currency})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
           <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         </div>
         <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>

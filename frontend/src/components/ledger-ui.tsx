@@ -66,7 +66,7 @@ export function StatusPill({ status }: { status: string }) {
 
 export function fmtMoney(n: number | string | null | undefined) {
   const v = Number(n ?? 0);
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
 }
 
 export function fmtDate(d: string | null | undefined) {

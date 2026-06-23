@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -317,7 +317,7 @@ function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () =
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} /></L>
         <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
-        <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+        <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
         <L label="Notes"><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
         <Actions onClose={onClose} pending={save.isPending} label="Save changes" />
       </form>
@@ -342,6 +342,9 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
     party_id: "", amount: "", currency: "USD", notes: "",
   });
   const [docs, setDocs] = useState<DocMeta[]>([]);
+  const [partySearch, setPartySearch] = useState("");
+  const [partyOpen, setPartyOpen] = useState(false);
+  const partyRef = useRef<HTMLDivElement>(null);
 
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
@@ -350,6 +353,13 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
       return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
+
+  // Close party dropdown on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (partyRef.current && !partyRef.current.contains(e.target as Node)) setPartyOpen(false); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -381,13 +391,39 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
         <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
         <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
-          <select required className="inp" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
-            <option value="">Select…</option>
-            {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <div className="relative" ref={partyRef}>
+            {form.party_id ? (
+              <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                <span className="text-sm truncate">{(partiesQ.data ?? []).find((p: any) => p.id === form.party_id)?.name ?? "Unknown"}</span>
+                <button type="button" onClick={() => { setForm({ ...form, party_id: "" }); setPartySearch(""); }} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Clear">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <input className="inp" placeholder={side === "sales" ? "Search debtors…" : "Search suppliers…"} value={partySearch}
+                  onChange={(e) => { setPartySearch(e.target.value); setPartyOpen(true); }}
+                  onFocus={() => setPartyOpen(true)} />
+                {partyOpen && partySearch.trim() && (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                    {(partiesQ.data ?? []).filter((p: any) => p.name?.toLowerCase().includes(partySearch.toLowerCase())).length === 0 ? (
+                      <div className="p-3 text-xs text-muted-foreground">No matching {side === "sales" ? "debtors" : "suppliers"}.</div>
+                    ) : (
+                      (partiesQ.data ?? []).filter((p: any) => p.name?.toLowerCase().includes(partySearch.toLowerCase())).slice(0, 20).map((p: any) => (
+                        <button key={p.id} type="button" onClick={() => { setForm({ ...form, party_id: p.id }); setPartySearch(""); setPartyOpen(false); }}
+                          className="flex w-full items-center px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors text-left">
+                          {p.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </L>
         <div className="grid grid-cols-2 gap-3">
-          <L label={`Advance amount * (${form.currency})`}><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+          <L label={`Advance amount * (${form.currency})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
           <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         </div>
         <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>

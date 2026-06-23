@@ -273,8 +273,8 @@ function SuppliersPage() {
               {/* ── Terms ── */}
               <Section title="Terms">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <F label="Advance rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.8)" className="inp" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} /></F>
-                  <F label="Fee rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a decimal between 0 and 1 (e.g. 0.025)" className="inp" value={form.fee_rate} onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} /></F>
+                  <F label="Advance rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a decimal between 0 and 1 (e.g. 0.8)" className="inp" value={form.advance_rate} onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} /></F>
+                  <F label="Fee rate (0–1)"><input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a decimal between 0 and 1 (e.g. 0.025)" className="inp" value={form.fee_rate} onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} /></F>
                   <F label="Notes" full><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></F>
                 </div>
               </Section>

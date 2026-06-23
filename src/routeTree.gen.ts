@@ -29,6 +29,7 @@ import { Route as AppCheckerRouteImport } from './routes/app.checker'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
+import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -130,6 +131,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
+  id: '/credit-debit-notes',
+  path: '/credit-debit-notes',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/noa/$token': typeof NoaTokenRoute
 }
 export interface FileRoutesByTo {
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/noa/$token': typeof NoaTokenRoute
 }
 export interface FileRoutesById {
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/noa/$token': typeof NoaTokenRoute
 }
 export interface FileRouteTypes {
@@ -220,6 +229,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
+    | '/app/credit-debit-notes'
     | '/noa/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -242,6 +252,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
+    | '/app/credit-debit-notes'
     | '/noa/$token'
   id:
     | '__root__'
@@ -264,6 +275,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
+    | '/app/credit-debit-notes'
     | '/noa/$token'
   fileRoutesById: FileRoutesById
 }
@@ -416,6 +428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/credit-debit-notes': {
+      id: '/app/credit-debit-notes'
+      path: '/credit-debit-notes'
+      fullPath: '/app/credit-debit-notes'
+      preLoaderRoute: typeof AppCreditDebitNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -424,6 +443,7 @@ interface AppRouteChildren {
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
   AppCheckerRoute: typeof AppCheckerRoute
+  AppCreditDebitNotesRoute: typeof AppCreditDebitNotesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDebtorsRoute: typeof AppDebtorsRoute
   AppExpensesRoute: typeof AppExpensesRoute
@@ -443,6 +463,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
   AppCheckerRoute: AppCheckerRoute,
+  AppCreditDebitNotesRoute: AppCreditDebitNotesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDebtorsRoute: AppDebtorsRoute,
   AppExpensesRoute: AppExpensesRoute,

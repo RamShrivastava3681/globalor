@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Vendor } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -68,6 +69,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     };
 
     await putItem(TABLES.VENDORS, vendor as any);
+
+    // Create activity alert
+    createActivityAlert({
+      client_id: req.user!.id,
+      type: "vendor_created",
+      severity: "info",
+      message: `Supplier "${parsed.name}" added to the vendor list`,
+    });
+
     res.status(201).json(vendor);
   } catch (err) {
     if (err instanceof z.ZodError) {

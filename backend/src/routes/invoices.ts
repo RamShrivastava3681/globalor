@@ -15,6 +15,7 @@ import { config } from "../config.js";
 import { sendNoaEmail } from "../utils/email.js";
 import type { Invoice, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -28,14 +29,20 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (inv) => {
         const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
         const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
-        let purchase: (PurchaseInvoice & { vendor?: Vendor }) | undefined;
-        if (inv.purchase_invoice_id) {
-          purchase = await getItem(TABLES.PURCHASE_INVOICES, { id: inv.purchase_invoice_id }) as any;
-          if (purchase?.vendor_id) {
-            purchase.vendor = await getItem(TABLES.VENDORS, { id: purchase.vendor_id }) as Vendor | undefined;
-          }
+        let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+        if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+          const results = await Promise.all(
+            inv.purchase_invoice_ids.map(async (piId) => {
+              const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
+              if (pi?.vendor_id) {
+                (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+              }
+              return pi;
+            }),
+          );
+          purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
         }
-        return { ...inv, debtor, client, purchase };
+        return { ...inv, debtor, client, purchases };
       }),
     );
 
@@ -64,26 +71,28 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── GET /api/invoices/by-purchase/:purchaseInvoiceId ──
 router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES, {
-      filterExpression: "purchase_invoice_id = :piid",
-      expressionAttributeValues: { ":piid": req.params.purchaseInvoiceId },
-    });
+    const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.purchaseInvoiceId }) as PurchaseInvoice | undefined;
+    if (!pi || !pi.linked_sales_invoice_ids || pi.linked_sales_invoice_ids.length === 0) {
+      res.json([]);
+      return;
+    }
 
-    const enriched = await Promise.all(
-      invoices.map(async (inv) => {
+    const invoices = await Promise.all(
+      pi.linked_sales_invoice_ids.map(async (invId) => {
+        const inv = await getItem(TABLES.INVOICES, { id: invId }) as Invoice | undefined;
+        if (!inv) return null;
         const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
         return {
           id: inv.id,
           invoice_number: inv.invoice_number,
           amount: inv.amount,
           status: inv.status,
-          purchase_invoice_id: inv.purchase_invoice_id,
           debtor: debtor ? { name: debtor.name } : undefined,
         };
       }),
     );
 
-    res.json(enriched);
+    res.json(invoices.filter(Boolean));
   } catch (err) {
     console.error("Get invoices by purchase error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -104,7 +113,7 @@ const createInvoiceSchema = z.object({
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
-  purchase_invoice_id: z.string().nullable().optional(),
+  purchase_invoice_ids: z.array(z.string()).optional().default([]),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
     item_name: z.string().min(1),
@@ -155,7 +164,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       noa_comments: null,
       po_number: parsed.po_number || null,
       po_date: parsed.po_date || null,
-      purchase_invoice_id: parsed.purchase_invoice_id || null,
+      purchase_invoice_ids: parsed.purchase_invoice_ids || [],
       purchase_order_id: null,
       payment_terms_days: parsed.payment_terms_days,
       bl_date: parsed.bl_date || null,
@@ -214,6 +223,17 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
         await putItem(TABLES.STOCK_MOVEMENTS, movement as any);
       }
     }
+
+    // Create activity alert
+    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
+    createActivityAlert({
+      client_id: req.user!.id,
+      debtor_id: parsed.debtor_id,
+      invoice_id: id,
+      type: "invoice_created",
+      severity: "info",
+      message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${debtor ? ` — ${debtor.name}` : ""}`,
+    });
 
     res.status(201).json(invoice);
   } catch (err) {

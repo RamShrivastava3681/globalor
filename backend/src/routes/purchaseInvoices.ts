@@ -11,8 +11,9 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseInvoice, Vendor, Profile, DocMeta } from "../types/index.js";
+import type { PurchaseInvoice, Vendor, Profile, Debtor, DocMeta } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -25,7 +26,21 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (pi) => {
         const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
         const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
-        return { ...pi, vendor, client };
+        // Enrich linked sales invoices
+        let linkedSales: any[] | undefined;
+        if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
+          const results = await Promise.all(
+            pi.linked_sales_invoice_ids.map(async (sId) => {
+              const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
+              if (si?.debtor_id) {
+                si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+              }
+              return si;
+            }),
+          );
+          linkedSales = results.filter(Boolean);
+        }
+        return { ...pi, vendor, client, linkedSales };
       }),
     );
 
@@ -64,6 +79,7 @@ const createSchema = z.object({
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   notes: z.string().nullable().optional(),
+  linked_sales_invoice_ids: z.array(z.string()).optional().default([]),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
     item_name: z.string().min(1),
@@ -109,6 +125,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       status: "pending",
       documents: parsed.documents as DocMeta[],
       purchase_order_id: null,
+      linked_sales_invoice_ids: parsed.linked_sales_invoice_ids || [],
       created_at: now,
       updated_at: now,
     };
@@ -162,6 +179,15 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
         await putItem(TABLES.STOCK_MOVEMENTS, movement as any);
       }
     }
+
+    // Create activity alert
+    const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
+    createActivityAlert({
+      client_id: req.user!.id,
+      type: "purchase_invoice_created",
+      severity: "info",
+      message: `Purchase invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${vendor ? ` — ${vendor.name}` : ""}`,
+    });
 
     res.status(201).json(invoice);
   } catch (err) {

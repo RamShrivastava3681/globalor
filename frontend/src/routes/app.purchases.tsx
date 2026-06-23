@@ -451,7 +451,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </L>
-            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
             <L label="BL date"><input type="date" className="inp" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} /></L>
             <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></L>
@@ -499,13 +499,13 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
                           <input className="inp" value={item.sku} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, sku: e.target.value } : it))} />
                         </L>
                         <L label="Quantity *">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
                         </L>
                         <L label="Unit">
                           <input className="inp" value={item.unit} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit: e.target.value } : it))} />
                         </L>
                         <L label="Unit cost">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
                         </L>
                       </div>
                     </div>

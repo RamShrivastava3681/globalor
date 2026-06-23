@@ -284,7 +284,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
             </L>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <L label="Amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Amount *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Date"><input required type="date" className="inp" value={form.advance_date} onChange={(e) => setForm({ ...form, advance_date: e.target.value })} /></L>
           </div>
           <L label="Reference (txn id / cheque #)"><input className="inp" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></L>

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
-import { PageHeader, Card, fmtDate } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtDateTime } from "@/components/ledger-ui";
 import { BellRing, Check } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,7 +52,7 @@ function AlertsPage() {
                   <div className="flex-1">
                     <div className="text-sm">{a.message}</div>
                     <div className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {a.type} · {a.severity} · {fmtDate(a.created_at)}
+                      {a.type.replace(/_/g, " ")} · {a.severity} · {fmtDateTime(a.created_at)}
                     </div>
                   </div>
                   {!a.is_read && (

@@ -1,7 +1,7 @@
 // ── Enums ──
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertType = "overdue" | "credit_limit" | "risk_change" | "large_invoice" | "payment_received";
+export type AlertType = "overdue" | "credit_limit" | "risk_change" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created";
 export type InvoiceStatus = "pending" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 export type NoaStatus = "not_sent" | "sent" | "accepted" | "rejected" | "commented";
 export type PurchaseInvoiceStatus = "pending" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded";
@@ -139,7 +139,7 @@ export interface Invoice {
   noa_comments: string | null;
   po_number: string | null;
   po_date: string | null;
-  purchase_invoice_id: string | null;
+  purchase_invoice_ids: string[];
   purchase_order_id: string | null;
   payment_terms_days: number;
   bl_date: string | null;
@@ -168,6 +168,7 @@ export interface PurchaseInvoice {
   status: PurchaseInvoiceStatus;
   documents: DocMeta[];
   purchase_order_id: string | null;
+  linked_sales_invoice_ids: string[];
   payment_terms_days: number;
   bl_date: string | null;
   due_date_source: "invoice" | "bl";
@@ -280,7 +281,7 @@ export interface JwtPayload {
 export interface InvoiceWithRelations extends Invoice {
   debtor?: Debtor;
   client?: Profile;
-  purchase?: PurchaseInvoice & { vendor?: Vendor };
+  purchases?: (PurchaseInvoice & { vendor?: Vendor })[];
 }
 
 export interface PurchaseInvoiceWithVendor extends PurchaseInvoice {

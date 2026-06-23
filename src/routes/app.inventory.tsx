@@ -258,9 +258,9 @@ function NewMovementModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <L label="Item name *"><input required className="inp" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} /></L>
             <L label="SKU"><input className="inp" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></L>
-            <L label="Quantity *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
+            <L label="Quantity *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 10.5)" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
             <L label="Unit"><input className="inp" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="kg / box / unit" /></L>
-            <L label="Unit cost"><input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
+            <L label="Unit cost"><input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 49.99)" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
             <L label="Date"><input required type="date" className="inp" value={form.movement_date} onChange={(e) => setForm({ ...form, movement_date: e.target.value })} /></L>
           </div>
           {form.direction === "in" ? (

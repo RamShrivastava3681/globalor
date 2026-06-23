@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Debtor } from "../types/index.js";
+import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
@@ -84,6 +85,16 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
     };
 
     await putItem(TABLES.DEBTORS, debtor as any);
+
+    // Create activity alert
+    createActivityAlert({
+      client_id: req.user!.id,
+      debtor_id: id,
+      type: "debtor_created",
+      severity: "info",
+      message: `Debtor "${parsed.name}" added to the ledger`,
+    });
+
     res.status(201).json(debtor);
   } catch (err) {
     if (err instanceof z.ZodError) {

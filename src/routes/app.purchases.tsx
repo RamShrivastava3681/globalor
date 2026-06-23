@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -40,8 +40,8 @@ function PurchasesPage() {
   });
 
   const salesQ = useQuery({
-    queryKey: ["invoices-by-pi"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    queryKey: ["invoices-mini"],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
   });
 
   const stockMovementsQ = useQuery({
@@ -54,7 +54,11 @@ function PurchasesPage() {
     return (stockMovementsQ.data ?? []).filter((m: any) => m.purchase_invoice_id === viewing.id);
   }, [viewing, stockMovementsQ.data]);
 
-  const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
+  const linkedSales = (piId: string) => {
+    // Use enriched linkedSales from the API, or fall back to filtering when not available
+    const pi = (piQ.data ?? []).find((p: any) => p.id === piId);
+    return pi?.linkedSales ?? [];
+  };
 
   // Auto-open detail modal when navigating from a linked invoice
   useEffect(() => {
@@ -291,6 +295,20 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
   const [invEnabled, setInvEnabled] = useState(false);
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
+  const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorOpen, setVendorOpen] = useState(false);
+  const vendorRef = useRef<HTMLDivElement>(null);
+  const [linkedSalesIds, setLinkedSalesIds] = useState<string[]>(editing?.linked_sales_invoice_ids ?? []);
+  const [salesSearch, setSalesSearch] = useState("");
+  const [salesOpen, setSalesOpen] = useState(false);
+  const salesRef = useRef<HTMLDivElement>(null);
+
+  const [hasDueDate, setHasDueDate] = useState(() => {
+    if (editing?.due_date) return true;
+    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
+    return !!base;
+  });
 
   const poLookupQ = useQuery({
     queryKey: ["po-lookup-purchase", form.po_number],
@@ -313,7 +331,26 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
     }
   }, [poLookupQ.data]);
 
+  // Close vendor dropdown on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (vendorRef.current && !vendorRef.current.contains(e.target as Node)) setVendorOpen(false); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
+
+  // Close sales invoices dropdown on outside click
+  useEffect(() => {
+    const handle = (e: MouseEvent) => { if (salesRef.current && !salesRef.current.contains(e.target as Node)) setSalesOpen(false); };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  const salesInvoicesQ = useQuery({
+    queryKey: ["sales-invoices-mini"],
+    queryFn: async () => (await api.get<any[]>("/invoices/mini")) ?? [],
+  });
 
   const termsDays = Number(form.payment_terms_days) || 30;
   const computedDue = (() => {
@@ -337,7 +374,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         issue_date: form.issue_date,
-        due_date: effectiveDue || null,
+        due_date: hasDueDate ? effectiveDue : null,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
@@ -356,6 +393,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
           }));
         }
       }
+      payload.linked_sales_invoice_ids = linkedSalesIds;
       if (editing) {
         await api.patch(`/purchase-invoices/${editing.id}`, payload);
       } else {
@@ -422,12 +460,38 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
           <div className="grid gap-3 md:grid-cols-2">
             <L label="Invoice number *"><input required maxLength={80} className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} /></L>
             <L label="Supplier *">
-              <select required className="inp" value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}>
-                <option value="">Select supplier</option>
-                {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
+              <div className="relative" ref={vendorRef}>
+                {form.vendor_id ? (
+                  <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                    <span className="text-sm truncate">{vendors.find((v: any) => v.id === form.vendor_id)?.name ?? "Unknown"}</span>
+                    <button type="button" onClick={() => { setForm({ ...form, vendor_id: "" }); setVendorSearch(""); }} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Clear">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input className="inp" placeholder="Search suppliers…" value={vendorSearch}
+                      onChange={(e) => { setVendorSearch(e.target.value); setVendorOpen(true); }}
+                      onFocus={() => setVendorOpen(true)} />
+                    {vendorOpen && vendorSearch.trim() && (
+                      <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                        {vendors.filter((v: any) => v.name?.toLowerCase().includes(vendorSearch.toLowerCase())).length === 0 ? (
+                          <div className="p-3 text-xs text-muted-foreground">No matching suppliers.</div>
+                        ) : (
+                          vendors.filter((v: any) => v.name?.toLowerCase().includes(vendorSearch.toLowerCase())).slice(0, 20).map((v: any) => (
+                            <button key={v.id} type="button" onClick={() => { setForm({ ...form, vendor_id: v.id }); setVendorSearch(""); setVendorOpen(false); }}
+                              className="flex w-full items-center px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors text-left">
+                              {v.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </L>
-            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
             <L label="BL date"><input type="date" className="inp" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} /></L>
             <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></L>
@@ -437,10 +501,83 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
                 <option value="bl">From BL date</option>
               </select>
             </L>
-            <L label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}><input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></L>
+            <L label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={hasDueDate} onChange={(e) => {
+                    const v = e.target.checked;
+                    setHasDueDate(v);
+                    if (!v) setForm({ ...form, due_date: "" });
+                    else setForm({ ...form, due_date: computedDue });
+                  }} />
+                  Enable due date
+                </label>
+                {hasDueDate && (
+                  <input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                )}
+              </div>
+            </L>
           </div>
 
           <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
+
+          <L label="Link to sales invoices (optional)">
+            <div className="space-y-2">
+              {/* Selected chips */}
+              {linkedSalesIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {linkedSalesIds.map((sId: string) => {
+                    const si = (salesInvoicesQ.data ?? []).find((s: any) => s.id === sId);
+                    return (
+                      <span key={sId} className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px]">
+                        <span className="font-mono truncate max-w-[120px]">{si?.invoice_number ?? sId.slice(0, 8)}</span>
+                        {si && <span className="text-muted-foreground">{fmtMoney(si.amount)}</span>}
+                        <button type="button" onClick={() => setLinkedSalesIds((prev) => prev.filter((id: string) => id !== sId))}
+                          className="text-muted-foreground hover:text-destructive" aria-label="Remove">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Search + dropdown */}
+              <div className="relative" ref={salesRef}>
+                <input className="inp" placeholder="Search sales invoices…" value={salesSearch}
+                  onChange={(e) => { setSalesSearch(e.target.value); setSalesOpen(true); }}
+                  onFocus={() => setSalesOpen(true)} />
+                {salesOpen && salesSearch.trim() && (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                    {(salesInvoicesQ.data ?? []).filter((s: any) => s.invoice_number?.toLowerCase().includes(salesSearch.toLowerCase())).length === 0 ? (
+                      <div className="p-3 text-xs text-muted-foreground">No matching sales invoices.</div>
+                    ) : (
+                      (salesInvoicesQ.data ?? []).filter((s: any) => s.invoice_number?.toLowerCase().includes(salesSearch.toLowerCase())).slice(0, 20).map((s: any) => {
+                        const alreadySelected = linkedSalesIds.includes(s.id);
+                        return (
+                          <button key={s.id} type="button"
+                            onClick={() => {
+                              if (alreadySelected) {
+                                setLinkedSalesIds((prev) => prev.filter((id: string) => id !== s.id));
+                              } else {
+                                setLinkedSalesIds((prev) => [...prev, s.id]);
+                              }
+                              setSalesSearch("");
+                            }}
+                            className={`flex w-full items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors ${alreadySelected ? "bg-primary/5" : ""}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              {alreadySelected && <span className="text-primary shrink-0">✓</span>}
+                              <span className="font-mono truncate">{s.invoice_number}</span>
+                            </div>
+                            <span className="num text-muted-foreground shrink-0 ml-2">{fmtMoney(s.amount)}</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </L>
 
           {!editing && (
             <div className="rounded-md border border-border p-3">
@@ -464,13 +601,13 @@ function PurchaseInvoiceFormModal({ editing, vendors, onClose, onDone }: { editi
                           <input className="inp" value={item.sku} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, sku: e.target.value } : it))} />
                         </L>
                         <L label="Quantity *">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 10.5)" className="inp" value={item.quantity} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, quantity: e.target.value } : it))} />
                         </L>
                         <L label="Unit">
                           <input className="inp" value={item.unit} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit: e.target.value } : it))} />
                         </L>
                         <L label="Unit cost">
-                          <input type="text" inputMode="decimal" pattern="[0-9]*\.?[0-9]*" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
+                          <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
                         </L>
                       </div>
                     </div>
