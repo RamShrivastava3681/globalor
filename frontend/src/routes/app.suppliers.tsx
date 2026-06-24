@@ -168,6 +168,7 @@ function SuppliersPage() {
             <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                 <tr className="border-b border-border">
+                  <th className="px-3 py-3 text-left">UID</th>
                   <th className="px-3 py-3 text-left">Company</th>
                   <th className="px-3 py-3 text-left">Contact</th>
                   <th className="px-3 py-3 text-left">Location</th>
@@ -199,6 +200,7 @@ function SuppliersPage() {
                   return s.company_name?.toLowerCase().includes(q) || s.industry?.toLowerCase().includes(q) || s.contact_name?.toLowerCase().includes(q) || s.contact_email?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q);
                 }).map((s: any) => (
                   <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                    <td className="px-3 py-3 font-mono text-[10px] text-muted-foreground" title={s.id}>#{s.id.slice(-8).toUpperCase()}</td>
                     <td className="px-3 py-3">
                       <div className="font-medium">{s.company_name}</div>
                       <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>

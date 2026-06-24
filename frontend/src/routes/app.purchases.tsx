@@ -315,6 +315,7 @@ function PurchasesPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
@@ -340,6 +341,7 @@ function PurchasesPage() {
                     const links = linkedSales(p.id);
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
                         {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{p.vendor?.name ?? "—"}</td>

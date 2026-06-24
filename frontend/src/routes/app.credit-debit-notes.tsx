@@ -243,6 +243,7 @@ function CreditDebitNotesPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">
                       Note #
                     </th>
@@ -263,11 +264,11 @@ function CreditDebitNotesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEntries.map((e) => (
-                    <tr
+                  {filteredEntries.map((e) => (                      <tr
                       key={e.id}
                       className="border-b border-border/60 hover:bg-muted/30"
                     >
+                      <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={e.id}>#{e.id.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-3 font-mono text-xs">
                         {e.noteNumber}
                       </td>

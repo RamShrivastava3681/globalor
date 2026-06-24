@@ -25,11 +25,11 @@ import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
 import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
+import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 import { Route as AppCheckerRouteImport } from './routes/app.checker'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
-import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -111,6 +111,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
+  id: '/credit-debit-notes',
+  path: '/credit-debit-notes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCheckerRoute = AppCheckerRouteImport.update({
   id: '/checker',
   path: '/checker',
@@ -129,11 +134,6 @@ const AppAdvancesRoute = AppAdvancesRouteImport.update({
 const AppAdminRoute = AppAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
-  id: '/credit-debit-notes',
-  path: '/credit-debit-notes',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -400,6 +400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/credit-debit-notes': {
+      id: '/app/credit-debit-notes'
+      path: '/credit-debit-notes'
+      fullPath: '/app/credit-debit-notes'
+      preLoaderRoute: typeof AppCreditDebitNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/checker': {
       id: '/app/checker'
       path: '/checker'
@@ -426,13 +433,6 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/app/admin'
       preLoaderRoute: typeof AppAdminRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/app/credit-debit-notes': {
-      id: '/app/credit-debit-notes'
-      path: '/credit-debit-notes'
-      fullPath: '/app/credit-debit-notes'
-      preLoaderRoute: typeof AppCreditDebitNotesRouteImport
       parentRoute: typeof AppRoute
     }
   }

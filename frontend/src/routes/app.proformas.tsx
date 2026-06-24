@@ -216,6 +216,7 @@ function ProformasPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Proforma</th>
                     <th className="px-5 py-2 text-left font-normal">PO #</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
@@ -231,6 +232,7 @@ function ProformasPage() {
                     const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{p.proforma_number ?? "—"}</div>
                           <div className="text-[10px] text-muted-foreground">{p.proforma_date ? fmtDate(p.proforma_date) : fmtDate(p.issue_date)}</div>

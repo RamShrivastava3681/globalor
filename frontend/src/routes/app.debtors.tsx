@@ -74,6 +74,7 @@ function DebtorsPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     <th className="px-5 py-2 text-right font-normal">Credit limit</th>
@@ -90,6 +91,7 @@ function DebtorsPage() {
                     const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
                       <tr key={d.id} className="border-b border-border/60">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={d.id}>#{d.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 font-medium">{d.name}</td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(d.credit_limit)}</td>
