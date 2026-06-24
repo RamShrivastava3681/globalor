@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { Fragment, useState, useRef, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText } from "lucide-react";
+import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText, Upload, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/queue")({
@@ -175,6 +175,7 @@ function QueuePage() {
 
   const [closeFor, setCloseFor] = useState<Row | null>(null);
   const [fundPf, setFundPf] = useState<Row | null>(null);
+  const [massCloseOpen, setMassCloseOpen] = useState(false);
 
   const fundProforma = useMutation({
     mutationFn: async ({ id, amount, reference, advance_date }: { id: string; amount: number; reference: string; advance_date: string }) => {
@@ -285,6 +286,13 @@ function QueuePage() {
         eyebrow={isTreasury ? "Treasury desk" : isAdmin ? "Operations" : "Approved queue"}
         title="Funding queue"
         description="Approved invoices awaiting settlement."
+        actions={
+          isTreasury ? (
+            <button onClick={() => setMassCloseOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+              <Upload className="h-4 w-4" /> Upload receipts
+            </button>
+          ) : undefined
+        }
       />
 
       <div className="space-y-6 p-6 md:p-10">
@@ -442,6 +450,20 @@ function QueuePage() {
           }}
         />
       )}
+
+      {massCloseOpen && (
+        <MassCloseModal
+          salesData={salesQ.data ?? []}
+          onClose={() => setMassCloseOpen(false)}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["queue-sales"] });
+            qc.invalidateQueries({ queryKey: ["invoices"] });
+            qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+            qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+            setMassCloseOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -528,6 +550,271 @@ function FundProformaModal({ row, onClose, onSubmit }: { row: Row; onClose: () =
             <button type="submit" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Confirm</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Mass Close Modal ──
+
+interface ImportRow {
+  invoice_number: string;
+  date_received: string;
+  amount_received: number;
+}
+
+function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ closed: number; not_found: string[]; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Build lookup map from loaded queue data
+  const invoiceMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const inv of salesData) {
+      map.set(inv.invoice_number, inv);
+    }
+    return map;
+  }, [salesData]);
+
+  // Preview: match rows against the queue data
+  const preview = useMemo(() => {
+    const matched: Array<{ invoice_number: string; date_received: string; amount_received: number; invoice: any }> = [];
+    const unmatched: ImportRow[] = [];
+    for (const r of rows) {
+      const inv = invoiceMap.get(r.invoice_number);
+      if (inv) {
+        matched.push({ ...r, invoice: inv });
+      } else {
+        unmatched.push(r);
+      }
+    }
+    return { matched, unmatched };
+  }, [rows, invoiceMap]);
+
+  const totalAmount = useMemo(() => preview.matched.reduce((s, r) => s + r.amount_received, 0), [preview.matched]);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ImportRow[] = json.map((row: any, idx: number) => {
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
+          const dateRec = row.date_received ?? row["Date Received"] ?? row.dateReceived ?? row["Receipt Date"] ?? row.receipt_date ?? row.ReceiptDate ?? "";
+          const amtRec = Number(row.amount_received ?? row["Amount Received"] ?? row.amountReceived ?? row["Amount"] ?? row.Amount ?? 0);
+
+          let dateStr = String(dateRec);
+          if (typeof dateRec === "number" && !isNaN(dateRec)) {
+            const d = new Date((dateRec - 25569) * 86400 * 1000);
+            dateStr = d.toISOString().slice(0, 10);
+          }
+
+          return {
+            invoice_number: String(invNum).trim(),
+            date_received: dateStr || "",
+            amount_received: isNaN(amtRec) ? 0 : amtRec,
+          };
+        }).filter((r) => r.invoice_number && r.date_received);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: invoice_number, date_received, amount_received");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the Excel file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchClose = useMutation({
+    mutationFn: async () => {
+      return await api.post<{ closed: any[]; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> }>("/invoices/batch-close", {
+        items: preview.matched.map((r) => ({
+          invoice_number: r.invoice_number,
+          date_received: r.date_received,
+          amount_received: r.amount_received,
+        })),
+      });
+    },
+    onSuccess: (data) => {
+      const errList = (data.errors ?? []).map((e) => `${e.invoice_number}: ${e.error}`);
+      setResult({
+        closed: data.closed.length,
+        not_found: preview.unmatched.map((r) => r.invoice_number),
+        errors: errList,
+      });
+      setStep("done");
+      if (errList.length === 0 && preview.unmatched.length === 0) {
+        toast.success(`${data.closed.length} invoices closed successfully`);
+      } else {
+        toast.success(`${data.closed.length} closed, ${errList.length + preview.unmatched.length} skipped`);
+      }
+      qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {step === "upload" ? "Upload receipts" : step === "preview" ? "Preview matched receipts" : "Import complete"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "upload" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              <strong className="text-primary">Excel format:</strong> Upload a .xlsx or .csv file with columns:{' '}
+              <code className="font-mono text-primary">invoice_number</code>,{' '}
+              <code className="font-mono text-primary">date_received</code>,{' '}
+              <code className="font-mono text-primary">amount_received</code>.
+              Each row will be matched against approved invoices in the queue and closed with the provided receipt date and amount.
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Upload Excel / CSV file *</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFile}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span> ·
+                Found <strong className="text-success">{preview.matched.length}</strong> matches ·
+                <strong className="text-warning">{preview.unmatched.length}</strong> unmatched ·
+                Total receipts <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+              </div>
+              <button onClick={() => setStep("upload")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            {preview.unmatched.length > 0 && (
+              <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
+                <div className="text-xs uppercase tracking-widest text-warning mb-1">Not found in queue ({preview.unmatched.length})</div>
+                <div className="flex flex-wrap gap-1">
+                  {preview.unmatched.map((r) => (
+                    <span key={r.invoice_number} className="inline-flex items-center rounded-md border border-warning/30 px-2 py-0.5 text-[10px] font-mono text-warning">{r.invoice_number}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                    <th className="px-5 py-2 text-left font-normal">Party</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Received</th>
+                    <th className="px-5 py-2 text-right font-normal">Short</th>
+                    <th className="px-5 py-2 text-left font-normal">Receipt date</th>
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.matched.map((r, idx) => {
+                    const short = Math.max(0, +(r.invoice.amount - r.amount_received).toFixed(2));
+                    return (
+                      <tr key={r.invoice_number} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                        <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                        <td className="px-5 py-3">{r.invoice.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3 text-right num">{fmtMoney(r.invoice.amount)}</td>
+                        <td className="px-5 py-3 text-right num text-success">{fmtMoney(r.amount_received)}</td>
+                        <td className={`px-5 py-3 text-right num ${short > 0 ? "text-destructive" : "text-muted-foreground"}`}>{short > 0 ? fmtMoney(short) : "—"}</td>
+                        <td className="px-5 py-3 text-sm font-mono">{r.date_received}</td>
+                        <td className="px-5 py-3"><StatusPill status={r.invoice.status} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchClose.isPending || preview.matched.length === 0}
+                onClick={() => batchClose.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {batchClose.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Close {preview.matched.length} invoice{preview.matched.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
+              <div className="text-2xl font-display text-success">{result.closed}</div>
+              <div className="text-xs text-muted-foreground mt-1">Invoices closed successfully</div>
+            </div>
+            {result.not_found.length > 0 && (
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-warning mb-2">Not found ({result.not_found.length})</div>
+                <div className="flex flex-wrap gap-1">
+                  {result.not_found.map((inv) => (
+                    <span key={inv} className="inline-flex items-center rounded-md border border-warning/30 px-2 py-0.5 text-[10px] font-mono text-warning">{inv}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onDone} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

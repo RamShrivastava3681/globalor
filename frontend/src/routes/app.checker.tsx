@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { ClipboardCheck, Check, X, Lock, ArrowUpDown, ScrollText } from "lucide-react";
+import { ClipboardCheck, Check, X, Lock, ArrowUpDown, ScrollText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/checker")({
@@ -35,6 +35,7 @@ function CheckerPage() {
   const { isAdmin, isChecker, user, canWrite } = useAuth();
   const canReview = canWrite("checker-desk");
   const qc = useQueryClient();
+  const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma" | "credit_note" | "debit_note">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"issue" | "due">("issue");
@@ -122,6 +123,49 @@ function CheckerPage() {
       toast.success("Credit/debit note reviewed");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const approveAllMutation = useMutation({
+    mutationFn: async () => {
+      const results = { approved: 0, failed: 0 };
+      for (const row of rows) {
+        try {
+          if (row.kind === "proforma") {
+            await api.post(`/purchase-orders/${row.id}/review`, { decision: "approved" });
+          } else if (row.kind === "cd_credit" || row.kind === "cd_debit") {
+            await api.patch(`/credit-debit-notes/${row.id}`, { status: "approved" });
+          } else if (row.kind === "sale") {
+            await api.patch(`/invoices/${row.id}`, { status: "approved" });
+          } else if (row.kind === "purchase") {
+            await api.patch(`/purchase-invoices/${row.id}`, { status: "approved" });
+          }
+          results.approved++;
+        } catch {
+          results.failed++;
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      qc.invalidateQueries({ queryKey: ["checker-sales"] });
+      qc.invalidateQueries({ queryKey: ["checker-purchases"] });
+      qc.invalidateQueries({ queryKey: ["checker-proformas"] });
+      qc.invalidateQueries({ queryKey: ["checker-credit-debit-notes"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["queue-credit-debit-notes"] });
+      toast.success(`Approved ${results.approved} item${results.approved !== 1 ? "s" : ""}${results.failed > 0 ? `, ${results.failed} failed` : ""}`);
+      setApproveAllOpen(false);
+    },
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : "Bulk approval failed");
+      setApproveAllOpen(false);
+    },
   });
 
   // Build PO -> open advance total lookup per side
@@ -292,35 +336,85 @@ function CheckerPage() {
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
-          <div className="flex gap-1">
-            {(["issue", "due"] as const).map((field) => (
-              <button
-                key={field}
-                onClick={() => {
-                  if (sortField === field) {
-                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                  } else {
-                    setSortField(field);
-                    setSortOrder("asc");
-                  }
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                  sortField === field
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                {field === "issue" ? "Issue date" : "Due date"}
-                {sortField === field && (
-                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                )}
-              </button>
-            ))}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+            <div className="flex gap-1">
+              {(["issue", "due"] as const).map((field) => (
+                <button
+                  key={field}
+                  onClick={() => {
+                    if (sortField === field) {
+                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                    } else {
+                      setSortField(field);
+                      setSortOrder("asc");
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                    sortField === field
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <ArrowUpDown className="h-3 w-3" />
+                  {field === "issue" ? "Issue date" : "Due date"}
+                  {sortField === field && (
+                    <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
+          {canReview && rows.length > 0 && (
+            <button
+              onClick={() => setApproveAllOpen(true)}
+              disabled={approveAllMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {approveAllMutation.isPending ? "Approving…" : `Approve all (${rows.length})`}
+            </button>
+          )}
         </div>
+
+        {approveAllOpen && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setApproveAllOpen(false)}>
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+              <h3 className="mb-2 font-display text-lg">Approve all {rows.length} item{rows.length !== 1 ? "s" : ""}?</h3>
+              <p className="mb-4 text-sm text-muted-foreground">
+                This will approve every item currently shown in the filtered list. Purchase invoices will be marked as approved, while all others will be approved immediately. This action cannot be undone.{" "}
+                <strong className="text-foreground">Are you sure?</strong>
+              </p>
+              <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1 mb-4">
+                {(() => {
+                  const counts: Record<string, number> = {};
+                  for (const r of rows) {
+                    const label = r.kind === "sale" ? "Sales (AR)" : r.kind === "purchase" ? "Purchases (AP)" : r.kind === "proforma" ? "Proformas" : r.kind === "cd_credit" ? "Credit notes" : "Debit notes";
+                    counts[label] = (counts[label] || 0) + 1;
+                  }
+                  return Object.entries(counts).map(([label, count]) => (
+                    <div key={label} className="flex justify-between">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="text-foreground">{count}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setApproveAllOpen(false)} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+                <button
+                  disabled={approveAllMutation.isPending}
+                  onClick={() => approveAllMutation.mutate()}
+                  className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {approveAllMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  {approveAllMutation.isPending ? "Approving…" : `Approve all ${rows.length}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading || creditDebitNotesQ.isLoading ? (

@@ -377,6 +377,85 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
   }
 });
 
+// ── POST /api/invoices/batch-close ── (mass close from funding queue)
+const batchCloseSchema = z.object({
+  items: z.array(z.object({
+    invoice_number: z.string().min(1),
+    date_received: z.string().min(1),
+    amount_received: z.number().min(0),
+  })).min(1),
+});
+
+router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchCloseSchema.parse(req.body);
+    const now = nowISO();
+
+    // Scan all invoices and build lookup by invoice_number
+    const allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const invoiceByNumber = new Map<string, Invoice>();
+    for (const inv of allInvoices) {
+      invoiceByNumber.set(inv.invoice_number, inv);
+    }
+
+    const eligibleStatuses = new Set(["approved", "funded", "advanced", "overdue"]);
+    const closed: Array<{ invoice_number: string; amount_received: number; short_payment: number; late_days: number }> = [];
+    const not_found: string[] = [];
+    const errors: Array<{ invoice_number: string; error: string }> = [];
+
+    for (const item of parsed.items) {
+      try {
+        const invoice = invoiceByNumber.get(item.invoice_number);
+        if (!invoice) {
+          not_found.push(item.invoice_number);
+          continue;
+        }
+
+        if (!eligibleStatuses.has(invoice.status)) {
+          errors.push({ invoice_number: item.invoice_number, error: `Invoice status is "${invoice.status}", cannot close` });
+          continue;
+        }
+
+        const amount = Number(invoice.amount);
+        const amountReceived = Number(item.amount_received);
+        const shortPayment = Math.max(0, +(amount - amountReceived).toFixed(2));
+        const lateDays = invoice.due_date
+          ? Math.max(0, Math.round((new Date(item.date_received).getTime() - new Date(invoice.due_date).getTime()) / 86400000))
+          : 0;
+
+        await updateItem(TABLES.INVOICES, { id: invoice.id }, {
+          status: "paid",
+          paid_date: item.date_received,
+          receipt_date: item.date_received,
+          amount_received: amountReceived,
+          short_payment: shortPayment,
+          late_days: lateDays,
+          updated_at: now,
+        });
+
+        closed.push({
+          invoice_number: item.invoice_number,
+          amount_received: amountReceived,
+          short_payment: shortPayment,
+          late_days: lateDays,
+        });
+      } catch (err) {
+        console.error(`Batch close error for ${item.invoice_number}:`, err);
+        errors.push({ invoice_number: item.invoice_number, error: "Failed to close" });
+      }
+    }
+
+    res.json({ closed, not_found, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch close invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/invoices/:id/send-noa ──
 router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
