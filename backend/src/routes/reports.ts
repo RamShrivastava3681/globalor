@@ -122,9 +122,9 @@ router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
     const now = new Date();
 
     const aging = invoices
-      .filter((inv) => inv.status !== "paid" && inv.status !== "rejected")
+      .filter((inv) => inv.status !== "paid" && inv.status !== "rejected" && inv.due_date != null)
       .map((inv) => {
-        const due = new Date(inv.due_date);
+        const due = new Date(inv.due_date!);
         const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
         const agingDays = diffDays > 0 ? diffDays : 0;
         let aging_bucket = "Current";

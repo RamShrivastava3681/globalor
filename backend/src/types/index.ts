@@ -125,7 +125,7 @@ export interface Invoice {
   fee_rate: number;
   amount_received: number | null;
   issue_date: string;
-  due_date: string;
+  due_date: string | null;
   paid_date: string | null;
   receipt_date: string | null;
   advance_received_date: string | null;
@@ -316,7 +316,7 @@ export interface NoaInvoiceResult {
   advance_rate: number;
   advance_amount: number;
   issue_date: string;
-  due_date: string;
+  due_date: string | null;
   noa_status: NoaStatus;
   noa_comments: string;
   client_company: string;
