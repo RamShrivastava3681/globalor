@@ -307,6 +307,7 @@ function QueuePage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
@@ -329,6 +330,7 @@ function QueuePage() {
                     return (
                       <Fragment key={`${r.kind}-${r.id}`}>
                       <tr className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={r.id}>#{r.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             r.kind === "sale" ? "bg-primary/15 text-primary" : r.kind === "proforma" ? "bg-purple-500/15 text-purple-500" : "bg-warning/15 text-warning"
@@ -350,7 +352,7 @@ function QueuePage() {
                         <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">{action}</td>
                       </tr>
                       <tr className="border-b border-border/60 md:hidden">
-                        <td colSpan={isAdmin ? 12 : 11} className="px-5 pb-4 pt-0 text-left">
+                        <td colSpan={isAdmin ? 13 : 12} className="px-5 pb-4 pt-0 text-left">
                           <div className="flex justify-start">{action}</div>
                         </td>
                       </tr>

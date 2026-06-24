@@ -124,6 +124,7 @@ function AdminPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">User</th>
                     <th className="px-5 py-2 text-left font-normal">Email</th>
                     <th className="px-5 py-2 text-left font-normal">Current roles</th>
@@ -140,6 +141,7 @@ function AdminPage() {
                     const hasAdmin = userRoles.includes("factor_admin");
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <div>{p.contact_name || p.company_name || "—"}</div>
                           <div className="text-xs text-muted-foreground">{p.company_name}</div>

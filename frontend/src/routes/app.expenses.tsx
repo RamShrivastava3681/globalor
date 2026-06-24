@@ -126,6 +126,7 @@ function ExpensesPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-left font-normal">Category</th>
                     <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
@@ -145,6 +146,7 @@ function ExpensesPage() {
                     const docs: DocMeta[] = Array.isArray(r.documents) ? r.documents : [];
                     return (
                       <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={r.id}>#{r.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">{fmtDate(r.expense_date)}</td>
                         <td className="px-5 py-3">{catLabel(r.category)}</td>
                         <td className="px-5 py-3">

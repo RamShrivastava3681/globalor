@@ -92,6 +92,7 @@ function InventoryPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">SKU</th>
                     <th className="px-5 py-2 text-left font-normal">Item</th>
                     <th className="px-5 py-2 text-right font-normal">In Stock</th>
@@ -101,8 +102,9 @@ function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {balances.map((b) => (
+                  {balances.map((b, bi) => (
                     <tr key={`${b.sku}|${b.unit}`} className="border-b border-border/60">
+                      <td className="px-5 py-2.5 font-mono text-[10px] text-muted-foreground" title={b.sku}>#{b.sku === "—" ? b.item.slice(0, 8).toUpperCase() : b.sku.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-2.5 font-mono text-xs">{b.sku}</td>
                       <td className="px-5 py-2.5">{b.item}</td>
                       <td className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}>{b.qty.toLocaleString()}</td>
@@ -140,6 +142,7 @@ function InventoryPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-left font-normal">SKU</th>
                     <th className="px-5 py-2 text-left font-normal">Item</th>
@@ -156,6 +159,7 @@ function InventoryPage() {
                     const totalValue = Number(m.quantity) * Number(m.unit_cost ?? 0);
                     return (
                     <tr key={m.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={m.id}>#{m.id.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(m.movement_date)}</td>
                       <td className="px-5 py-3 font-mono text-xs">{m.sku || <span className="text-muted-foreground italic">—</span>}</td>
                       <td className="px-5 py-3">{m.item_name}</td>

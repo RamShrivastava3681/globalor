@@ -117,6 +117,7 @@ function AdvancesPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-left font-normal">Linked to</th>
                     <th className="px-5 py-2 text-left font-normal">Party</th>
@@ -136,6 +137,7 @@ function AdvancesPage() {
                       : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
                     return (
                       <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={a.id}>#{a.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
                         <td className="px-5 py-3">                            {a.order ? (
                             <Link to="/app/proformas" search={{ view: a.order.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
