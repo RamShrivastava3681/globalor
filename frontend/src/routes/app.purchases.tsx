@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
@@ -99,6 +99,8 @@ function PurchasesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
   const [issueDateTo, setIssueDateTo] = useState("");
+  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
@@ -177,6 +179,11 @@ function PurchasesPage() {
       p.client?.company_name?.toLowerCase().includes(q) ||
       p.client?.contact_name?.toLowerCase().includes(q)
     );
+  }).sort((a: any, b: any) => {
+    const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
+    const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+    const cmp = aVal.localeCompare(bVal);
+    return sortOrder === "asc" ? cmp : -cmp;
   });
 
   const totals = (piQ.data ?? []).reduce(
@@ -209,8 +216,8 @@ function PurchasesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
-          <Card title="Total purchases"><div className="num text-3xl">{fmtMoney(totals.all)}</div></Card>
-          <Card title="Open payables"><div className="num text-3xl text-warning">{fmtMoney(totals.open)}</div></Card>
+          <Card title="Total purchases"><div className="num num-lg">{fmtMoney(totals.all)}</div></Card>
+          <Card title="Open payables"><div className="num num-lg text-warning">{fmtMoney(totals.open)}</div></Card>
           <Card title="Suppliers used"><div className="num text-3xl">{new Set((piQ.data ?? []).map((p: any) => p.vendor_id)).size}</div></Card>
         </div>
 
@@ -267,6 +274,37 @@ function PurchasesPage() {
           <input type="text" placeholder="Search purchases by invoice, supplier, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["issue", "due"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => {
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {field === "issue" ? "Issue date" : "Due date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {piQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

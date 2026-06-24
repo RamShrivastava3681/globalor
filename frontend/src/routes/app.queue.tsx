@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/queue")({
@@ -53,6 +53,8 @@ function QueuePage() {
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<"issue" | "due">("due");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
@@ -214,7 +216,12 @@ function QueuePage() {
       const q = searchQuery.toLowerCase();
       return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
     })
-    .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+    .sort((a, b) => {
+      const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
+      const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+      const cmp = aVal.localeCompare(bVal);
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
 
   const balanceToPay = rows.filter((r) => r.kind === "purchase").reduce((s, r) => s + r.balance, 0);
   const balanceToReceive = rows.filter((r) => r.kind === "sale").reduce((s, r) => s + r.balance, 0);
@@ -237,10 +244,10 @@ function QueuePage() {
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card title="Supplier balance due"><div className="num text-3xl text-warning">{fmtMoney(balanceToPay)}</div></Card>
-          <Card title="Advances applied (AP)"><div className="num text-3xl text-primary">{fmtMoney(advancesAppliedOut)}</div></Card>
-          <Card title="Debtor balance expected"><div className="num text-3xl text-primary">{fmtMoney(balanceToReceive)}</div></Card>
-          <Card title="Advances applied (AR)"><div className="num text-3xl text-success">{fmtMoney(advancesAppliedIn)}</div></Card>
+          <Card title="Supplier balance due"><div className="num num-lg text-warning">{fmtMoney(balanceToPay)}</div></Card>
+          <Card title="Advances applied (AP)"><div className="num num-lg text-primary">{fmtMoney(advancesAppliedOut)}</div></Card>
+          <Card title="Debtor balance expected"><div className="num num-lg text-primary">{fmtMoney(balanceToReceive)}</div></Card>
+          <Card title="Advances applied (AR)"><div className="num num-lg text-success">{fmtMoney(advancesAppliedIn)}</div></Card>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -256,6 +263,37 @@ function QueuePage() {
           <input type="text" placeholder="Search queue by invoice, party, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["issue", "due"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => {
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {field === "issue" ? "Issue date" : "Due date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -272,6 +310,7 @@ function QueuePage() {
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Issue</th>
                     <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance applied</th>
@@ -300,6 +339,7 @@ function QueuePage() {
                           {r.po_number && <div className="text-[10px] text-muted-foreground">PO {r.po_number}</div>}
                         </td>
                         {isAdmin && <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>}
+                        <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
                         <td className="px-5 py-3">{r.party}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                         <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
@@ -310,7 +350,7 @@ function QueuePage() {
                         <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">{action}</td>
                       </tr>
                       <tr className="border-b border-border/60 md:hidden">
-                        <td colSpan={isAdmin ? 11 : 10} className="px-5 pb-4 pt-0 text-left">
+                        <td colSpan={isAdmin ? 12 : 11} className="px-5 pb-4 pt-0 text-left">
                           <div className="flex justify-start">{action}</div>
                         </td>
                       </tr>

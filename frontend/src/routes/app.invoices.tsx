@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 
@@ -99,6 +99,8 @@ function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
   const [issueDateTo, setIssueDateTo] = useState("");
+  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -202,6 +204,11 @@ function InvoicesPage() {
       i.client?.company_name?.toLowerCase().includes(q) ||
       i.client?.contact_name?.toLowerCase().includes(q)
     );
+  }).sort((a: any, b: any) => {
+    const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
+    const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+    const cmp = aVal.localeCompare(bVal);
+    return sortOrder === "asc" ? cmp : -cmp;
   });
 
   return (
@@ -277,6 +284,37 @@ function InvoicesPage() {
           <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["issue", "due"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => {
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {field === "issue" ? "Issue date" : "Due date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {invoicesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

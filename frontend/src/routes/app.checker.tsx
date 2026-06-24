@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { ClipboardCheck, Check, X, Lock } from "lucide-react";
+import { ClipboardCheck, Check, X, Lock, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/checker")({
@@ -37,6 +37,8 @@ function CheckerPage() {
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const salesQ = useQuery({
     queryKey: ["checker-sales"],
@@ -180,6 +182,12 @@ function CheckerPage() {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
+  })
+  .sort((a, b) => {
+    const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
+    const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+    const cmp = aVal.localeCompare(bVal);
+    return sortOrder === "asc" ? cmp : -cmp;
   });
 
   const pendingSales = (salesQ.data ?? []).length;
@@ -227,6 +235,37 @@ function CheckerPage() {
           <input type="text" placeholder="Search by invoice, party, client..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["issue", "due"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => {
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {field === "issue" ? "Issue date" : "Due date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>

@@ -18,7 +18,6 @@ interface NoteEntry {
   noteNumber: string;
   date: string;
   amount: string;
-  counterparty: string;
   debtorSupplierName: string;
   linkToInvoice: string;
   reason: string;
@@ -42,7 +41,6 @@ function CreditDebitNotesPage() {
     noteNumber: "",
     date: new Date().toISOString().slice(0, 10),
     amount: "",
-    counterparty: "",
     debtorSupplierName: "",
     linkToInvoice: "",
     reason: "",
@@ -88,11 +86,6 @@ function CreditDebitNotesPage() {
       toast.error("Amount must be greater than 0");
       return;
     }
-    if (!form.counterparty.trim()) {
-      toast.error("Counterparty is required");
-      return;
-    }
-
     if (editing) {
       // Update existing entry
       const updated = entries.map((e) =>
@@ -102,7 +95,6 @@ function CreditDebitNotesPage() {
               noteNumber: form.noteNumber.trim(),
               date: form.date,
               amount: form.amount,
-              counterparty: form.counterparty.trim(),
               debtorSupplierName: form.debtorSupplierName.trim(),
               linkToInvoice: form.linkToInvoice.trim(),
               reason: form.reason.trim(),
@@ -120,7 +112,6 @@ function CreditDebitNotesPage() {
         noteNumber: form.noteNumber.trim(),
         date: form.date,
         amount: form.amount,
-        counterparty: form.counterparty.trim(),
         debtorSupplierName: form.debtorSupplierName.trim(),
         linkToInvoice: form.linkToInvoice.trim(),
         reason: form.reason.trim(),
@@ -160,7 +151,6 @@ function CreditDebitNotesPage() {
       noteNumber: entry.noteNumber,
       date: entry.date,
       amount: entry.amount,
-      counterparty: entry.counterparty,
       debtorSupplierName: entry.debtorSupplierName,
       linkToInvoice: entry.linkToInvoice,
       reason: entry.reason,
@@ -215,7 +205,7 @@ function CreditDebitNotesPage() {
         {/* Summary cards */}
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Credit notes total">
-            <div className="num text-3xl text-success">
+            <div className="num num-lg text-success">
               {fmtMoney(
                 entries
                   .filter((e) => e.type === "credit")
@@ -227,7 +217,7 @@ function CreditDebitNotesPage() {
             </div>
           </Card>
           <Card title="Debit notes total">
-            <div className="num text-3xl text-warning">
+            <div className="num num-lg text-warning">
               {fmtMoney(
                 entries
                   .filter((e) => e.type === "debit")
@@ -259,9 +249,6 @@ function CreditDebitNotesPage() {
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-right font-normal">
                       Amount (USD)
-                    </th>
-                    <th className="px-5 py-2 text-left font-normal">
-                      Counterparty
                     </th>
                     <th className="px-5 py-2 text-left font-normal">
                       Debtor / Supplier
@@ -296,7 +283,6 @@ function CreditDebitNotesPage() {
                       >
                         {fmtMoney(e.amount)}
                       </td>
-                      <td className="px-5 py-3">{e.counterparty}</td>
                       <td className="px-5 py-3 text-muted-foreground">
                         {e.debtorSupplierName || "—"}
                       </td>
@@ -376,7 +362,6 @@ function NewNoteModal({
     noteNumber: string;
     date: string;
     amount: string;
-    counterparty: string;
     debtorSupplierName: string;
     linkToInvoice: string;
     reason: string;
@@ -516,18 +501,6 @@ function NewNoteModal({
               />
             </Field>
           </div>
-
-          <Field label="Counterparty *">
-            <input
-              required
-              className="inp"
-              placeholder="Name of the other party"
-              value={form.counterparty}
-              onChange={(e) =>
-                onChange({ ...form, counterparty: e.target.value })
-              }
-            />
-          </Field>
 
           <Field label="Debtor / Supplier name">
             <input

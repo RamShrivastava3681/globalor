@@ -90,12 +90,12 @@ function ExpensesPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <Card title="Total expenses">
-            <div className="num text-2xl">{fmtMoney(total)}</div>
+            <div className="num num-lg">{fmtMoney(total)}</div>
             <div className="mt-1 text-xs text-muted-foreground">{rows.length} entries</div>
           </Card>
           {byCat.map((c) => (
             <Card key={c.id} title={c.label}>
-              <div className="num text-2xl">{fmtMoney(c.total)}</div>
+              <div className="num num-lg">{fmtMoney(c.total)}</div>
             </Card>
           ))}
         </div>

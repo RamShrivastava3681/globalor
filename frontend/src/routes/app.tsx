@@ -1,8 +1,9 @@
 import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -13,6 +14,7 @@ function AppLayout() {
   const { user, loading, isAdmin, isTreasury, isChecker, isOperations, signOut } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -85,48 +87,71 @@ function AppLayout() {
         { to: "/app/settings", label: "Settings", icon: Settings },
       ];
 
+  const sidebarContent = (
+    <>
+      <div className="flex items-center gap-3 p-6 border-b border-sidebar-border">
+        <img src="/logo.png" alt="Globalor Limited" className="h-10 w-auto object-contain bg-white p-1 rounded-md" />
+      </div>
+      <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
+        {nav.map((n) => {
+          const active = pathname === n.to || pathname.startsWith(n.to + "/");
+          const Icon = n.icon;
+          return (
+            <Link
+              key={n.to}
+              to={n.to}
+              onClick={() => setMobileSidebarOpen(false)}
+              className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-all duration-200 ${
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-[3px] border-primary"
+                  : "text-sidebar-foreground/70 hover:bg-[rgba(56,189,248,0.08)] hover:text-foreground border-l-[3px] border-transparent"
+              }`}
+            >
+              <Icon className={`h-4 w-4 ${active ? "text-primary" : ""}`} />
+              {n.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <div className="border-t border-sidebar-border p-4">
+        <div className="rounded-lg bg-card/40 p-4 border border-border/50 backdrop-blur-sm">
+          <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Signed in as</div>
+          <div className="truncate text-sm font-medium text-foreground">{user?.email}</div>
+          <button onClick={signOut} className="mt-4 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <LogOut className="h-3.5 w-3.5" /> Sign out
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-screen w-full overflow-hidden">
-      {/* Sidebar */}
+      {/* Mobile sidebar as Sheet */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="left" className="w-72 p-0 bg-sidebar border-r border-sidebar-border">
+          {sidebarContent}
+        </SheetContent>
+      </Sheet>
+
+      {/* Desktop Sidebar */}
       <aside className="hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex items-center gap-3 p-6 border-b border-sidebar-border">
-          <img src="/logo.png" alt="Globalor Limited" className="h-10 w-auto object-contain bg-white p-1 rounded-md" />
-        </div>
-        <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
-          {nav.map((n) => {
-            const active = pathname === n.to || pathname.startsWith(n.to + "/");
-            const Icon = n.icon;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-all duration-200 ${
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-[3px] border-primary"
-                    : "text-sidebar-foreground/70 hover:bg-[rgba(56,189,248,0.08)] hover:text-foreground border-l-[3px] border-transparent"
-                }`}
-              >
-                <Icon className={`h-4 w-4 ${active ? "text-primary" : ""}`} />
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-sidebar-border p-4">
-          <div className="rounded-lg bg-card/40 p-4 border border-border/50 backdrop-blur-sm">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Signed in as</div>
-            <div className="truncate text-sm font-medium text-foreground">{user?.email}</div>
-            <button onClick={signOut} className="mt-4 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
-              <LogOut className="h-3.5 w-3.5" /> Sign out
-            </button>
-          </div>
-        </div>
+        {sidebarContent}
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
         {/* Top Command Center Header */}
-        <header className="h-16 flex-none flex items-center justify-between border-b border-border px-6 md:px-10 bg-[linear-gradient(90deg,rgba(0,191,255,0.08),transparent)]">
+        <header className="h-16 flex-none flex items-center justify-between border-b border-border px-4 md:px-10 bg-[linear-gradient(90deg,rgba(0,191,255,0.08),transparent)]">
           <div className="flex items-center gap-4">
+            {/* Mobile hamburger menu */}
+            <SheetTrigger asChild className="md:hidden">
+              <button
+                className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-accent"
+                aria-label="Open navigation menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </SheetTrigger>
           </div>
           <div className="flex items-center gap-4">
             <button className="relative p-2 text-muted-foreground hover:text-foreground transition-colors">

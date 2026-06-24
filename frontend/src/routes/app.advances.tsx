@@ -90,8 +90,8 @@ function AdvancesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title="Open sales advances (received)"><div className="num text-3xl text-success">{fmtMoney(totals.sales)}</div></Card>
-          <Card title="Open purchase advances (paid)"><div className="num text-3xl text-warning">{fmtMoney(totals.purchase)}</div></Card>
+          <Card title="Open sales advances (received)"><div className="num num-lg text-success">{fmtMoney(totals.sales)}</div></Card>
+          <Card title="Open purchase advances (paid)"><div className="num num-lg text-warning">{fmtMoney(totals.purchase)}</div></Card>
         </div>
 
         <div className="flex gap-2">

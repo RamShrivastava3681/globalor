@@ -23,9 +23,9 @@ export function Stat({ label, value, delta, tone = "neutral" }: { label: string;
     bad: "text-destructive",
   }[tone];
   return (
-    <div className="bg-glass-card p-5">
+    <div className="bg-glass-card p-5 min-w-0">
       <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-3 num text-[42px] font-bold tracking-tight text-foreground">{value}</div>
+      <div className="mt-3 num num-lg font-bold tracking-tight text-foreground">{value}</div>
       {delta && <div className={`mt-2 text-sm ${toneCls}`}>{delta}</div>}
     </div>
   );
@@ -33,14 +33,14 @@ export function Stat({ label, value, delta, tone = "neutral" }: { label: string;
 
 export function Card({ title, action, children, className = "" }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <div className={`bg-glass-card overflow-hidden ${className}`}>
+    <div className={`bg-glass-card overflow-hidden ${className}`} style={{ containerType: "inline-size" }}>
       {title && (
-        <div className="flex items-center justify-between border-b border-border/50 px-6 py-4">
-          <h3 className="font-display text-lg font-medium">{title}</h3>
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3 md:px-6 md:py-4">
+          <h3 className="font-display text-sm md:text-lg font-medium break-words min-w-0">{title}</h3>
           {action}
         </div>
       )}
-      <div className="p-6">{children}</div>
+      <div className="p-4 md:p-6">{children}</div>
     </div>
   );
 }

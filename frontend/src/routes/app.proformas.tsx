@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { z } from "zod";
@@ -47,6 +47,7 @@ function ProformasPage() {
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
 
   const listQ = useQuery({
@@ -95,6 +96,12 @@ function ProformasPage() {
         p.side?.toLowerCase().includes(q) ||
         p.proforma_status?.toLowerCase().includes(q)
       );
+    })
+    .sort((a: any, b: any) => {
+      const aVal = (a.proforma_date ?? a.issue_date ?? "9999");
+      const bVal = (b.proforma_date ?? b.issue_date ?? "9999");
+      const cmp = aVal.localeCompare(bVal);
+      return sortOrder === "asc" ? cmp : -cmp;
     });
 
   const counts = useMemo(() => {
@@ -179,6 +186,26 @@ function ProformasPage() {
           <input type="text" placeholder="Search proformas by number, PO, counterparty..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["issue"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  "border-primary bg-primary/10 text-primary"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                Issue date
+                <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {listQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
