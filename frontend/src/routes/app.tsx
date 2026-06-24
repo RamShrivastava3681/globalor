@@ -126,13 +126,11 @@ function AppLayout() {
   );
 
   return (
+    <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
     <div className="flex h-screen w-full overflow-hidden">
-      {/* Mobile sidebar as Sheet */}
-      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="left" className="w-72 p-0 bg-sidebar border-r border-sidebar-border">
-          {sidebarContent}
-        </SheetContent>
-      </Sheet>
+      <SheetContent side="left" className="w-72 p-0 bg-sidebar border-r border-sidebar-border">
+        {sidebarContent}
+      </SheetContent>
 
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex">
@@ -169,5 +167,6 @@ function AppLayout() {
         </div>
       </main>
     </div>
+    </Sheet>
   );
 }
