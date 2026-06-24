@@ -29,12 +29,13 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // Enrich with relations
     const enriched = await Promise.all(
       invoices.sort((a, b) => sortOrder * ((a.created_at || "").localeCompare(b.created_at || "")) ).map(async (inv) => {
-        const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
-        const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
+        const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
+        const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
         let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
         if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
           const results = await Promise.all(
             inv.purchase_invoice_ids.map(async (piId) => {
+              if (!piId) return null;
               const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
               if (pi?.vendor_id) {
                 (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;

@@ -54,7 +54,21 @@ export async function putItem(tableName: string, item: Record<string, unknown>) 
 }
 
 export async function getItem(tableName: string, key: Record<string, unknown>) {
-  const params: GetCommandInput = { TableName: tableName, Key: key };
+  // Strip undefined/null values from the key to prevent DynamoDB
+  // "The provided key element does not match the schema" error.
+  // The AWS SDK strips undefined silently, turning { id: undefined } into {},
+  // which DynamoDB rejects.
+  const sanitizedKey: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(key)) {
+    if (v !== undefined && v !== null) {
+      sanitizedKey[k] = v;
+    }
+  }
+  if (Object.keys(sanitizedKey).length === 0) {
+    console.warn(`getItem called with empty/missing key for table ${tableName}`);
+    return undefined;
+  }
+  const params: GetCommandInput = { TableName: tableName, Key: sanitizedKey };
   const result = await docClient.send(new GetCommand(params));
   return result.Item as Record<string, unknown> | undefined;
 }
