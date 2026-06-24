@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown } from "lucide-react";
+import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/queue")({
@@ -29,7 +29,7 @@ function diffDaysUTC(from?: string | null, to?: string | null): number {
 }
 
 type Row = {
-  kind: "sale" | "purchase" | "proforma";
+  kind: "sale" | "purchase" | "proforma" | "cd_credit" | "cd_debit";
   id: string;
   invoice_number: string;
   amount: number;
@@ -51,7 +51,7 @@ function QueuePage() {
   const canAct = canWrite("funding-queue");
   const isTreasury = canAct;
   const qc = useQueryClient();
-  const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
+  const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma" | "credit_note" | "debit_note">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"issue" | "due">("due");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -77,6 +77,14 @@ function QueuePage() {
     queryFn: async () => {
       const data = await api.get<any[]>("/purchase-orders") ?? [];
       return data.filter((p: any) => p.proforma_status === "approved");
+    },
+  });
+
+  const creditDebitNotesQ = useQuery({
+    queryKey: ["queue-credit-debit-notes"],
+    queryFn: async () => {
+      const data = await api.get<any[]>("/credit-debit-notes") ?? [];
+      return data.filter((n: any) => n.status === "approved");
     },
   });
 
@@ -148,6 +156,23 @@ function QueuePage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const settleCreditDebitNote = useMutation({
+    mutationFn: async ({ id, noteType }: { id: string; noteType: "credit" | "debit" }) => {
+      const targetStatus = noteType === "credit" ? "received" : "paid";
+      await api.patch(`/credit-debit-notes/${id}`, { status: targetStatus });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["queue-credit-debit-notes"] });
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+      toast.success("Note settled — linked invoice amount updated");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   const [closeFor, setCloseFor] = useState<Row | null>(null);
   const [fundPf, setFundPf] = useState<Row | null>(null);
 
@@ -169,7 +194,25 @@ function QueuePage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const cdNoteRows: Row[] = ((creditDebitNotesQ.data ?? []) as Array<Record<string, any>>).map((n): Row => ({
+    kind: n.type === "credit" ? "cd_credit" : "cd_debit",
+    id: n.id,
+    invoice_number: n.note_number,
+    amount: Number(n.amount),
+    po_number: n.linkedInvoice?.invoice_number ? `${n.type === "credit" ? "Credits" : "Debits"} ${n.linkedInvoice.invoice_number}` : null,
+    advance: 0,
+    balance: Number(n.amount),
+    due_date: null,
+    issue_date: n.date,
+    status: n.status,
+    party: n.debtor_supplier_name || "—",
+    client: "—",
+    side: n.type === "credit" ? "sales" : "purchase",
+    proforma_number: n.reason || null,
+  }));
+
   const rows: Row[] = [
+    ...cdNoteRows,
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
       const amount = Number(i.amount);
       const advance = advFor("sales", i.po_number);
@@ -210,7 +253,15 @@ function QueuePage() {
       currency: p.currency,
     })),
   ]
-    .filter((r) => side === "all" || r.kind === side || (side === "sale" && r.kind === "proforma" && r.side === "sales") || (side === "purchase" && r.kind === "proforma" && r.side === "purchase"))
+    .filter((r) => {
+      if (side === "all") return true;
+      if (side === "credit_note") return r.kind === "cd_credit";
+      if (side === "debit_note") return r.kind === "cd_debit";
+      if (side === "sale") return r.kind === "sale" || (r.kind === "proforma" && r.side === "sales");
+      if (side === "purchase") return r.kind === "purchase" || (r.kind === "proforma" && r.side === "purchase");
+      if (side === "proforma") return r.kind === "proforma";
+      return r.kind === side;
+    })
     .filter((r) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -239,7 +290,7 @@ function QueuePage() {
       <div className="space-y-6 p-6 md:p-10">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="text-xs text-muted-foreground">Approved proformas appear below. Use <span className="text-success">Fund advance</span> to record the payment/receipt.</div>
+            <div className="text-xs text-muted-foreground">Approved proformas and credit/debit notes appear below. Use the action buttons to record settlement — this will adjust the linked invoice amount.</div>
           </div>
         </Card>
 
@@ -251,11 +302,11 @@ function QueuePage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {(["all", "sale", "purchase", "proforma"] as const).map((s) => (
+          {(["all", "sale", "purchase", "proforma", "credit_note", "debit_note"] as const).map((s) => (
             <button key={s} onClick={() => setSide(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : s === "sale" ? "Sales (AR)" : s === "purchase" ? "Purchases (AP)" : "Proformas"}</button>
+              }`}>{s === "all" ? "All" : s === "sale" ? "Sales (AR)" : s === "purchase" ? "Purchases (AP)" : s === "proforma" ? "Proformas" : s === "credit_note" ? "Credit notes" : "Debit notes"}</button>
           ))}
         </div>
 
@@ -295,7 +346,7 @@ function QueuePage() {
         </div>
 
         <Card>
-          {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
+          {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading || creditDebitNotesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
@@ -326,15 +377,15 @@ function QueuePage() {
                   {rows.map((r) => {
                     const dpd = r.due_date && r.status !== "paid" ? daysBetween(r.due_date) : 0;
                     const lateDays = Math.max(0, dpd);
-                    const action = <QueueAction row={r} isTreasury={isTreasury} onCloseSale={setCloseFor} onPayPurchase={() => payPurchase.mutate({ id: r.id })} onFundPf={setFundPf} />;
+                    const action = <QueueAction row={r} isTreasury={isTreasury} onCloseSale={setCloseFor} onPayPurchase={() => payPurchase.mutate({ id: r.id })} onFundPf={setFundPf} onSettleCdNote={(id, noteType) => settleCreditDebitNote.mutate({ id, noteType })} />;
                     return (
                       <Fragment key={`${r.kind}-${r.id}`}>
                       <tr className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={r.id}>#{r.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                            r.kind === "sale" ? "bg-primary/15 text-primary" : r.kind === "proforma" ? "bg-purple-500/15 text-purple-500" : "bg-warning/15 text-warning"
-                          }`}>{r.kind === "sale" ? "Sale (AR)" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : "Purchase (AP)"}</span>
+                            r.kind === "sale" ? "bg-primary/15 text-primary" : r.kind === "proforma" ? "bg-purple-500/15 text-purple-500" : r.kind === "cd_credit" ? "bg-emerald-500/15 text-emerald-500" : r.kind === "cd_debit" ? "bg-orange-500/15 text-orange-500" : "bg-warning/15 text-warning"
+                          }`}>{r.kind === "sale" ? "Sale (AR)" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : r.kind === "cd_credit" ? "Credit note" : r.kind === "cd_debit" ? "Debit note" : "Purchase (AP)"}</span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">
                           <div>{r.invoice_number}</div>
@@ -395,8 +446,8 @@ function QueuePage() {
   );
 }
 
-function QueueAction({ row, isTreasury, onCloseSale, onPayPurchase, onFundPf }: {
-  row: Row; isTreasury: boolean; onCloseSale: (row: Row) => void; onPayPurchase: () => void; onFundPf?: (row: Row) => void;
+function QueueAction({ row, isTreasury, onCloseSale, onPayPurchase, onFundPf, onSettleCdNote }: {
+  row: Row; isTreasury: boolean; onCloseSale: (row: Row) => void; onPayPurchase: () => void; onFundPf?: (row: Row) => void; onSettleCdNote?: (id: string, noteType: "credit" | "debit") => void;
 }) {
   if (!isTreasury) {
     return <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"><Lock className="h-3 w-3" /> Treasury only</span>;
@@ -406,6 +457,22 @@ function QueueAction({ row, isTreasury, onCloseSale, onPayPurchase, onFundPf }: 
       <button onClick={() => onFundPf?.(row)}
         className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10">
         <ArrowDownToLine className="h-3 w-3" /> {row.side === "sales" ? "Mark received" : "Mark paid"}
+      </button>
+    );
+  }
+  if (row.kind === "cd_credit") {
+    return (
+      <button onClick={() => onSettleCdNote?.(row.id, "credit")}
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10">
+        <ArrowDownToLine className="h-3 w-3" /> Mark received
+      </button>
+    );
+  }
+  if (row.kind === "cd_debit") {
+    return (
+      <button onClick={() => onSettleCdNote?.(row.id, "debit")}
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10">
+        <ArrowUpFromLine className="h-3 w-3" /> Mark paid
       </button>
     );
   }

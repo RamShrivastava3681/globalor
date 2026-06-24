@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef, useEffect } from "react";
-import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { PageHeader, Card, StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { api } from "@/lib/api-client";
-import { Plus, X, Save, Trash2, ScrollText, FileText, ShoppingCart, Pencil } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { Plus, X, Save, Trash2, ScrollText, FileText, ShoppingCart, Pencil, Send, Check, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/credit-debit-notes")({
@@ -11,42 +12,40 @@ export const Route = createFileRoute("/app/credit-debit-notes")({
 });
 
 type NoteType = "credit" | "debit";
+type NoteStatus = "pending" | "approved" | "rejected" | "received" | "paid";
 
 interface NoteEntry {
   id: string;
   type: NoteType;
-  noteNumber: string;
+  note_number: string;
   date: string;
-  amount: string;
-  debtorSupplierName: string;
-  linkToInvoice: string;
-  reason: string;
-  createdAt: string;
+  amount: number;
+  debtor_supplier_name: string | null;
+  linked_invoice_id: string | null;
+  linked_invoice_type: "sales" | "purchase" | null;
+  reason: string | null;
+  status: NoteStatus;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  settled_at: string | null;
+  settled_by: string | null;
+  created_at: string;
+  updated_at: string;
+  linkedInvoice?: { invoice_number: string; amount: number; status: string } | null;
 }
 
 function CreditDebitNotesPage() {
+  const { canWrite } = useAuth();
+  const canCreate = canWrite("invoices");
+  const qc = useQueryClient();
   const [tab, setTab] = useState<NoteType>("credit");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<NoteEntry | null>(null);
-  const [entries, setEntries] = useState<NoteEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem("credit_debit_notes");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+
+  const notesQ = useQuery({
+    queryKey: ["credit-debit-notes"],
+    queryFn: async () => (await api.get<NoteEntry[]>("/credit-debit-notes")) ?? [],
   });
-
-  const emptyForm = {
-    noteNumber: "",
-    date: new Date().toISOString().slice(0, 10),
-    amount: "",
-    debtorSupplierName: "",
-    linkToInvoice: "",
-    reason: "",
-  };
-
-  const [form, setForm] = useState(emptyForm);
 
   const invoicesQ = useQuery({
     queryKey: ["sales-invoices-mini"],
@@ -72,112 +71,56 @@ function CreditDebitNotesPage() {
     return [...sales, ...purchases];
   }, [invoicesQ.data, purchaseInvoicesQ.data]);
 
+  const createNote = useMutation({
+    mutationFn: async (data: any) => {
+      await api.post("/credit-debit-notes", data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      toast.success("Note submitted for checker review");
+      setOpen(false);
+      setEditing(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteNote = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/credit-debit-notes/${id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      toast.success("Note removed");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const notes = notesQ.data ?? [];
   const filteredEntries = useMemo(
-    () => entries.filter((e) => e.type === tab),
-    [entries, tab],
+    () => notes.filter((e) => e.type === tab),
+    [notes, tab],
   );
-
-  const saveEntry = () => {
-    if (!form.noteNumber.trim()) {
-      toast.error("Note number is required");
-      return;
-    }
-    if (!form.amount || Number(form.amount) <= 0) {
-      toast.error("Amount must be greater than 0");
-      return;
-    }
-    if (editing) {
-      // Update existing entry
-      const updated = entries.map((e) =>
-        e.id === editing.id
-          ? {
-              ...e,
-              noteNumber: form.noteNumber.trim(),
-              date: form.date,
-              amount: form.amount,
-              debtorSupplierName: form.debtorSupplierName.trim(),
-              linkToInvoice: form.linkToInvoice.trim(),
-              reason: form.reason.trim(),
-            }
-          : e,
-      );
-      setEntries(updated);
-      localStorage.setItem("credit_debit_notes", JSON.stringify(updated));
-      toast.success("Note updated");
-    } else {
-      // Create new entry
-      const newEntry: NoteEntry = {
-        id: crypto.randomUUID(),
-        type: tab,
-        noteNumber: form.noteNumber.trim(),
-        date: form.date,
-        amount: form.amount,
-        debtorSupplierName: form.debtorSupplierName.trim(),
-        linkToInvoice: form.linkToInvoice.trim(),
-        reason: form.reason.trim(),
-        createdAt: new Date().toISOString(),
-      };
-      const updated = [...entries, newEntry];
-      setEntries(updated);
-      localStorage.setItem("credit_debit_notes", JSON.stringify(updated));
-      toast.success(
-        `${tab === "credit" ? "Credit" : "Debit"} note saved`,
-      );
-    }
-
-    setForm(emptyForm);
-    setEditing(null);
-    setOpen(false);
-  };
-
-  const deleteEntry = (entry: NoteEntry) => {
-    const noteType = entry.type === "credit" ? "credit" : "debit";
-    if (!confirm(`Remove ${noteType} note "${entry.noteNumber}"? This cannot be undone.`)) return;
-    const updated = entries.filter((e) => e.id !== entry.id);
-    setEntries(updated);
-    localStorage.setItem("credit_debit_notes", JSON.stringify(updated));
-    toast.success(`${noteType === "credit" ? "Credit" : "Debit"} note removed`);
-  };
-
-  const openNew = () => {
-    setEditing(null);
-    setForm(emptyForm);
-    setOpen(true);
-  };
-
-  const openEdit = (entry: NoteEntry) => {
-    setEditing(entry);
-    setForm({
-      noteNumber: entry.noteNumber,
-      date: entry.date,
-      amount: entry.amount,
-      debtorSupplierName: entry.debtorSupplierName,
-      linkToInvoice: entry.linkToInvoice,
-      reason: entry.reason,
-    });
-    setOpen(true);
-  };
-
-  const closeModal = () => {
-    setOpen(false);
-    setEditing(null);
-    setForm(emptyForm);
-  };
 
   return (
     <div>
       <PageHeader
         eyebrow="Credit & Debit Notes"
         title="Credit / Debit notes"
-        description="Record credit and debit adjustments with full traceability."
+        description="Record credit and debit adjustments with full traceability. Notes go to checker for approval, then to funding queue for settlement."
         actions={
-          <button
-            onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            <Plus className="h-4 w-4" />
-            New {tab === "credit" ? "credit" : "debit"} note
-          </button>
+          canCreate ? (
+            <button
+              onClick={() => { setEditing(null); setOpen(true); }}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              <Plus className="h-4 w-4" />
+              New {tab === "credit" ? "credit" : "debit"} note
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Read-only
+            </span>
+          )
         }
       />
 
@@ -207,36 +150,37 @@ function CreditDebitNotesPage() {
           <Card title="Credit notes total">
             <div className="num num-lg text-success">
               {fmtMoney(
-                entries
+                notes
                   .filter((e) => e.type === "credit")
                   .reduce((s, e) => s + Number(e.amount), 0),
               )}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {entries.filter((e) => e.type === "credit").length} entries
+              {notes.filter((e) => e.type === "credit").length} entries
             </div>
           </Card>
           <Card title="Debit notes total">
             <div className="num num-lg text-warning">
               {fmtMoney(
-                entries
+                notes
                   .filter((e) => e.type === "debit")
                   .reduce((s, e) => s + Number(e.amount), 0),
               )}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {entries.filter((e) => e.type === "debit").length} entries
+              {notes.filter((e) => e.type === "debit").length} entries
             </div>
           </Card>
         </div>
 
         {/* Entries table */}
         <Card>
-          {filteredEntries.length === 0 ? (
+          {notesQ.isLoading ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : filteredEntries.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               No {tab === "credit" ? "credit" : "debit"} notes yet. Click
-              "New{" "}
-              {tab === "credit" ? "credit" : "debit"} note" to add one.
+              "New {tab === "credit" ? "credit" : "debit"} note" to add one.
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
@@ -244,54 +188,35 @@ function CreditDebitNotesPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">UID</th>
-                    <th className="px-5 py-2 text-left font-normal">
-                      Note #
-                    </th>
+                    <th className="px-5 py-2 text-left font-normal">Note #</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-right font-normal">
-                      Amount (USD)
-                    </th>
-                    <th className="px-5 py-2 text-left font-normal">
-                      Debtor / Supplier
-                    </th>
-                    <th className="px-5 py-2 text-left font-normal">
-                      Link to invoice
-                    </th>
-                    <th className="px-5 py-2 text-left font-normal">
-                      Reason
-                    </th>
+                    <th className="px-5 py-2 text-right font-normal">Amount (USD)</th>
+                    <th className="px-5 py-2 text-left font-normal">Debtor / Supplier</th>
+                    <th className="px-5 py-2 text-left font-normal">Link to invoice</th>
+                    <th className="px-5 py-2 text-left font-normal">Reason</th>
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEntries.map((e) => (                      <tr
+                  {filteredEntries.map((e) => (
+                    <tr
                       key={e.id}
                       className="border-b border-border/60 hover:bg-muted/30"
                     >
                       <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={e.id}>#{e.id.slice(-8).toUpperCase()}</td>
-                      <td className="px-5 py-3 font-mono text-xs">
-                        {e.noteNumber}
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {fmtDate(e.date)}
-                      </td>
-                      <td
-                        className={`px-5 py-3 text-right num ${
-                          e.type === "credit"
-                            ? "text-success"
-                            : "text-warning"
-                        }`}
-                      >
+                      <td className="px-5 py-3 font-mono text-xs">{e.note_number}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(e.date)}</td>
+                      <td className={`px-5 py-3 text-right num ${e.type === "credit" ? "text-success" : "text-warning"}`}>
                         {fmtMoney(e.amount)}
                       </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {e.debtorSupplierName || "—"}
-                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{e.debtor_supplier_name || "—"}</td>
                       <td className="px-5 py-3">
-                        {e.linkToInvoice ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-primary">
-                            <span className="truncate max-w-[120px] block">
-                              {e.linkToInvoice}
+                        {e.linkedInvoice ? (
+                          <span className="inline-flex items-center gap-1 text-xs">
+                            <span className="text-primary font-mono">{e.linkedInvoice.invoice_number}</span>
+                            <span className={`text-[10px] ${e.linked_invoice_type === "sales" ? "text-primary" : "text-warning"}`}>
+                              ({e.linked_invoice_type === "sales" ? "Sales" : "Purchase"})
                             </span>
                           </span>
                         ) : (
@@ -299,29 +224,31 @@ function CreditDebitNotesPage() {
                         )}
                       </td>
                       <td className="px-5 py-3">
-                        <span
-                          className="max-w-[160px] block truncate text-xs text-muted-foreground"
-                          title={e.reason}
-                        >
+                        <span className="max-w-[160px] block truncate text-xs text-muted-foreground" title={e.reason || ""}>
                           {e.reason || "—"}
                         </span>
                       </td>
+                      <td className="px-5 py-3">
+                        <NoteStatusPill status={e.status} />
+                      </td>
                       <td className="px-5 py-3 text-right">
                         <div className="inline-flex gap-1">
-                          <button
-                            onClick={() => openEdit(e)}
-                            className="text-muted-foreground hover:text-primary transition-colors"
-                            aria-label="Edit entry"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => deleteEntry(e)}
-                            className="text-muted-foreground hover:text-destructive transition-colors"
-                            aria-label="Delete entry"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {e.status === "pending" && canCreate && (
+                            <>
+                              <button
+                                onClick={() => deleteNote.mutate(e.id)}
+                                className="text-muted-foreground hover:text-destructive transition-colors"
+                                aria-label="Delete entry"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {e.status !== "pending" && (
+                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                              {e.status === "approved" ? "In queue" : e.status === "received" || e.status === "paid" ? "Settled" : ""}
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -333,43 +260,41 @@ function CreditDebitNotesPage() {
         </Card>
       </div>
 
-      {/* New note modal */}
       {open && (
         <NewNoteModal
           type={tab}
-          form={form}
           editing={editing}
-          onChange={setForm}
-          onSave={saveEntry}
-          onClose={closeModal}
           allInvoices={allInvoices}
+          onSave={(data) => createNote.mutate(data)}
+          onClose={() => { setOpen(false); setEditing(null); }}
         />
       )}
     </div>
   );
 }
 
+function NoteStatusPill({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    pending: { label: "Pending", cls: "border-warning/50 text-warning" },
+    approved: { label: "Approved", cls: "border-success/50 text-success" },
+    rejected: { label: "Rejected", cls: "border-destructive/50 text-destructive" },
+    received: { label: "Received", cls: "border-primary/50 text-primary" },
+    paid: { label: "Paid", cls: "border-primary/50 text-primary" },
+  };
+  const v = map[status] ?? { label: status, cls: "border-border text-muted-foreground" };
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
+}
+
 function NewNoteModal({
   type,
-  form,
   editing,
-  onChange,
   onSave,
   onClose,
   allInvoices,
 }: {
   type: NoteType;
-  form: {
-    noteNumber: string;
-    date: string;
-    amount: string;
-    debtorSupplierName: string;
-    linkToInvoice: string;
-    reason: string;
-  };
   editing: NoteEntry | null;
-  onChange: (f: typeof form) => void;
-  onSave: () => void;
+  onSave: (data: any) => void;
   onClose: () => void;
   allInvoices: Array<{
     id: string;
@@ -379,33 +304,36 @@ function NewNoteModal({
     _label: string;
   }>;
 }) {
+  const [noteNumber, setNoteNumber] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState("");
+  const [debtorSupplierName, setDebtorSupplierName] = useState("");
+  const [reason, setReason] = useState("");
   const [invSearch, setInvSearch] = useState("");
   const [invOpen, setInvOpen] = useState(false);
   const [selectedInv, setSelectedInv] = useState<{
+    id: string;
     invoice_number: string;
     amount: number;
     _type: "sales" | "purchase";
-  } | null>(() => {
-    // Pre-populate from the editing entry's linkToInvoice
-    if (editing?.linkToInvoice) {
-      const found = allInvoices.find(
-        (i) => i.invoice_number === editing.linkToInvoice,
-      );
-      if (found) {
-        return {
-          invoice_number: found.invoice_number,
-          amount: found.amount,
-          _type: found._type,
-        };
-      }
-    }
-    return null;
-  });
+  } | null>(null);
   const invRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave();
+    if (!noteNumber.trim()) { toast.error("Note number is required"); return; }
+    if (!amount || Number(amount) <= 0) { toast.error("Amount must be greater than 0"); return; }
+
+    onSave({
+      type,
+      note_number: noteNumber.trim(),
+      date,
+      amount: Number(amount),
+      debtor_supplier_name: debtorSupplierName.trim() || null,
+      linked_invoice_id: selectedInv?.id || null,
+      linked_invoice_type: selectedInv?._type || null,
+      reason: reason.trim() || null,
+    });
   };
 
   const filteredInvoices = useMemo(() => {
@@ -420,18 +348,15 @@ function NewNoteModal({
 
   const selectInvoice = (inv: (typeof allInvoices)[number]) => {
     setSelectedInv(inv);
-    onChange({ ...form, linkToInvoice: inv.invoice_number });
     setInvSearch("");
     setInvOpen(false);
   };
 
   const clearInvoice = () => {
     setSelectedInv(null);
-    onChange({ ...form, linkToInvoice: "" });
     setInvSearch("");
   };
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (invRef.current && !invRef.current.contains(e.target as Node)) {
@@ -453,68 +378,31 @@ function NewNoteModal({
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
-            {editing
-              ? `Edit ${type === "credit" ? "credit" : "debit"} note`
-              : `New ${type === "credit" ? "credit" : "debit"} note`}
+            New {type === "credit" ? "credit" : "debit"} note
           </h3>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4 p-5">
           <Field label="Note number *">
-            <input
-              required
-              className="inp"
-              placeholder="CN-001 / DN-001"
-              value={form.noteNumber}
-              onChange={(e) =>
-                onChange({ ...form, noteNumber: e.target.value })
-              }
-            />
+            <input required className="inp" placeholder="CN-001 / DN-001" value={noteNumber} onChange={(e) => setNoteNumber(e.target.value)} />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Date">
-              <input
-                required
-                type="date"
-                className="inp"
-                value={form.date}
-                onChange={(e) => onChange({ ...form, date: e.target.value })}
-              />
+              <input required type="date" className="inp" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
             <Field label="Amount (USD) *">
-              <input
-                required
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]+(\.[0-9]+)?"
-                title="Enter a positive number (e.g. 123.45)"
-                className="inp"
-                value={form.amount}
-                onChange={(e) =>
-                  onChange({ ...form, amount: e.target.value })
-                }
-              />
+              <input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </Field>
           </div>
 
           <Field label="Debtor / Supplier name">
-            <input
-              className="inp"
-              placeholder="Debtor or supplier company name"
-              value={form.debtorSupplierName}
-              onChange={(e) =>
-                onChange({ ...form, debtorSupplierName: e.target.value })
-              }
-            />
+            <input className="inp" placeholder="Debtor or supplier company name" value={debtorSupplierName} onChange={(e) => setDebtorSupplierName(e.target.value)} />
           </Field>
 
-          <Field label="Link to invoice">
+          <Field label="Link to invoice (adjusts invoice amount on settlement)">
             <div className="relative" ref={invRef}>
               {selectedInv ? (
                 <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
@@ -526,55 +414,29 @@ function NewNoteModal({
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono truncate">
-                          {selectedInv.invoice_number}
-                        </span>
+                        <span className="text-xs font-mono truncate">{selectedInv.invoice_number}</span>
                         <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                          {selectedInv._type === "sales"
-                            ? "Sales"
-                            : "Purchase"}
+                          {selectedInv._type === "sales" ? "Sales" : "Purchase"}
                         </span>
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {fmtMoney(selectedInv.amount)}
-                      </div>
+                      <div className="text-[10px] text-muted-foreground">{fmtMoney(selectedInv.amount)}</div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={clearInvoice}
-                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-                    aria-label="Clear invoice selection"
-                  >
+                  <button type="button" onClick={clearInvoice} className="shrink-0 text-muted-foreground hover:text-destructive transition-colors" aria-label="Clear invoice selection">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ) : (
                 <>
-                  <input
-                    className="inp"
-                    placeholder="Search & select invoice…"
-                    value={invSearch}
-                    onChange={(e) => {
-                      setInvSearch(e.target.value);
-                      setInvOpen(true);
-                    }}
-                    onFocus={() => setInvOpen(true)}
-                  />
+                  <input className="inp" placeholder="Search & select invoice…" value={invSearch} onChange={(e) => { setInvSearch(e.target.value); setInvOpen(true); }} onFocus={() => setInvOpen(true)} />
                   {invOpen && invSearch.trim() && (
                     <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
                       {filteredInvoices.length === 0 ? (
-                        <div className="p-3 text-xs text-muted-foreground">
-                          No matching invoices found.
-                        </div>
+                        <div className="p-3 text-xs text-muted-foreground">No matching invoices found.</div>
                       ) : (
                         filteredInvoices.map((inv) => (
-                          <button
-                            key={`${inv._type}-${inv.id}`}
-                            type="button"
-                            onClick={() => selectInvoice(inv)}
-                            className="flex w-full items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors border-b border-border/30 last:border-0"
-                          >
+                          <button key={`${inv._type}-${inv.id}`} type="button" onClick={() => selectInvoice(inv)}
+                            className="flex w-full items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors border-b border-border/30 last:border-0">
                             <div className="flex items-center gap-2 min-w-0">
                               {inv._type === "sales" ? (
                                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -582,17 +444,11 @@ function NewNoteModal({
                                 <ShoppingCart className="h-3.5 w-3.5 shrink-0 text-warning" />
                               )}
                               <div className="min-w-0 text-left">
-                                <span className="font-mono truncate block">
-                                  {inv.invoice_number}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {inv._label}
-                                </span>
+                                <span className="font-mono truncate block">{inv.invoice_number}</span>
+                                <span className="text-[10px] text-muted-foreground">{inv._label}</span>
                               </div>
                             </div>
-                            <span className="num shrink-0 text-muted-foreground">
-                              {fmtMoney(inv.amount)}
-                            </span>
+                            <span className="num shrink-0 text-muted-foreground">{fmtMoney(inv.amount)}</span>
                           </button>
                         ))
                       )}
@@ -604,31 +460,29 @@ function NewNoteModal({
           </Field>
 
           <Field label="Reason">
-            <textarea
-              rows={3}
-              className="inp resize-none"
-              placeholder="Describe the reason for this adjustment…"
-              value={form.reason}
-              onChange={(e) =>
-                onChange({ ...form, reason: e.target.value })
-              }
-            />
+            <textarea rows={3} className="inp resize-none" placeholder="Describe the reason for this adjustment…" value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
 
+          <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+            <div className="flex items-center gap-2">
+              <Send className="h-3.5 w-3.5" />
+              <span>This note will be submitted to the <strong>checker</strong> for approval, then routed to the <strong>funding queue</strong> for settlement.</span>
+            </div>
+            {selectedInv && (
+              <div className="mt-2 text-muted-foreground">
+                {type === "credit"
+                  ? `When received, $${fmtMoney(Number(amount || 0))} will be deducted from invoice ${selectedInv.invoice_number}.`
+                  : `When paid, $${fmtMoney(Number(amount || 0))} will be added to invoice ${selectedInv.invoice_number}.`
+                }
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity"
-            >
+            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors">Cancel</button>
+            <button type="submit" className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity">
               <Save className="h-4 w-4" />
-              Save note
+              Submit for review
             </button>
           </div>
         </form>
@@ -638,18 +492,10 @@ function NewNoteModal({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
-        {label}
-      </span>
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
       {children}
     </label>
   );

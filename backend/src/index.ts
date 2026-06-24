@@ -74,6 +74,10 @@ app.use("/api/noa", publicLimiter, noaRoutes);
 // Upload endpoints get a upload-specific limiter
 app.use("/api/upload", uploadLimiter, uploadRoutes);
 
+// Credit/Debit notes
+import creditDebitNoteRoutes from "./routes/creditDebitNotes.js";
+app.use("/api/credit-debit-notes", creditDebitNoteRoutes);
+
 // Reports
 app.use("/api/reports", requireAuth, reportRoutes);
 

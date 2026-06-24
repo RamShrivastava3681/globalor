@@ -279,6 +279,104 @@ router.delete("/:id", requireAuth, requireWriteAccess("invoices"), async (req: A
   }
 });
 
+// ── POST /api/invoices/batch ── (mass import from Excel)
+const batchInvoiceSchema = z.object({
+  debtor_id: z.string().min(1),
+  payment_terms_days: z.number().min(0).optional().default(30),
+  due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
+  bl_date: z.string().nullable().optional(),
+  po_number: z.string().max(80).nullable().optional().default(null),
+  po_date: z.string().nullable().optional().default(null),
+  advance_rate: z.number().min(0).max(100).optional().default(0),
+  fee_rate: z.number().min(0).optional().default(0),
+  invoices: z.array(z.object({
+    invoice_number: z.string().min(1).max(80),
+    amount: z.number().positive(),
+    issue_date: z.string().min(1),
+  })).min(1),
+});
+
+router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchInvoiceSchema.parse(req.body);
+    const now = nowISO();
+    const created: Invoice[] = [];
+    const errors: Array<{ invoice_number: string; error: string }> = [];
+
+    for (const item of parsed.invoices) {
+      try {
+        const id = generateId();
+        const noa_token = generateNoaToken();
+
+        const termsDays = parsed.payment_terms_days;
+        const baseDate = parsed.due_date_source === "bl" && parsed.bl_date
+          ? new Date(parsed.bl_date)
+          : new Date(item.issue_date);
+        const dueDate = new Date(baseDate);
+        dueDate.setDate(dueDate.getDate() + termsDays);
+
+        const invoice: Invoice = {
+          id,
+          client_id: req.user!.id,
+          debtor_id: parsed.debtor_id,
+          supplier_id: null,
+          invoice_number: item.invoice_number,
+          amount: item.amount,
+          advance_rate: parsed.advance_rate,
+          fee_rate: parsed.fee_rate,
+          amount_received: null,
+          issue_date: item.issue_date,
+          due_date: dueDate.toISOString().slice(0, 10),
+          paid_date: null,
+          receipt_date: null,
+          advance_received_date: null,
+          short_payment: null,
+          late_days: null,
+          status: "pending",
+          noa_status: "not_sent",
+          noa_token,
+          noa_sent_at: null,
+          noa_responded_at: null,
+          noa_comments: null,
+          po_number: parsed.po_number || null,
+          po_date: parsed.po_date || null,
+          purchase_invoice_ids: [],
+          purchase_order_id: null,
+          payment_terms_days: parsed.payment_terms_days,
+          bl_date: parsed.bl_date || null,
+          due_date_source: parsed.due_date_source,
+          documents: [],
+          created_at: now,
+          updated_at: now,
+        };
+
+        await putItem(TABLES.INVOICES, invoice as any);
+        created.push(invoice);
+      } catch (err) {
+        errors.push({ invoice_number: item.invoice_number, error: "Failed to create" });
+        console.error(`Batch create error for ${item.invoice_number}:`, err);
+      }
+    }
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      debtor_id: parsed.debtor_id,
+      type: "invoice_created",
+      severity: "info",
+      message: `Batch imported ${created.length} invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
+    });
+
+    res.status(201).json({ created, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/invoices/:id/send-noa ──
 router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {

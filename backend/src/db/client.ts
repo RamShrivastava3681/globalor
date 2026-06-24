@@ -43,6 +43,7 @@ export const TABLES = {
   EXPENSES: `${p()}_expenses`,
   STOCK_MOVEMENTS: `${p()}_stock_movements`,
   ALERTS: `${p()}_alerts`,
+  CREDIT_DEBIT_NOTES: `${p()}_credit_debit_notes`,
 } as const;
 
 // ── Generic helpers ──

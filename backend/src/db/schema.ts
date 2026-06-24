@@ -100,6 +100,12 @@ const tableDefs = [
     AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    TableName: TABLES.CREDIT_DEBIT_NOTES,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ] as const;
 
 export async function createTables() {

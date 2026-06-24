@@ -10,6 +10,8 @@ export type AdvanceSide = "sales" | "purchase";
 export type MovementDirection = "in" | "out";
 export type POStatus = "open" | "proforma" | "invoiced" | "cancelled";
 export type ProformaStatus = "none" | "pending_review" | "approved" | "rejected" | "funded";
+export type CreditDebitNoteType = "credit" | "debit";
+export type CreditDebitNoteStatus = "pending" | "approved" | "rejected" | "received" | "paid";
 
 // ── Document metadata ──
 export interface DocMeta {
@@ -307,6 +309,27 @@ export interface ExpenseWithRelations extends Expense {
 export interface StockMovementWithRelations extends StockMovement {
   invoice?: { invoice_number: string };
   purchase?: { invoice_number: string };
+}
+
+// ── Credit / Debit Notes ──
+export interface CreditDebitNote {
+  id: string;
+  client_id: string;
+  type: CreditDebitNoteType;
+  note_number: string;
+  date: string;
+  amount: number;
+  debtor_supplier_name: string | null;
+  linked_invoice_id: string | null;
+  linked_invoice_type: "sales" | "purchase" | null;
+  reason: string | null;
+  status: CreditDebitNoteStatus;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  settled_at: string | null;
+  settled_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NoaInvoiceResult {
