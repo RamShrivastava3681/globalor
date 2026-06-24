@@ -687,7 +687,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
         {step === "upload" && (
           <div className="space-y-4 p-5">
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
-              <strong className="text-primary">Excel format:</strong> Upload a .xlsx or .csv file with columns:{' '}
+              <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
               <code className="font-mono text-primary">invoice_number</code>,{' '}
               <code className="font-mono text-primary">date_received</code>,{' '}
               <code className="font-mono text-primary">amount_received</code>.
@@ -700,7 +700,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
                   onChange={handleFile}
                   className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
                 />
