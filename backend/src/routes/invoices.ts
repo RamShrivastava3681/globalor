@@ -24,9 +24,11 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     let invoices = await scanTable<Invoice>(TABLES.INVOICES);
 
+    const sortOrder = req.query.sort === "asc" ? 1 : -1;
+
     // Enrich with relations
     const enriched = await Promise.all(
-      invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (inv) => {
+      invoices.sort((a, b) => sortOrder * ((a.created_at || "").localeCompare(b.created_at || "")) ).map(async (inv) => {
         const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
         const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
         let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
@@ -57,9 +59,10 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const sortOrder = req.query.sort === "asc" ? 1 : -1;
     res.json(
       invoices
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .sort((a, b) => sortOrder * ((a.created_at || "").localeCompare(b.created_at || "")) )
         .map((i) => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount })),
     );
   } catch (err) {

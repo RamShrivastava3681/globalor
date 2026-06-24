@@ -99,7 +99,7 @@ function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
   const [issueDateTo, setIssueDateTo] = useState("");
-  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const invoicesQ = useQuery({
@@ -205,8 +205,17 @@ function InvoicesPage() {
       i.client?.contact_name?.toLowerCase().includes(q)
     );
   }).sort((a: any, b: any) => {
-    const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
-    const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+    let aVal: string, bVal: string;
+    if (sortField === "created") {
+      aVal = a.created_at ?? "";
+      bVal = b.created_at ?? "";
+    } else if (sortField === "issue") {
+      aVal = a.issue_date ?? "9999";
+      bVal = b.issue_date ?? "9999";
+    } else {
+      aVal = a.due_date ?? "9999";
+      bVal = b.due_date ?? "9999";
+    }
     const cmp = aVal.localeCompare(bVal);
     return sortOrder === "asc" ? cmp : -cmp;
   });
@@ -288,7 +297,7 @@ function InvoicesPage() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
           <div className="flex gap-1">
-            {(["issue", "due"] as const).map((field) => (
+            {(["created", "issue", "due"] as const).map((field) => (
               <button
                 key={field}
                 onClick={() => {
@@ -306,7 +315,7 @@ function InvoicesPage() {
                 }`}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                {field === "issue" ? "Issue date" : "Due date"}
+                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "Due date"}
                 {sortField === field && (
                   <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
                 )}
