@@ -4,7 +4,7 @@ import { useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2, Upload } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Upload, Building2, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
@@ -20,6 +20,7 @@ function AdvancesPage() {
   const [massImportOpen, setMassImportOpen] = useState(false);
   const [tab, setTab] = useState<"sales" | "purchase">("sales");
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewingInvoice, setViewingInvoice] = useState<any | null>(null);
 
   const advancesQ = useQuery({
     queryKey: ["advances"],
@@ -149,9 +150,21 @@ function AdvancesPage() {
                               <Link2 className="h-3 w-3" />PO {a.order.po_number}
                             </Link>
                           ) : inv ? (
-                            <Link to={a.side === "sales" ? "/app/invoices" : "/app/purchases"} search={{ view: inv.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const all = await api.get<any[]>("/invoices") ?? [];
+                                  const found = all.find((i: any) => i.id === inv.id);
+                                  if (found) setViewingInvoice(found);
+                                  else toast.error("Invoice not found");
+                                } catch {
+                                  toast.error("Failed to load invoice");
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
                               <Link2 className="h-3 w-3" />{inv.invoice_number}
-                            </Link>
+                            </button>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="px-5 py-3">{cp ?? "—"}</td>
@@ -190,6 +203,12 @@ function AdvancesPage() {
 
       {open && user && <NewAdvanceModal side={open} onClose={() => setOpen(null)} />}
       {massImportOpen && <MassImportModal onClose={() => setMassImportOpen(false)} />}
+      {viewingInvoice && (
+        <InvoiceDetailModal
+          invoice={viewingInvoice}
+          onClose={() => setViewingInvoice(null)}
+        />
+      )}
     </div>
   );
 }
@@ -314,12 +333,153 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
 }
 
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
+  const debtor = invoice.debtor;
+  const invDocs: any[] = Array.isArray(invoice.documents) ? invoice.documents : [];
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-lg">{invoice.invoice_number}</h3>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+              invoice.status === "paid" ? "border-success/50 text-success"
+              : invoice.status === "overdue" ? "border-destructive/50 text-destructive"
+              : invoice.status === "pending" ? "border-warning/50 text-warning"
+              : invoice.status === "approved" ? "border-primary/50 text-primary"
+              : "border-border text-muted-foreground"
+            }`}>{invoice.status}</span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-6 p-5">
+          {/* Invoice summary */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Invoice details</h4>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+              <Detail label="Amount" value={fmtMoney(invoice.amount)} />
+              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
+              <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
+              <Detail label="Due date" value={fmtDate(invoice.due_date)} />
+              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net` : "—"} />
+              {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
+              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
+              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "—"} />
+              <Detail label="Created" value={fmtDate(invoice.created_at)} />
+              <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
+              {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
+              {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
+              {invoice.short_payment != null && <Detail label="Short payment" value={fmtMoney(invoice.short_payment)} />}
+              {invoice.late_days != null && <Detail label="Late days" value={String(invoice.late_days)} />}
+            </div>
+            {invoice.noa_comments && (
+              <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">NOA comments</div>
+                <p className="mt-1 text-xs italic">"{invoice.noa_comments}"</p>
+              </div>
+            )}
+          </div>
+
+          {/* Debtor details */}
+          {debtor && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Name" value={debtor.name} />
+                <Detail label="Contact" value={debtor.contact_name || "—"} />
+                <Detail label="Email" value={debtor.contact_email || "—"} />
+                <Detail label="Phone" value={debtor.contact_phone || "—"} />
+                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
+                <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
+                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
+                {debtor.website && <Detail label="Website" value={debtor.website} />}
+              </div>
+              {debtor.notes && (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Documents */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+              <FileText className="mr-1 inline h-3.5 w-3.5" />Attachments ({invDocs.length})
+            </h4>
+            {invDocs.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No documents attached to this invoice.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {invDocs.map((d: any) => (
+                  <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate" title={d.name}>{d.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MassImportModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [rows, setRows] = useState<Array<{ amount: string; invoice_number: string; advance_date: string; reference: string }>>([]);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{ created: number; matched: number; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const normaliseDate = (val: unknown): string => {
+    if (val == null || val === "") return "";
+    // Excel serial date number
+    if (typeof val === "number" && !isNaN(val)) {
+      const d = new Date((val - 25569) * 86400 * 1000);
+      return d.toISOString().slice(0, 10);
+    }
+    const s = String(val).trim();
+    if (!s) return "";
+    // DD-MM-YYYY or DD/MM/YYYY (Indian/European format)
+    const dashMatch = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+    if (dashMatch) {
+      const [, d, m, y] = dashMatch;
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+    // Already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Try parsing: "8 Jan 2025", "8 January 2025", etc.
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return s;
+  };
 
   const handleFile = (file: File) => {
     const reader = new FileReader();
@@ -343,7 +503,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
           return {
             invoice_number: invKey ? String(row[invKey] ?? "").trim() : "",
             amount: amtKey ? String(row[amtKey] ?? "").trim() : "",
-            advance_date: dateKey ? String(row[dateKey] ?? "").trim() : "",
+            advance_date: dateKey ? normaliseDate(row[dateKey]) : "",
             reference: refKey ? String(row[refKey] ?? "").trim() : "",
           };
         }).filter((r) => r.invoice_number && r.amount);
