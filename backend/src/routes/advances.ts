@@ -130,6 +130,78 @@ router.patch("/:id", requireAuth, requireWriteAccess("advances"), async (req: Au
   }
 });
 
+// ── POST /api/advances/batch ── (mass import from Excel)
+const batchCreateSchema = z.object({
+  items: z.array(z.object({
+    amount: z.number().positive(),
+    invoice_number: z.string().min(1).max(80),
+    advance_date: z.string().min(1),
+    reference: z.string().nullable().optional(),
+  })).min(1),
+});
+
+router.post("/batch", requireAuth, requireWriteAccess("advances"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchCreateSchema.parse(req.body);
+    const now = nowISO();
+
+    // Scan invoices and build lookup by invoice_number
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const invoiceByNumber = new Map<string, any>();
+    for (const inv of allInvoices) {
+      invoiceByNumber.set(inv.invoice_number, inv);
+    }
+
+    const created: Advance[] = [];
+    const matched: Array<{ invoice_number: string; invoice_id: string }> = [];
+    const not_found: string[] = [];
+    const errors: Array<{ invoice_number: string; error: string }> = [];
+
+    for (const item of parsed.items) {
+      try {
+        const invoice = invoiceByNumber.get(item.invoice_number);
+        if (!invoice) {
+          not_found.push(item.invoice_number);
+          continue;
+        }
+
+        const id = generateId();
+        const advance: Advance = {
+          id,
+          client_id: req.user!.id,
+          side: "sales" as AdvanceSide,
+          amount: item.amount,
+          advance_date: item.advance_date,
+          reference: item.reference || null,
+          notes: null,
+          purchase_order_id: null,
+          invoice_id: invoice.id,
+          purchase_invoice_id: null,
+          status: "open",
+          created_at: now,
+          updated_at: now,
+        };
+
+        await putItem(TABLES.ADVANCES, advance as any);
+        created.push(advance);
+        matched.push({ invoice_number: item.invoice_number, invoice_id: invoice.id });
+      } catch (err) {
+        errors.push({ invoice_number: item.invoice_number, error: "Failed to create advance" });
+        console.error(`Batch advance create error for ${item.invoice_number}:`, err);
+      }
+    }
+
+    res.status(201).json({ created, matched, not_found, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create advances error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── DELETE /api/advances/:id ──
 router.delete("/:id", requireAuth, requireWriteAccess("advances"), async (req: AuthRequest, res: Response) => {
   try {

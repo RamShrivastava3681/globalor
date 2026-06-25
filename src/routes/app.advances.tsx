@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { Plus, X, Loader2, Link2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/advances")({
@@ -16,6 +17,7 @@ function AdvancesPage() {
   const canEdit = canWrite("advances");
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
+  const [massImportOpen, setMassImportOpen] = useState(false);
   const [tab, setTab] = useState<"sales" | "purchase">("sales");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -77,6 +79,9 @@ function AdvancesPage() {
             <div className="flex gap-2">
               <button onClick={() => setOpen("sales")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
                 <Plus className="h-4 w-4" /> Sales advance
+              </button>
+              <button onClick={() => setMassImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-4 py-2 text-sm text-primary hover:bg-primary/10">
+                <Upload className="h-4 w-4" /> Mass import
               </button>
               <button onClick={() => setOpen("purchase")} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm">
                 <Plus className="h-4 w-4" /> Purchase advance
@@ -182,6 +187,7 @@ function AdvancesPage() {
       </div>
 
       {open && user && <NewAdvanceModal side={open} onClose={() => setOpen(null)} />}
+      {massImportOpen && <MassImportModal onClose={() => setMassImportOpen(false)} />}
     </div>
   );
 }
@@ -304,4 +310,249 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+function MassImportModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [rows, setRows] = useState<Array<{ amount: string; invoice_number: string; advance_date: string; reference: string }>>([]);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ created: number; matched: number; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+        // Map column headers — accept common variations
+        const parsed = json.map((row) => {
+          const keys = Object.keys(row);
+          const findKey = (aliases: string[]) => keys.find((k) => aliases.some((a) => k.toLowerCase().includes(a)));
+
+          const invKey = findKey(["invoice", "inv", "invoice#", "inv#", "invoice #", "inv #", "invoice_no"]);
+          const amtKey = findKey(["amount", "amt", "advance", "advance amount", "advance_amt", "value"]);
+          const dateKey = findKey(["date", "advance_date", "advance date", "date_received", "date received", "received_date", "payment_date"]);
+          const refKey = findKey(["reference", "ref", "txn", "transaction", "cheque", "check", "payment_ref"]);
+
+          return {
+            invoice_number: invKey ? String(row[invKey] ?? "").trim() : "",
+            amount: amtKey ? String(row[amtKey] ?? "").trim() : "",
+            advance_date: dateKey ? String(row[dateKey] ?? "").trim() : "",
+            reference: refKey ? String(row[refKey] ?? "").trim() : "",
+          };
+        }).filter((r) => r.invoice_number && r.amount);
+
+        if (parsed.length === 0) {
+          toast.error("Could not find invoice_number and amount columns in the spreadsheet. Make sure your Excel file has columns like 'Invoice Number', 'Amount', and optionally 'Date'.");
+          return;
+        }
+
+        setRows(parsed);
+        setResult(null);
+        toast.success(`Parsed ${parsed.length} row${parsed.length !== 1 ? "s" : ""} from spreadsheet`);
+      } catch {
+        toast.error("Failed to parse the Excel file. Make sure it's a valid .xlsx or .xls file.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const importAll = async () => {
+    setImporting(true);
+    try {
+      const items = rows.map((r) => ({
+        amount: Number(r.amount),
+        invoice_number: r.invoice_number,
+        advance_date: r.advance_date || new Date().toISOString().slice(0, 10),
+        reference: r.reference || null,
+      }));
+
+      // Validate amounts
+      for (const item of items) {
+        if (!item.amount || item.amount <= 0) {
+          throw new Error(`Invalid amount for invoice ${item.invoice_number}: ${item.amount}`);
+        }
+      }
+
+      const res = await api.post<{
+        created: any[];
+        matched: Array<{ invoice_number: string; invoice_id: string }>;
+        not_found: string[];
+        errors: Array<{ invoice_number: string; error: string }>;
+      }>("/advances/batch", { items });
+
+      setResult({
+        created: res.created.length,
+        matched: res.matched.length,
+        not_found: res.not_found,
+        errors: res.errors,
+      });
+
+      qc.invalidateQueries({ queryKey: ["advances"] });
+
+      if (res.created.length > 0) {
+        toast.success(`${res.created.length} advance${res.created.length !== 1 ? "s" : ""} imported`);
+      }
+      if (res.not_found.length > 0) {
+        toast.warning(`${res.not_found.length} invoice${res.not_found.length !== 1 ? "s" : ""} not found`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">Mass import sales advances</h3>
+          <button onClick={onClose}><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-5 p-5">
+          {/* Instructions */}
+          <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-xs text-muted-foreground">
+            <p className="mb-2 font-medium text-foreground">Expected columns in your Excel file:</p>
+            <ul className="list-disc space-y-1 pl-4">
+              <li><strong>Invoice Number</strong> — the invoice number as it appears in your invoices (required)</li>
+              <li><strong>Amount</strong> — the advance amount received (required)</li>
+              <li><strong>Date</strong> — the date the advance was received (optional, defaults to today)</li>
+              <li><strong>Reference</strong> — txn ID, cheque number, etc. (optional)</li>
+            </ul>
+            <p className="mt-2 text-warning">Each advance will be linked to the invoice with a matching invoice number in your system.</p>
+          </div>
+
+          {/* File upload */}
+          {rows.length === 0 && !result && (
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border p-10 text-center transition hover:border-primary/50 hover:bg-muted/20"
+            >
+              <Upload className="h-10 w-10 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Click to upload Excel file</p>
+                <p className="mt-1 text-xs text-muted-foreground">.xlsx or .xls</p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFile(file);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          )}
+
+          {/* Preview table */}
+          {rows.length > 0 && !result && (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{rows.length} row{rows.length !== 1 ? "s" : ""} parsed</p>
+                <button onClick={() => { setRows([]); setResult(null); }} className="text-xs text-muted-foreground underline hover:text-foreground">Upload different file</button>
+              </div>
+              <div className="-mx-5 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">#</th>
+                      <th className="px-5 py-2 text-left font-normal">Invoice number</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-2.5 text-muted-foreground">{i + 1}</td>
+                        <td className="px-5 py-2.5 font-mono text-xs">{r.invoice_number}</td>
+                        <td className="px-5 py-2.5 text-right num text-primary">{fmtMoney(Number(r.amount))}</td>
+                        <td className="px-5 py-2.5 text-xs text-muted-foreground">{r.advance_date || fmtDate(new Date().toISOString().slice(0, 10))}</td>
+                        <td className="px-5 py-2.5 text-xs text-muted-foreground">{r.reference || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+                <button
+                  disabled={importing}
+                  onClick={importAll}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                >
+                  {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Import {rows.length} advance{rows.length !== 1 ? "s" : ""}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {result && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-lg border border-success/30 bg-success/5 p-3 text-center">
+                  <div className="num text-2xl text-success">{result.created}</div>
+                  <div className="text-xs text-muted-foreground">Created</div>
+                </div>
+                <div className="rounded-lg border border-border bg-background/40 p-3 text-center">
+                  <div className="num text-2xl">{result.matched}</div>
+                  <div className="text-xs text-muted-foreground">Linked to invoice</div>
+                </div>
+                <div className={`rounded-lg border p-3 text-center ${result.not_found.length > 0 ? "border-warning/30 bg-warning/5" : "border-border bg-background/40"}`}>
+                  <div className={`num text-2xl ${result.not_found.length > 0 ? "text-warning" : ""}`}>{result.not_found.length}</div>
+                  <div className="text-xs text-muted-foreground">Not found</div>
+                </div>
+              </div>
+
+              {result.not_found.length > 0 && (
+                <div className="rounded-md border border-warning/20 bg-warning/5 p-3">
+                  <p className="mb-2 text-xs font-medium text-warning">Invoices not found in system:</p>
+                  <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                    {result.not_found.map((inv, i) => (
+                      <li key={i}>{inv}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {result.errors.length > 0 && (
+                <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3">
+                  <p className="mb-2 text-xs font-medium text-destructive">Errors:</p>
+                  <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                    {result.errors.map((e, i) => (
+                      <li key={i}>{e.invoice_number}: {e.error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+                {result.not_found.length > 0 && (
+                  <button
+                    onClick={() => { setRows([]); setResult(null); }}
+                    className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-4 py-2 text-sm text-primary hover:bg-primary/10"
+                  >
+                    Import another file
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <style>{`.num{font-variant-numeric:tabular-nums}`}</style>
+      </div>
+    </div>
+  );
 }
