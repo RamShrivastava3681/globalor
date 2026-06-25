@@ -279,6 +279,38 @@ router.delete("/:id", requireAuth, requireWriteAccess("invoices"), async (req: A
   }
 });
 
+// ── POST /api/invoices/bulk-delete ──
+const bulkDeleteSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+});
+
+router.post("/bulk-delete", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = bulkDeleteSchema.parse(req.body);
+    const deleted: string[] = [];
+    const errors: Array<{ id: string; error: string }> = [];
+
+    for (const id of parsed.ids) {
+      try {
+        await deleteItem(TABLES.INVOICES, { id });
+        deleted.push(id);
+      } catch (err) {
+        errors.push({ id, error: "Failed to delete" });
+        console.error(`Bulk delete error for invoice ${id}:`, err);
+      }
+    }
+
+    res.json({ deleted, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Bulk delete invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/invoices/batch ── (mass import from Excel)
 const batchInvoiceSchema = z.object({
   debtor_id: z.string().min(1),

@@ -4,8 +4,19 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2 } from "lucide-react";
+import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
@@ -253,10 +264,57 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
 }
 
 function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoices: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
   const totalAmount = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
   const totalPaid = paidInvoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
   const overdueCount = invoices.filter((i: any) => i.status === "overdue").length;
+  const { canWrite } = useAuth();
+  const canEdit = canWrite("invoices");
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const allSelected = invoices.length > 0 && selectedIds.size === invoices.length;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(invoices.map((i: any) => i.id)));
+    }
+  };
+
+  // Bulk delete mutation
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await api.post("/invoices/bulk-delete", { ids });
+    },
+    onSuccess: () => {
+      const count = selectedIds.size;
+      toast.success(`${count} invoice${count !== 1 ? "s" : ""} deleted`);
+      setSelectedIds(new Set());
+      setConfirmOpen(false);
+      qc.invalidateQueries({ queryKey: ["invoices-for-debtors"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete invoices"),
+  });
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    setConfirmOpen(true);
+  };
 
   // Average payment days: for paid invoices, days between issue_date and paid_date
   const paymentDays = paidInvoices
@@ -268,7 +326,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-3">
@@ -306,9 +364,25 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
 
           {/* Invoices table */}
           <div className="rounded-lg border border-border bg-background/40 p-4">
-            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-              <FileText className="mr-1 inline h-3.5 w-3.5" />Linked invoices ({invoices.length})
-            </h4>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-xs uppercase tracking-widest text-primary">
+                <FileText className="mr-1 inline h-3.5 w-3.5" />Linked invoices ({invoices.length})
+              </h4>
+              {canEdit && selectedIds.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDelete.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50 transition-all"
+                >
+                  {bulkDelete.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Delete {selectedIds.size}
+                </button>
+              )}
+            </div>
             {invoices.length === 0 ? (
               <div className="text-xs text-muted-foreground">No invoices linked to this debtor.</div>
             ) : (
@@ -316,6 +390,16 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
+                      {canEdit && (
+                        <th className="w-10 px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={toggleSelectAll}
+                            className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+                          />
+                        </th>
+                      )}
                       <th className="px-4 py-2 text-left font-normal">Invoice</th>
                       <th className="px-4 py-2 text-right font-normal">Amount</th>
                       <th className="px-4 py-2 text-left font-normal">Issue</th>
@@ -330,8 +414,19 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                       const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
                         ? daysBetween(inv.issue_date, inv.paid_date)
                         : null;
+                      const isSelected = selectedIds.has(inv.id);
                       return (
-                        <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <tr key={inv.id} className={`border-b border-border/60 transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/30"}`}>
+                          {canEdit && (
+                            <td className="w-10 px-2 py-2.5 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleSelect(inv.id)}
+                                className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+                              />
+                            </td>
+                          )}
                           <td className="px-4 py-2.5">
                             <Link to="/app/invoices" search={{ view: inv.id }} className="font-mono text-xs text-primary hover:underline">
                               {inv.invoice_number}
@@ -359,6 +454,36 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           </div>
         </div>
       </div>
+
+      {/* Bulk delete confirmation dialog */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The selected invoice{selectedIds.size !== 1 ? "s" : ""} will be permanently removed from the ledger.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkDelete.mutate(Array.from(selectedIds))}
+              disabled={bulkDelete.isPending}
+              className="inline-flex items-center gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDelete.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
