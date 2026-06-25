@@ -219,6 +219,91 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
 });
 
 // ── DELETE /api/purchase-invoices/:id ──
+// ── POST /api/purchase-invoices/batch ── (mass import from Excel)
+const batchPurchaseInvoiceSchema = z.object({
+  vendor_id: z.string().min(1),
+  payment_terms_days: z.number().min(0).optional().default(30),
+  due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
+  bl_date: z.string().nullable().optional(),
+  po_number: z.string().max(80).nullable().optional().default(null),
+  po_date: z.string().nullable().optional().default(null),
+  invoices: z.array(z.object({
+    invoice_number: z.string().min(1).max(80),
+    amount: z.number().positive(),
+    issue_date: z.string().min(1),
+  })).min(1),
+});
+
+router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchPurchaseInvoiceSchema.parse(req.body);
+    const now = nowISO();
+    const created: PurchaseInvoice[] = [];
+    const errors: Array<{ invoice_number: string; error: string }> = [];
+
+    for (const item of parsed.invoices) {
+      try {
+        const id = generateId();
+
+        const termsDays = parsed.payment_terms_days;
+        const baseDate = parsed.due_date_source === "bl" && parsed.bl_date
+          ? new Date(parsed.bl_date)
+          : new Date(item.issue_date);
+        const dueDate = new Date(baseDate);
+        dueDate.setDate(dueDate.getDate() + termsDays);
+
+        const invoice: PurchaseInvoice = {
+          id,
+          client_id: req.user!.id,
+          vendor_id: parsed.vendor_id,
+          invoice_number: item.invoice_number,
+          amount: item.amount,
+          advance_rate: 0,
+          po_number: parsed.po_number || null,
+          po_date: parsed.po_date || null,
+          issue_date: item.issue_date,
+          due_date: dueDate.toISOString().slice(0, 10),
+          paid_date: null,
+          funded_date: null,
+          advance_paid_date: null,
+          payment_terms_days: parsed.payment_terms_days,
+          bl_date: parsed.bl_date || null,
+          due_date_source: parsed.due_date_source,
+          notes: null,
+          status: "pending",
+          documents: [],
+          purchase_order_id: null,
+          linked_sales_invoice_ids: [],
+          created_at: now,
+          updated_at: now,
+        };
+
+        await putItem(TABLES.PURCHASE_INVOICES, invoice as any);
+        created.push(invoice);
+      } catch (err) {
+        errors.push({ invoice_number: item.invoice_number, error: "Failed to create" });
+        console.error(`Batch create error for purchase invoice ${item.invoice_number}:`, err);
+      }
+    }
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      type: "purchase_invoice_created",
+      severity: "info",
+      message: `Batch imported ${created.length} purchase invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
+    });
+
+    res.status(201).json({ created, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create purchase invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/:id", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.PURCHASE_INVOICES, { id: req.params.id });

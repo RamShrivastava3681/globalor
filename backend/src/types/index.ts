@@ -133,6 +133,7 @@ export interface Invoice {
   advance_received_date: string | null;
   short_payment: number | null;
   late_days: number | null;
+  paid_note: string | null;
   status: InvoiceStatus;
   noa_status: NoaStatus;
   noa_token: string | null;
@@ -166,6 +167,7 @@ export interface PurchaseInvoice {
   paid_date: string | null;
   funded_date: string | null;
   advance_paid_date: string | null;
+  paid_note: string | null;
   notes: string | null;
   status: PurchaseInvoiceStatus;
   documents: DocMeta[];

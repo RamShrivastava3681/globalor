@@ -411,10 +411,12 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
 
 // ── POST /api/invoices/batch-close ── (mass close from funding queue)
 const batchCloseSchema = z.object({
+  paid_note: z.string().nullable().optional().default(null),
   items: z.array(z.object({
     invoice_number: z.string().min(1),
     date_received: z.string().min(1),
     amount_received: z.number().min(0),
+    paid_note: z.string().nullable().optional().default(null),
   })).min(1),
 });
 
@@ -455,15 +457,19 @@ router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), as
           ? Math.max(0, Math.round((new Date(item.date_received).getTime() - new Date(invoice.due_date).getTime()) / 86400000))
           : 0;
 
-        await updateItem(TABLES.INVOICES, { id: invoice.id }, {
+        const note = item.paid_note || parsed.paid_note || null;
+        const updateFields: Record<string, any> = {
           status: "paid",
           paid_date: item.date_received,
           receipt_date: item.date_received,
           amount_received: amountReceived,
           short_payment: shortPayment,
           late_days: lateDays,
+          paid_note: note,
           updated_at: now,
-        });
+        };
+
+        await updateItem(TABLES.INVOICES, { id: invoice.id }, updateFields);
 
         closed.push({
           invoice_number: item.invoice_number,

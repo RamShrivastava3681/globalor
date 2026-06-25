@@ -122,7 +122,7 @@ function QueuePage() {
     po ? Number(advMap[`${s}::${po.trim()}`] ?? 0) : 0;
 
   const closeSale = useMutation({
-    mutationFn: async ({ id, amount_received, receipt_date, amount, due_date }: { id: string; amount_received: number; receipt_date: string; amount: number; due_date: string | null }) => {
+    mutationFn: async ({ id, amount_received, receipt_date, amount, due_date, paid_note }: { id: string; amount_received: number; receipt_date: string; amount: number; due_date: string | null; paid_note: string }) => {
       const short_payment = Math.max(0, +(amount - amount_received).toFixed(2));
       const late_days = diffDaysUTC(due_date, receipt_date);
       await api.patch(`/invoices/${id}`, {
@@ -132,6 +132,7 @@ function QueuePage() {
         receipt_date,
         short_payment,
         late_days,
+        paid_note: paid_note || null,
       });
     },
     onSuccess: (_d, vars) => {
@@ -145,9 +146,9 @@ function QueuePage() {
   });
 
   const payPurchase = useMutation({
-    mutationFn: async ({ id }: { id: string }) => {
+    mutationFn: async ({ id, paid_note }: { id: string; paid_note: string }) => {
       const today = new Date().toISOString().slice(0, 10);
-      await api.patch(`/purchase-invoices/${id}`, { status: "paid", paid_date: today });
+      await api.patch(`/purchase-invoices/${id}`, { status: "paid", paid_date: today, paid_note: paid_note || null });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
@@ -175,6 +176,7 @@ function QueuePage() {
   });
 
   const [closeFor, setCloseFor] = useState<Row | null>(null);
+  const [payFor, setPayFor] = useState<Row | null>(null);
   const [fundPf, setFundPf] = useState<Row | null>(null);
   const [massCloseOpen, setMassCloseOpen] = useState(false);
 
@@ -386,7 +388,7 @@ function QueuePage() {
                   {rows.map((r) => {
                     const dpd = r.due_date && r.status !== "paid" ? daysBetween(r.due_date) : 0;
                     const lateDays = Math.max(0, dpd);
-                    const action = <QueueAction row={r} isTreasury={isTreasury} onCloseSale={setCloseFor} onPayPurchase={() => payPurchase.mutate({ id: r.id })} onFundPf={setFundPf} onSettleCdNote={(id, noteType) => settleCreditDebitNote.mutate({ id, noteType })} />;
+                    const action = <QueueAction row={r} isTreasury={isTreasury} onCloseSale={setCloseFor} onPayPurchase={() => setPayFor(r)} onFundPf={setFundPf} onSettleCdNote={(id, noteType) => settleCreditDebitNote.mutate({ id, noteType })} />;
                     return (
                       <Fragment key={`${r.kind}-${r.id}`}>
                       <tr className="border-b border-border/60 hover:bg-muted/30">
@@ -434,6 +436,19 @@ function QueuePage() {
             closeSale.mutate(
               { id: closeFor.id, amount: closeFor.balance, due_date: closeFor.due_date, ...vals },
               { onSuccess: () => setCloseFor(null) },
+            );
+          }}
+        />
+      )}
+
+      {payFor && (
+        <PayPurchaseModal
+          row={payFor}
+          onClose={() => setPayFor(null)}
+          onSubmit={(vals) => {
+            payPurchase.mutate(
+              { id: payFor.id, ...vals },
+              { onSuccess: () => setPayFor(null) },
             );
           }}
         />
@@ -562,6 +577,7 @@ interface ImportRow {
   invoice_number: string;
   date_received: string;
   amount_received: number;
+  paid_note: string;
 }
 
 function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onClose: () => void; onDone: () => void }) {
@@ -569,6 +585,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState("");
+  const [paidNote, setPaidNote] = useState(""); // Fallback note for rows without per-row notes
   const [result, setResult] = useState<{ closed: number; not_found: string[]; errors: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -615,6 +632,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
           const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
           const dateRec = row.date_received ?? row["Date Received"] ?? row.dateReceived ?? row["Receipt Date"] ?? row.receipt_date ?? row.ReceiptDate ?? "";
           const amtRec = Number(row.amount_received ?? row["Amount Received"] ?? row.amountReceived ?? row["Amount"] ?? row.Amount ?? 0);
+          const noteVal = row.paid_note ?? row["Note"] ?? row["Payment Note"] ?? row["paid_note"] ?? row.note ?? "";
 
           let dateStr = String(dateRec);
           if (typeof dateRec === "number" && !isNaN(dateRec)) {
@@ -626,6 +644,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
             invoice_number: String(invNum).trim(),
             date_received: dateStr || "",
             amount_received: isNaN(amtRec) ? 0 : amtRec,
+            paid_note: String(noteVal).trim(),
           };
         }).filter((r) => r.invoice_number && r.date_received);
 
@@ -647,10 +666,12 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
   const batchClose = useMutation({
     mutationFn: async () => {
       return await api.post<{ closed: any[]; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> }>("/invoices/batch-close", {
+        paid_note: paidNote || null,
         items: preview.matched.map((r) => ({
           invoice_number: r.invoice_number,
           date_received: r.date_received,
           amount_received: r.amount_received,
+          paid_note: r.paid_note || null,
         })),
       });
     },
@@ -708,6 +729,16 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
               </label>
             </div>
 
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Default payment note (optional)</span>
+              <textarea rows={2} value={paidNote} onChange={(e) => setPaidNote(e.target.value)} placeholder="Applied to all invoices unless overridden per row in the Excel file..." className="w-full rounded-md border border-border bg-background p-2 text-sm placeholder:text-muted-foreground/50" />
+            </label>
+
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              You can also include a <code className="font-mono text-primary">paid_note</code> column in your Excel file for per-row notes.
+              Rows with a note in the Excel will use that instead of the default above.
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
             </div>
@@ -748,6 +779,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
                     <th className="px-5 py-2 text-right font-normal">Received</th>
                     <th className="px-5 py-2 text-right font-normal">Short</th>
                     <th className="px-5 py-2 text-left font-normal">Receipt date</th>
+                    <th className="px-5 py-2 text-left font-normal">Note</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                   </tr>
                 </thead>
@@ -763,6 +795,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
                         <td className="px-5 py-3 text-right num text-success">{fmtMoney(r.amount_received)}</td>
                         <td className={`px-5 py-3 text-right num ${short > 0 ? "text-destructive" : "text-muted-foreground"}`}>{short > 0 ? fmtMoney(short) : "—"}</td>
                         <td className="px-5 py-3 text-sm font-mono">{r.date_received}</td>
+                        <td className="px-5 py-3 text-xs text-muted-foreground max-w-[160px] truncate" title={r.paid_note || paidNote || ""}>{r.paid_note || paidNote || "—"}</td>
                         <td className="px-5 py-3"><StatusPill status={r.invoice.status} /></td>
                       </tr>
                     );
@@ -821,9 +854,10 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
   );
 }
 
-function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => void; onSubmit: (v: { amount_received: number; receipt_date: string }) => void }) {
+function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => void; onSubmit: (v: { amount_received: number; receipt_date: string; paid_note: string }) => void }) {
   const [amt, setAmt] = useState(String(row.balance));
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
   const short = Math.max(0, +(row.balance - Number(amt || 0)).toFixed(2));
   const late = diffDaysUTC(row.due_date, date);
   return (
@@ -844,6 +878,10 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Receipt date</span>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note about this payment..." className="w-full rounded-md border border-border bg-background p-2 text-sm placeholder:text-muted-foreground/50" />
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-md border border-border bg-background/40 p-3">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Short payment</div>
@@ -857,8 +895,42 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-          <button onClick={() => onSubmit({ amount_received: Number(amt), receipt_date: date })}
+          <button onClick={() => onSubmit({ amount_received: Number(amt), receipt_date: date, paid_note: note })}
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Close invoice</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PayPurchaseModal({ row, onClose, onSubmit }: { row: Row; onClose: () => void; onSubmit: (v: { paid_note: string }) => void }) {
+  const [note, setNote] = useState("");
+  const short = Math.max(0, +(row.balance - 0).toFixed(2));
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 font-display text-lg">{row.balance <= 0 ? "Mark settled" : "Pay balance"} · {row.invoice_number}</h3>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
+            <div>Supplier: <span className="text-foreground">{row.party}</span></div>
+            <div>Gross: <span className="num text-foreground">{fmtMoney(row.amount)}</span></div>
+            {row.advance > 0 && <div>Advance paid: <span className="num text-primary">− {fmtMoney(row.advance)}</span></div>}
+            <div>Balance: <span className="num text-warning">{fmtMoney(row.balance)}</span></div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Note (optional)</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note about this payment..." className="w-full rounded-md border border-border bg-background p-2 text-sm placeholder:text-muted-foreground/50" />
+          </label>
+          {short > 0 && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+              Short payment: {fmtMoney(short)}
+            </div>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+          <button onClick={() => onSubmit({ paid_note: note })}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Confirm</button>
         </div>
       </div>
     </div>

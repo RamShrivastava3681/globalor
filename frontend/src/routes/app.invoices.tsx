@@ -814,6 +814,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
               {invoice.short_payment != null && <Detail label="Short payment" value={fmtMoney(invoice.short_payment)} />}
               {invoice.late_days != null && <Detail label="Late days" value={String(invoice.late_days)} />}
+              {invoice.paid_note && <Detail label="Payment note" value={invoice.paid_note} />}
             </div>
             {invoice.noa_comments && (
               <div className="mt-3 rounded-md border border-border bg-background/60 p-3">

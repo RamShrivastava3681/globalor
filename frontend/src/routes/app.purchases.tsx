@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/app/purchases")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -95,6 +96,7 @@ function PurchasesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
@@ -203,9 +205,14 @@ function PurchasesPage() {
         description="Invoices you receive from suppliers, with PO details and links to the sales they support."
         actions={
           canCreate ? (
-            <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              <Plus className="h-4 w-4" /> New purchase invoice
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                <Plus className="h-4 w-4" /> New purchase invoice
+              </button>
+              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                <Upload className="h-4 w-4" /> Mass import
+              </button>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
               Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
@@ -421,6 +428,8 @@ function PurchasesPage() {
           onDone={() => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); qc.invalidateQueries({ queryKey: ["invoices-by-pi"] }); }}
         />
       )}
+
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} vendors={vendorsQ.data ?? []} />}
 
       {viewing && (
         <PurchaseInvoiceDetailModal
@@ -764,8 +773,13 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
               <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
               {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
               {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
-            </div>
-            {invoice.notes && (
+            </div>              {invoice.paid_note && (
+                <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Payment note</div>
+                  <p className="mt-1 text-xs italic">{invoice.paid_note}</p>
+                </div>
+              )}
+              {invoice.notes && (
               <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
                 <p className="mt-1 text-xs italic">{invoice.notes}</p>
@@ -912,4 +926,285 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+// ── Mass Import Modal ──
+
+interface ImportRow {
+  invoice_number: string;
+  amount: number;
+  issue_date: string;
+}
+
+function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: any[] }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"form" | "preview" | "done">("form");
+  const [vendorId, setVendorId] = useState("");
+  const [paymentTermsDays, setPaymentTermsDays] = useState("30");
+  const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
+  const [blDate, setBlDate] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [poDate, setPoDate] = useState("");
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!vendorId) {
+      toast.error("Please select a supplier first");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ImportRow[] = json.map((row: any, idx: number) => {
+          // Try common column name variations
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
+          const amt = Number(row.amount ?? row["Amount"] ?? row.Amount ?? 0);
+          const issDate = row.issue_date ?? row["Issue Date"] ?? row.issueDate ?? row.Date ?? row.date ?? "";
+
+          // Normalize date if it's a serial number (Excel date)
+          let dateStr = String(issDate);
+          if (typeof issDate === "number" && !isNaN(issDate)) {
+            // Excel serial date
+            const d = new Date((issDate - 25569) * 86400 * 1000);
+            dateStr = d.toISOString().slice(0, 10);
+          }
+
+          return {
+            invoice_number: String(invNum).trim(),
+            amount: isNaN(amt) ? 0 : amt,
+            issue_date: dateStr || "",
+          };
+        }).filter((r) => r.invoice_number && r.amount > 0);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the Excel file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchImport = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        vendor_id: vendorId,
+        payment_terms_days: Number(paymentTermsDays) || 30,
+        due_date_source: dueDateSource,
+        bl_date: blDate || null,
+        po_number: poNumber.trim() || null,
+        po_date: poDate || null,
+        invoices: rows.map((r) => ({
+          invoice_number: r.invoice_number,
+          amount: r.amount,
+          issue_date: r.issue_date,
+        })),
+      };
+      return await api.post<{ created: any[]; errors: Array<{ invoice_number: string; error: string }> }>("/purchase-invoices/batch", payload);
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      const errList = (data.errors ?? []).map((e) => `${e.invoice_number}: ${e.error}`);
+      setResult({ created: data.created.length, errors: errList });
+      setStep("done");
+      if (errList.length === 0) {
+        toast.success(`${data.created.length} purchase invoices created successfully`);
+      } else {
+        toast.success(`${data.created.length} created, ${errList.length} failed`);
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const computedDue = useMemo(() => {
+    if (!rows.length) return "";
+    const base = dueDateSource === "bl" && blDate ? blDate : rows[0].issue_date;
+    if (!base) return "";
+    const d = new Date(base);
+    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+    return d.toISOString().slice(0, 10);
+  }, [rows, dueDateSource, blDate, paymentTermsDays]);
+
+  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {step === "form" ? "Mass import purchase invoices" : step === "preview" ? "Preview imported invoices" : "Import complete"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "form" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
+              <code className="font-mono text-primary">invoice_number</code>,{' '}
+              <code className="font-mono text-primary">amount</code>,{' '}
+              <code className="font-mono text-primary">issue_date</code>.
+              Each row becomes a separate purchase invoice. Due dates are auto-calculated from payment terms.
+            </div>
+
+            <L label="Supplier *">
+              <select required value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="inp">
+                <option value="">Select supplier</option>
+                {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </L>
+
+            <div className="grid grid-cols-2 gap-3">
+              <L label="Payment terms (days) *">
+                <input required type="number" min="0" className="inp" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(e.target.value)} />
+              </L>
+              <L label="Due date source">
+                <select className="inp" value={dueDateSource} onChange={(e) => setDueDateSource(e.target.value as any)}>
+                  <option value="invoice">From invoice date</option>
+                  <option value="bl">From BL date</option>
+                </select>
+              </L>
+            </div>
+
+            {dueDateSource === "bl" && (
+              <L label="BL date">
+                <input type="date" className="inp" value={blDate} onChange={(e) => setBlDate(e.target.value)} />
+              </L>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <L label="PO number (optional)">
+                <input className="inp" placeholder="PO-2026-001" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+              </L>
+              <L label="PO date">
+                <input type="date" className="inp" value={poDate} onChange={(e) => setPoDate(e.target.value)} />
+              </L>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <L label="Upload Excel / CSV file *">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                  onChange={handleFile}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                />
+              </L>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span> ·
+                Found <strong className="text-foreground">{rows.length}</strong> invoices
+                · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+              </div>
+              <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Supplier</span><span>{vendors.find((v: any) => v.id === vendorId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
+              {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
+            </div>
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice number</th>
+                    <th className="px-5 py-2 text-left font-normal">Issue date</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Due date (computed)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => {
+                    const base = dueDateSource === "bl" && blDate ? blDate : r.issue_date;
+                    const d = new Date(base);
+                    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+                    const dueStr = d.toISOString().slice(0, 10);
+                    return (
+                      <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                        <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
+                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                        <td className="px-5 py-3 text-sm font-mono">{dueStr}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchImport.isPending}
+                onClick={() => batchImport.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {batchImport.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Import {rows.length} invoice{rows.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
+              <div className="text-2xl font-display text-success">{result.created}</div>
+              <div className="text-xs text-muted-foreground mt-1">Purchase invoices created successfully</div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
+
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
 }
