@@ -292,6 +292,8 @@ function InvoicesPage() {
                     <th className="px-5 py-2 text-left font-normal">Debtor</th>
                     <th className="px-5 py-2 text-left font-normal">Issue</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Recv'd</th>
+                    <th className="px-5 py-2 text-right font-normal">Short pay</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
@@ -325,6 +327,8 @@ function InvoicesPage() {
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
+                        <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
+                        <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
                         <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>

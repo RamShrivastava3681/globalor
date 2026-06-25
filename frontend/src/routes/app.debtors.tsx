@@ -318,10 +318,18 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
 
   // Average payment days: for paid invoices, days between issue_date and paid_date
   const paymentDays = paidInvoices
-    .map((i: any) => i.issue_date && i.paid_date ? daysBetween(i.paid_date, i.issue_date) : null)
+    .map((i: any) => i.issue_date && i.paid_date ? daysBetween(i.issue_date, i.paid_date) : null)
     .filter((d: number | null): d is number => d !== null && d >= 0);
   const avgPaymentDays = paymentDays.length > 0
     ? Math.round(paymentDays.reduce((a, b) => a + b, 0) / paymentDays.length)
+    : null;
+
+  // Average overdue days: for paid invoices, days between due_date and paid_date
+  const overdueDaysList = paidInvoices
+    .map((i: any) => i.due_date && i.paid_date ? daysBetween(i.due_date, i.paid_date) : null)
+    .filter((d: number | null): d is number => d !== null && d >= 0);
+  const avgOverdueDays = overdueDaysList.length > 0
+    ? Math.round(overdueDaysList.reduce((a, b) => a + b, 0) / overdueDaysList.length)
     : null;
 
   return (
@@ -354,11 +362,12 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           </div>
 
           {/* Stats cards */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
             <StatsCard label="Total invoices" value={String(invoices.length)} />
             <StatsCard label="Total invoiced" value={fmtMoney(totalAmount)} />
             <StatsCard label="Total paid" value={fmtMoney(totalPaid)} />
             <StatsCard label="Avg payment days" value={avgPaymentDays != null ? `${avgPaymentDays}d` : "—"} />
+            <StatsCard label="Avg overdue days" value={avgOverdueDays != null ? `${avgOverdueDays}d` : "—"} accent={avgOverdueDays != null && avgOverdueDays > 0 ? "text-destructive" : ""} />
             <StatsCard label="Overdue" value={String(overdueCount)} accent={overdueCount > 0 ? "text-destructive" : ""} />
           </div>
 
@@ -406,6 +415,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                       <th className="px-4 py-2 text-left font-normal">Due</th>
                       <th className="px-4 py-2 text-left font-normal">Paid</th>
                       <th className="px-4 py-2 text-right font-normal">Payment days</th>
+                      <th className="px-4 py-2 text-right font-normal">Overdue days</th>
                       <th className="px-4 py-2 text-left font-normal">Status</th>
                     </tr>
                   </thead>
@@ -413,6 +423,9 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                     {invoices.sort((a: any, b: any) => b.issue_date?.localeCompare(a.issue_date ?? "") ?? 0).map((inv: any) => {
                       const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
                         ? daysBetween(inv.issue_date, inv.paid_date)
+                        : null;
+                      const rowOverdueDays = inv.status === "paid" && inv.due_date && inv.paid_date
+                        ? Math.max(0, daysBetween(inv.due_date, inv.paid_date))
                         : null;
                       const isSelected = selectedIds.has(inv.id);
                       return (
@@ -438,6 +451,9 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                           <td className="px-4 py-2.5 text-sm">{inv.status === "paid" ? fmtDate(inv.paid_date) : "—"}</td>
                           <td className={`px-4 py-2.5 text-right num ${paymentDays != null && paymentDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {paymentDays != null ? `${paymentDays}d` : "—"}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right num ${rowOverdueDays != null && rowOverdueDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {rowOverdueDays != null ? `${rowOverdueDays}d` : "—"}
                           </td>
                           <td className="px-4 py-2.5"><StatusPill status={inv.status} /></td>
                         </tr>
