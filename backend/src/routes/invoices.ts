@@ -56,7 +56,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // Status filter (all / open / close)
     const statusFilter = (req.query.filter as string) || "all";
     if (statusFilter === "open") {
-      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "pending");
+      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "pending" || inv.status === "approved");
     } else if (statusFilter === "close") {
       filteredInvoices = filteredInvoices.filter((inv) => inv.status === "funded");
     }

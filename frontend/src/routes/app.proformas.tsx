@@ -678,10 +678,9 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
 // ── Mass Import Modal ──
 
 interface ImportRow {
-  proforma_number: string;
+  invoice_number: string;
+  proforma_amount: number;
   proforma_date: string;
-  po_number: string;
-  amount: number;
 }
 
 function MassImportModal({ onClose }: { onClose: () => void }) {
@@ -722,9 +721,8 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
 
         const parsed: ImportRow[] = json.map((row: any, idx: number) => {
           // Try common column name variations
-          const pfNum = row.proforma_number ?? row["Proforma Number"] ?? row["Proforma#"] ?? row.proformaNum ?? "";
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row["Invoice#"] ?? "";
           const pfDate = row.proforma_date ?? row["Proforma Date"] ?? row.proformaDate ?? row.Date ?? row.date ?? "";
-          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row["Invoice#"] ?? row.po_number ?? row.PO ?? "";
           const amt = Number(row.proforma_amount ?? row["Proforma Amount"] ?? row.amount ?? row.Amount ?? 0);
 
           // Normalize date if it's a serial number (Excel date)
@@ -735,15 +733,14 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
           }
 
           return {
-            proforma_number: String(pfNum).trim(),
+            invoice_number: String(invNum).trim(),
+            proforma_amount: isNaN(amt) ? 0 : amt,
             proforma_date: dateStr || "",
-            po_number: String(invNum).trim(),
-            amount: isNaN(amt) ? 0 : amt,
           };
-        }).filter((r) => r.proforma_number && r.amount > 0);
+        }).filter((r) => r.invoice_number && r.proforma_amount > 0);
 
         if (parsed.length === 0) {
-          toast.error("No valid rows found. Expected columns: proforma_number, proforma_date, invoice_number, proforma_amount");
+          toast.error("No valid rows found. Expected columns: invoice_number, proforma_amount, proforma_date");
           return;
         }
 
@@ -763,10 +760,10 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
         side,
         [side === "sales" ? "debtor_id" : "vendor_id"]: partyId,
         items: rows.map((r) => ({
-          proforma_number: r.proforma_number,
+          proforma_number: r.invoice_number,
           proforma_date: r.proforma_date,
-          po_number: r.po_number,
-          amount: r.amount,
+          po_number: r.invoice_number,
+          amount: r.proforma_amount,
         })),
       };
       return await api.post<{ created: number; errors: Array<{ proforma_number: string; error: string }> }>("/purchase-orders/batch", payload);
@@ -785,7 +782,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
+  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.proforma_amount, 0), [rows]);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -801,10 +798,9 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-4 p-5">
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
               <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
-              <code className="font-mono text-primary">proforma_number</code>,{' '}
-              <code className="font-mono text-primary">proforma_date</code>,{' '}
               <code className="font-mono text-primary">invoice_number</code>,{' '}
-              <code className="font-mono text-primary">proforma_amount</code>.
+              <code className="font-mono text-primary">proforma_amount</code>,{' '}
+              <code className="font-mono text-primary">proforma_date</code>.
               Each row becomes a proforma invoice submitted for review.
             </div>
 
@@ -865,9 +861,8 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">#</th>
-                    <th className="px-5 py-2 text-left font-normal">Proforma #</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice #</th>
                     <th className="px-5 py-2 text-left font-normal">Proforma date</th>
-                    <th className="px-5 py-2 text-left font-normal">Invoice / PO #</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
                   </tr>
                 </thead>
@@ -875,10 +870,9 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
                   {rows.map((r, idx) => (
                     <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
-                      <td className="px-5 py-3 font-mono text-xs">{r.proforma_number}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.proforma_date)}</td>
-                      <td className="px-5 py-3 font-mono text-xs">{r.po_number}</td>
-                      <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.proforma_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
