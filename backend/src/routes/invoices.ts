@@ -27,19 +27,48 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
 
-    // Server-side search filtering
+    // Server-side search filtering (including debtor name and visible UID)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     let filteredInvoices = invoices;
     if (searchQuery) {
+      // Load debtors only when a search query is present
+      const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+      const debtorMap = new Map<string, Debtor>();
+      for (const d of allDebtors) {
+        debtorMap.set(d.id, d);
+      }
+
       filteredInvoices = invoices.filter((inv) => {
         const q = searchQuery;
+        const debtorName = (debtorMap.get(inv.debtor_id)?.name ?? "").toLowerCase();
+        const visibleUid = inv.id.slice(-8).toLowerCase();
         return (
           inv.invoice_number?.toLowerCase().includes(q) ||
           inv.po_number?.toLowerCase().includes(q) ||
           inv.status?.toLowerCase().includes(q) ||
-          inv.id.toLowerCase().includes(q)
+          inv.id.toLowerCase().includes(q) ||
+          visibleUid.includes(q) ||
+          debtorName.includes(q)
         );
       });
+    }
+
+    // Status filter (all / open / close)
+    const statusFilter = (req.query.filter as string) || "all";
+    if (statusFilter === "open") {
+      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "pending");
+    } else if (statusFilter === "close") {
+      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "funded");
+    }
+
+    // Date range filter
+    const issueDateFrom = req.query.issueDateFrom as string | undefined;
+    const issueDateTo = req.query.issueDateTo as string | undefined;
+    if (issueDateFrom) {
+      filteredInvoices = filteredInvoices.filter((inv) => inv.issue_date && inv.issue_date >= issueDateFrom);
+    }
+    if (issueDateTo) {
+      filteredInvoices = filteredInvoices.filter((inv) => inv.issue_date && inv.issue_date <= issueDateTo);
     }
 
     // Server-side sorting

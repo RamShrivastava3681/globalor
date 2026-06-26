@@ -107,10 +107,12 @@ function InvoicesPage() {
   const limit = 50;
 
   const invoicesQ = useQuery({
-    queryKey: ["invoices", "list", page, limit, sortField, sortOrder, searchQuery],
+    queryKey: ["invoices", "list", page, limit, sortField, sortOrder, searchQuery, filter, issueDateFrom, issueDateTo],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit), sortField, sortOrder });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit), sortField, sortOrder, filter });
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      if (issueDateFrom) params.set("issueDateFrom", issueDateFrom);
+      if (issueDateTo) params.set("issueDateTo", issueDateTo);
       const res = await api.get<any>("/invoices?" + params.toString());
       return res ?? { data: [], total: 0, page: 1, limit: 50, totalPages: 0 };
     },
@@ -216,22 +218,11 @@ function InvoicesPage() {
     }
   }, [view]);
 
-  // Reset to page 1 when search query changes
+  // All filtering is now server-side — the data is already filtered before pagination
+
+  // Reset to page 1 when search, filter, or date range changes
   useEffect(() => {
     setPage(1);
-  }, [searchQuery]);
-
-  // Client-side filtering on the current page's data (status & date range only)
-  const filtered = invoiceData.filter((i: any) => {
-    if (filter !== "all" && i.status !== filter) return false;
-    if (issueDateFrom && i.issue_date && i.issue_date < issueDateFrom) return false;
-    if (issueDateTo && i.issue_date && i.issue_date > issueDateTo) return false;
-    return true;
-  });
-
-  // Ensure we stay within valid page range
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
   }, [searchQuery, filter, issueDateFrom, issueDateTo]);
 
   return (
@@ -260,11 +251,11 @@ function InvoicesPage() {
 
       <div className="p-6 md:p-10 space-y-6">
         <div className="flex flex-wrap gap-2">
-          {["all", "pending", "approved", "advanced", "paid", "overdue", "rejected"].map((s) => (
+          {["all", "open", "close"].map((s) => (
             <button key={s} onClick={() => setFilter(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s}</button>
+              }`}>{s === "all" ? "All" : s === "open" ? "Open (Created)" : "Close (Funded)"}</button>
           ))}
         </div>
 
@@ -313,6 +304,15 @@ function InvoicesPage() {
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
 
+        {(filter !== "all" || searchQuery || issueDateFrom || issueDateTo) && (
+          <div className="-mt-1 mb-2 flex justify-end">
+            <button onClick={() => { setFilter("all"); setSearchQuery(""); setIssueDateFrom(""); setIssueDateTo(""); }}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline transition-colors">
+              <X className="h-3 w-3" /> Clear all filters
+            </button>
+          </div>
+        )}
+
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
           <div className="flex gap-1">
@@ -347,7 +347,7 @@ function InvoicesPage() {
         <Card>
           {invoicesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
-          ) : filtered.length === 0 ? (
+          ) : invoiceData.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
@@ -371,7 +371,7 @@ function InvoicesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((i: any) => {
+                  {invoiceData.map((i: any) => {
                     const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
                     const lateDays = i.status === "paid"
                       ? (i.late_days != null ? Number(i.late_days) : 0)
