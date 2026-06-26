@@ -7,6 +7,7 @@ import {
   deleteItem,
   scanTable,
   queryByIndex,
+  batchPutItems,
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
@@ -19,37 +20,90 @@ import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
-// ── GET /api/invoices ──
+// ── GET /api/invoices ── (paginated when page/limit provided, legacy array otherwise)
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    let invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+
+    // Server-side sorting
     const sortOrder = req.query.sort === "asc" ? 1 : -1;
+    const sortField = (req.query.sortField as string) || "created";
+    invoices.sort((a, b) => {
+      let aVal: string, bVal: string;
+      if (sortField === "issue") {
+        aVal = a.issue_date ?? "9999";
+        bVal = b.issue_date ?? "9999";
+      } else if (sortField === "due") {
+        aVal = a.due_date ?? "9999";
+        bVal = b.due_date ?? "9999";
+      } else {
+        aVal = a.created_at ?? "";
+        bVal = b.created_at ?? "";
+      }
+      return sortOrder * aVal.localeCompare(bVal);
+    });
 
-    // Enrich with relations
-    const enriched = await Promise.all(
-      invoices.sort((a, b) => sortOrder * ((a.created_at || "").localeCompare(b.created_at || "")) ).map(async (inv) => {
-        const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
-        const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
-        let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
-        if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
-          const results = await Promise.all(
-            inv.purchase_invoice_ids.map(async (piId) => {
-              if (!piId) return null;
-              const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
-              if (pi?.vendor_id) {
-                (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-              }
-              return pi;
-            }),
-          );
-          purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
-        }
-        return { ...inv, debtor, client, purchases };
-      }),
-    );
+    // Pagination params (only used when explicitly provided)
+    if (hasPagination) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
 
-    res.json(enriched);
+      const total = invoices.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIdx = (page - 1) * limit;
+      const pageItems = invoices.slice(startIdx, startIdx + limit);
+
+      // Enrich only the current page with relations
+      const enriched = await Promise.all(
+        pageItems.map(async (inv) => {
+          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
+          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
+          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+            const results = await Promise.all(
+              inv.purchase_invoice_ids.map(async (piId) => {
+                if (!piId) return null;
+                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
+                if (pi?.vendor_id) {
+                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+                }
+                return pi;
+              }),
+            );
+            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+          }
+          return { ...inv, debtor, client, purchases };
+        }),
+      );
+
+      res.json({ data: enriched, total, page, limit, totalPages });
+    } else {
+      // Legacy mode: return all invoices enriched (for admin/checker/dashboard pages)
+      const enriched = await Promise.all(
+        invoices.map(async (inv) => {
+          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
+          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
+          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+            const results = await Promise.all(
+              inv.purchase_invoice_ids.map(async (piId) => {
+                if (!piId) return null;
+                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
+                if (pi?.vendor_id) {
+                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+                }
+                return pi;
+              }),
+            );
+            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+          }
+          return { ...inv, debtor, client, purchases };
+        }),
+      );
+      res.json(enriched);
+    }
   } catch (err) {
     console.error("Get invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -253,6 +307,36 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
   }
 });
 
+// ── GET /api/invoices/:id ── (single enriched invoice)
+router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+
+    const debtor = invoice.debtor_id ? await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined : undefined;
+    const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
+    let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+    if (invoice.purchase_invoice_ids && invoice.purchase_invoice_ids.length > 0) {
+      const results = await Promise.all(
+        invoice.purchase_invoice_ids.map(async (piId) => {
+          if (!piId) return null;
+          const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
+          if (pi?.vendor_id) {
+            (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+          }
+          return pi;
+        }),
+      );
+      purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+    }
+
+    res.json({ ...invoice, debtor, client, purchases });
+  } catch (err) {
+    console.error("Get invoice error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── PATCH /api/invoices/:id ──
 router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-desk", "funding-queue"), async (req: AuthRequest, res: Response) => {
   try {
@@ -336,6 +420,8 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     const created: Invoice[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
+    // Build all invoice objects first
+    const invoicesToCreate: Invoice[] = [];
     for (const item of parsed.invoices) {
       try {
         const id = generateId();
@@ -363,13 +449,13 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           paid_date: null,
           receipt_date: null,
           advance_received_date: null,
-      short_payment: null,
-      late_days: null,
-      paid_note: null,
-      status: "pending",
-      noa_status: "not_sent",
-      noa_token,
-      noa_sent_at: null,
+          short_payment: null,
+          late_days: null,
+          paid_note: null,
+          status: "pending",
+          noa_status: "not_sent",
+          noa_token,
+          noa_sent_at: null,
           noa_responded_at: null,
           noa_comments: null,
           po_number: parsed.po_number || null,
@@ -384,11 +470,31 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           updated_at: now,
         };
 
-        await putItem(TABLES.INVOICES, invoice as any);
-        created.push(invoice);
+        invoicesToCreate.push(invoice);
       } catch (err) {
-        errors.push({ invoice_number: item.invoice_number, error: "Failed to create" });
-        console.error(`Batch create error for ${item.invoice_number}:`, err);
+        errors.push({ invoice_number: item.invoice_number, error: "Invalid invoice data" });
+        console.error(`Batch build error for ${item.invoice_number}:`, err);
+      }
+    }
+
+    // Write all invoices in batches of 25 using BatchWriteCommand
+    if (invoicesToCreate.length > 0) {
+      const dbItems = invoicesToCreate.map((inv) => inv as unknown as Record<string, unknown>);
+      try {
+        await batchPutItems(TABLES.INVOICES, dbItems);
+        created.push(...invoicesToCreate);
+      } catch (err) {
+        console.error("Batch write failed, falling back to individual writes:", err);
+        // Fallback: write individually with timeout resilience
+        for (const inv of invoicesToCreate) {
+          try {
+            await putItem(TABLES.INVOICES, inv as any);
+            created.push(inv);
+          } catch (innerErr) {
+            errors.push({ invoice_number: inv.invoice_number, error: "Failed to create" });
+            console.error(`Batch fallback error for ${inv.invoice_number}:`, innerErr);
+          }
+        }
       }
     }
 

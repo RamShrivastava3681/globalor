@@ -7,12 +7,14 @@ import {
   DeleteCommand,
   QueryCommand,
   ScanCommand,
+  BatchWriteCommand,
   type PutCommandInput,
   type GetCommandInput,
   type UpdateCommandInput,
   type DeleteCommandInput,
   type QueryCommandInput,
   type ScanCommandInput,
+  type BatchWriteCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { config } from "../config.js";
 
@@ -112,14 +114,68 @@ export async function scanTable<T = Record<string, unknown>>(
   tableName: string,
   options?: { filterExpression?: string; expressionAttributeValues?: Record<string, unknown>; expressionAttributeNames?: Record<string, string> },
 ): Promise<T[]> {
-  const params: ScanCommandInput = {
-    TableName: tableName,
-    ...(options?.filterExpression ? { FilterExpression: options.filterExpression } : {}),
-    ...(options?.expressionAttributeValues ? { ExpressionAttributeValues: options.expressionAttributeValues } : {}),
-    ...(options?.expressionAttributeNames ? { ExpressionAttributeNames: options.expressionAttributeNames } : {}),
-  };
-  const result = await docClient.send(new ScanCommand(params));
-  return (result.Items ?? []) as T[];
+  const items: T[] = [];
+  let lastKey: Record<string, unknown> | undefined;
+
+  do {
+    const params: ScanCommandInput = {
+      TableName: tableName,
+      ...(lastKey ? { ExclusiveStartKey: lastKey } : {}),
+      ...(options?.filterExpression ? { FilterExpression: options.filterExpression } : {}),
+      ...(options?.expressionAttributeValues ? { ExpressionAttributeValues: options.expressionAttributeValues } : {}),
+      ...(options?.expressionAttributeNames ? { ExpressionAttributeNames: options.expressionAttributeNames } : {}),
+    };
+    const result = await docClient.send(new ScanCommand(params));
+    if (result.Items) {
+      items.push(...(result.Items as T[]));
+    }
+    lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastKey);
+
+  return items;
+}
+
+/**
+ * Write multiple items to a DynamoDB table using BatchWriteCommand.
+ * DynamoDB allows up to 25 items per batch request.
+ * This function splits items into chunks of 25 and retries unprocessed items.
+ */
+export async function batchPutItems(
+  tableName: string,
+  items: Record<string, unknown>[],
+  maxRetries = 3,
+): Promise<void> {
+  const chunkSize = 25;
+
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    let retries = 0;
+    let pendingItems = chunk;
+
+    while (pendingItems.length > 0 && retries <= maxRetries) {
+      const params: BatchWriteCommandInput = {
+        RequestItems: {
+          [tableName]: pendingItems.map((item) => ({
+            PutRequest: { Item: item },
+          })),
+        },
+      };
+
+      const result = await docClient.send(new BatchWriteCommand(params));
+
+      const unprocessed = result.UnprocessedItems?.[tableName];
+      if (unprocessed && unprocessed.length > 0) {
+        pendingItems = unprocessed.map((u) => u.PutRequest!.Item as Record<string, unknown>);
+        retries++;
+        // Exponential backoff
+        if (retries <= maxRetries) {
+          await new Promise((r) => setTimeout(r, 100 * Math.pow(2, retries)));
+        }
+      } else {
+        pendingItems = [];
+      }
+    }
+  }
 }
 
 export async function queryByIndex<T = Record<string, unknown>>(

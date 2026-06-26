@@ -7,6 +7,7 @@ import {
   deleteItem,
   scanTable,
   queryByIndex,
+  batchPutItems,
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
@@ -242,6 +243,8 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
     const created: PurchaseInvoice[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
+    // Build all invoice objects first
+    const invoicesToCreate: PurchaseInvoice[] = [];
     for (const item of parsed.invoices) {
       try {
         const id = generateId();
@@ -266,13 +269,13 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
           due_date: dueDate.toISOString().slice(0, 10),
           paid_date: null,
           funded_date: null,
-      advance_paid_date: null,
-      paid_note: null,
-      payment_terms_days: parsed.payment_terms_days,
-      bl_date: parsed.bl_date || null,
-      due_date_source: parsed.due_date_source,
-      notes: null,
-      status: "pending",
+          advance_paid_date: null,
+          paid_note: null,
+          payment_terms_days: parsed.payment_terms_days,
+          bl_date: parsed.bl_date || null,
+          due_date_source: parsed.due_date_source,
+          notes: null,
+          status: "pending",
           documents: [],
           purchase_order_id: null,
           linked_sales_invoice_ids: [],
@@ -280,11 +283,31 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
           updated_at: now,
         };
 
-        await putItem(TABLES.PURCHASE_INVOICES, invoice as any);
-        created.push(invoice);
+        invoicesToCreate.push(invoice);
       } catch (err) {
-        errors.push({ invoice_number: item.invoice_number, error: "Failed to create" });
-        console.error(`Batch create error for purchase invoice ${item.invoice_number}:`, err);
+        errors.push({ invoice_number: item.invoice_number, error: "Invalid invoice data" });
+        console.error(`Batch build error for purchase invoice ${item.invoice_number}:`, err);
+      }
+    }
+
+    // Write all invoices in batches of 25 using BatchWriteCommand
+    if (invoicesToCreate.length > 0) {
+      const dbItems = invoicesToCreate.map((inv) => inv as unknown as Record<string, unknown>);
+      try {
+        await batchPutItems(TABLES.PURCHASE_INVOICES, dbItems);
+        created.push(...invoicesToCreate);
+      } catch (err) {
+        console.error("Batch write failed, falling back to individual writes:", err);
+        // Fallback: write individually with timeout resilience
+        for (const inv of invoicesToCreate) {
+          try {
+            await putItem(TABLES.PURCHASE_INVOICES, inv as any);
+            created.push(inv);
+          } catch (innerErr) {
+            errors.push({ invoice_number: inv.invoice_number, error: "Failed to create" });
+            console.error(`Batch fallback error for purchase invoice ${inv.invoice_number}:`, innerErr);
+          }
+        }
       }
     }
 

@@ -3,11 +3,11 @@ import type { Request, Response } from "express";
 
 /**
  * Standard API rate limiter:
- * 100 requests per minute per IP
+ * 1000 requests per minute per IP
  */
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests. Please slow down." },

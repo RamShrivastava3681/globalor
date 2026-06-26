@@ -103,10 +103,15 @@ function InvoicesPage() {
   const [issueDateTo, setIssueDateTo] = useState("");
   const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const limit = 50;
 
   const invoicesQ = useQuery({
-    queryKey: ["invoices", "list"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    queryKey: ["invoices", "list", page, limit, sortField, sortOrder],
+    queryFn: async () => {
+      const res = await api.get<any>("/invoices?page=" + page + "&limit=" + limit + "&sortField=" + sortField + "&sortOrder=" + sortOrder);
+      return res ?? { data: [], total: 0, page: 1, limit: 50, totalPages: 0 };
+    },
   });
 
   const stockMovementsQ = useQuery({
@@ -182,18 +187,35 @@ function InvoicesPage() {
     toast.success("NOA link copied");
   };
 
-  // Auto-open detail modal when navigating from a linked invoice
-  useEffect(() => {
-    if (view && invoicesQ.data) {
-      const found = invoicesQ.data.find((i: any) => i.id === view);
-      if (found) {
-        setViewing(found);
-        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
-      }
-    }
-  }, [view, invoicesQ.data]);
+  // Paginated data from server — sorting and filtering are server-side
+  const invoiceData = invoicesQ.data?.data ?? [];
+  const totalInvoices = invoicesQ.data?.total ?? 0;
+  const totalPages = invoicesQ.data?.totalPages ?? 1;
 
-  const filtered = (invoicesQ.data ?? []).filter((i: any) => {
+  // Auto-open detail modal: fetch the specific invoice by id since we may not have it loaded
+  useEffect(() => {
+    if (view) {
+      (async () => {
+        // Try to find it in the current page first
+        const found = invoiceData.find((i: any) => i.id === view);
+        if (found) {
+          setViewing(found);
+        } else {
+          // Fetch the single invoice via dedicated endpoint
+          try {
+            const match = await api.get<any>("/invoices/" + view);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
+      })();
+    }
+  }, [view]);
+
+  // Client-side filtering on the current page's data
+  const filtered = invoiceData.filter((i: any) => {
     if (filter !== "all" && i.status !== filter) return false;
     if (issueDateFrom && i.issue_date && i.issue_date < issueDateFrom) return false;
     if (issueDateTo && i.issue_date && i.issue_date > issueDateTo) return false;
@@ -206,20 +228,6 @@ function InvoicesPage() {
       i.client?.company_name?.toLowerCase().includes(q) ||
       i.client?.contact_name?.toLowerCase().includes(q)
     );
-  }).sort((a: any, b: any) => {
-    let aVal: string, bVal: string;
-    if (sortField === "created") {
-      aVal = a.created_at ?? "";
-      bVal = b.created_at ?? "";
-    } else if (sortField === "issue") {
-      aVal = a.issue_date ?? "9999";
-      bVal = b.issue_date ?? "9999";
-    } else {
-      aVal = a.due_date ?? "9999";
-      bVal = b.due_date ?? "9999";
-    }
-    const cmp = aVal.localeCompare(bVal);
-    return sortOrder === "asc" ? cmp : -cmp;
   });
 
   return (
@@ -308,6 +316,7 @@ function InvoicesPage() {
               <button
                 key={field}
                 onClick={() => {
+                  setPage(1);
                   if (sortField === field) {
                     setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
                   } else {
@@ -436,6 +445,59 @@ function InvoicesPage() {
             </div>
           )}
         </Card>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4">
+            <div className="text-xs text-muted-foreground">
+              {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  // Show pages around current page
+                  let pageNum: number;
+                  if (totalPages <= 7) {
+                    pageNum = i + 1;
+                  } else if (page <= 4) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 3) {
+                    pageNum = totalPages - 6 + i;
+                  } else {
+                    pageNum = page - 3 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className={`min-w-[2rem] rounded-md border px-2 py-1.5 text-xs transition ${
+                        pageNum === page
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}

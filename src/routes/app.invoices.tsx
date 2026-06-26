@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/app/invoices")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -95,14 +96,22 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
   const [issueDateTo, setIssueDateTo] = useState("");
+  const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const limit = 50;
 
   const invoicesQ = useQuery({
-    queryKey: ["invoices", "list"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    queryKey: ["invoices", "list", page, limit, sortField, sortOrder],
+    queryFn: async () => {
+      const res = await api.get<any>("/invoices?page=" + page + "&limit=" + limit + "&sortField=" + sortField + "&sortOrder=" + sortOrder);
+      return res ?? { data: [], total: 0, page: 1, limit: 50, totalPages: 0 };
+    },
   });
 
   const stockMovementsQ = useQuery({
@@ -178,18 +187,35 @@ function InvoicesPage() {
     toast.success("NOA link copied");
   };
 
-  // Auto-open detail modal when navigating from a linked invoice
-  useEffect(() => {
-    if (view && invoicesQ.data) {
-      const found = invoicesQ.data.find((i: any) => i.id === view);
-      if (found) {
-        setViewing(found);
-        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
-      }
-    }
-  }, [view, invoicesQ.data]);
+  // Paginated data from server — sorting and filtering are server-side
+  const invoiceData = invoicesQ.data?.data ?? [];
+  const totalInvoices = invoicesQ.data?.total ?? 0;
+  const totalPages = invoicesQ.data?.totalPages ?? 1;
 
-  const filtered = (invoicesQ.data ?? []).filter((i: any) => {
+  // Auto-open detail modal: fetch the specific invoice by id since we may not have it loaded
+  useEffect(() => {
+    if (view) {
+      (async () => {
+        // Try to find it in the current page first
+        const found = invoiceData.find((i: any) => i.id === view);
+        if (found) {
+          setViewing(found);
+        } else {
+          // Fetch the single invoice via dedicated endpoint
+          try {
+            const match = await api.get<any>("/invoices/" + view);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
+      })();
+    }
+  }, [view]);
+
+  // Client-side filtering on the current page's data
+  const filtered = invoiceData.filter((i: any) => {
     if (filter !== "all" && i.status !== filter) return false;
     if (issueDateFrom && i.issue_date && i.issue_date < issueDateFrom) return false;
     if (issueDateTo && i.issue_date && i.issue_date > issueDateTo) return false;
@@ -212,9 +238,14 @@ function InvoicesPage() {
         description={isAdmin ? "Submitted invoices route to the checker for approval before reaching treasury." : "Submit invoices; the checker reviews them before they enter the funding queue."}
         actions={
           canCreate ? (
-            <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              <Plus className="h-4 w-4" /> New invoice
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                <Plus className="h-4 w-4" /> New invoice
+              </button>
+              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                <Upload className="h-4 w-4" /> Mass import
+              </button>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
               Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
@@ -277,6 +308,38 @@ function InvoicesPage() {
           <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+          <div className="flex gap-1">
+            {(["created", "issue", "due"] as const).map((field) => (
+              <button
+                key={field}
+                onClick={() => {
+                  setPage(1);
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "Due date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Card>
           {invoicesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -287,6 +350,7 @@ function InvoicesPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Debtor</th>
@@ -310,17 +374,14 @@ function InvoicesPage() {
                       : Math.max(0, dpd);
                     return (
                       <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={i.id}>#{i.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
-                                          {(i.purchases ?? []).length > 0 && (
-                            <div className="mt-0.5 space-y-0.5">
-                              {(i.purchases ?? []).map((p: any) => (
-                                <Link key={p.id} to="/app/purchases" search={{ view: p.id }} className="flex items-center gap-1 text-[10px] text-primary hover:underline">
-                                  <Link2 className="h-2.5 w-2.5" /> {p.invoice_number} · {p.vendor?.name ?? ""}
-                                </Link>
-                              ))}
-                            </div>
+                          {i.purchase && (
+                            <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+                              <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
+                            </Link>
                           )}
                         </td>
                         {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
@@ -384,7 +445,62 @@ function InvoicesPage() {
             </div>
           )}
         </Card>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4">
+            <div className="text-xs text-muted-foreground">
+              {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  // Show pages around current page
+                  let pageNum: number;
+                  if (totalPages <= 7) {
+                    pageNum = i + 1;
+                  } else if (page <= 4) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 3) {
+                    pageNum = totalPages - 6 + i;
+                  } else {
+                    pageNum = page - 3 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className={`min-w-[2rem] rounded-md border px-2 py-1.5 text-xs transition ${
+                        pageNum === page
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
 
       {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
 
@@ -424,24 +540,19 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     due_date_source: editing?.due_date_source ?? "invoice",
     po_number: editing?.po_number ?? "",
     po_date: editing?.po_date ?? "",
-    purchase_invoice_ids: editing?.purchase_invoice_ids ?? [],
+    purchase_invoice_id: editing?.purchase_invoice_id ?? "",
   }));
   const [docs, setDocs] = useState<DocMeta[]>(editing?.documents ?? []);
   const [invEnabled, setInvEnabled] = useState(false);
   const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
-  const [debtorSearch, setDebtorSearch] = useState("");
-  const [debtorOpen, setDebtorOpen] = useState(false);
-  const [piSearch, setPiSearch] = useState("");
-  const [piOpen, setPiOpen] = useState(false);
+
   const [hasDueDate, setHasDueDate] = useState(() => {
     if (editing?.due_date) return true;
     const terms = Number(editing?.payment_terms_days ?? 30) || 30;
     const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
     return !!base;
   });
-  const debtorRef = useRef<HTMLDivElement>(null);
-  const piRef = useRef<HTMLDivElement>(null);
 
   const filteredInv = useMemo(() => {
     if (!invSearch.trim() || !availableInventory) return [];
@@ -472,20 +583,6 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     }
   }, [poLookupQ.data]);
 
-  // Close debtor dropdown on outside click
-  useEffect(() => {
-    const handle = (e: MouseEvent) => { if (debtorRef.current && !debtorRef.current.contains(e.target as Node)) setDebtorOpen(false); };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
-
-  // Close purchase invoice dropdown on outside click
-  useEffect(() => {
-    const handle = (e: MouseEvent) => { if (piRef.current && !piRef.current.contains(e.target as Node)) setPiOpen(false); };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
-
   const termsDays = Number(form.payment_terms_days) || 30;
   const computedDue = (() => {
     const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
@@ -511,7 +608,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
         due_date_source: form.due_date_source,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
-        purchase_invoice_ids: form.purchase_invoice_ids,
+        purchase_invoice_id: form.purchase_invoice_id || null,
         documents: docs,
       };
       if (!editing && invEnabled) {
@@ -566,40 +663,15 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
 
           {form.po_number.trim() && poLookupQ.data?.proformas && poLookupQ.data.proformas.filter((p: any) => p.side === "sales").length > 0 && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-              <div className="mb-1 uppercase tracking-widest text-primary">Proforma & advances for PO {form.po_number}</div>
+              <div className="mb-1 uppercase tracking-widest text-primary">Proforma linked to PO {form.po_number}</div>
               {(() => {
-                const salesPfs = poLookupQ.data.proformas.filter((p: any) => p.side === "sales");
-                const salesPf = salesPfs[0];
+                const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
                 if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
-                const salesPfIds = salesPfs.map((p: any) => p.id);
-                const advances = (poLookupQ.data?.advances ?? []).filter((a: any) => salesPfIds.includes(a.purchase_order_id) && a.status !== "refunded");
-                const advancesTotal = advances.reduce((s: number, a: any) => s + Number(a.amount), 0);
-                const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
                 return (
                   <div className="space-y-1">
                     <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
-                    {advances.length > 0 && (
-                      <>
-                        <div className="mt-2 border-t border-primary/20 pt-2">
-                          <div className="mb-1 text-[10px] uppercase tracking-widest text-primary">Advances received</div>
-                          {advances.map((a: any) => (
-                            <div key={a.id} className="flex justify-between">
-                              <span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span>
-                              <span className="num text-success">{fmtMoney(a.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 flex justify-between border-t border-primary/20 pt-2">
-                          <span>Total invoice amount</span><span className="num">{fmtMoney(Number(form.amount || 0))}</span>
-                        </div>
-                        <div className="flex justify-between"><span>Advance received</span><span className="num text-success">− {fmtMoney(advancesTotal)}</span></div>
-                        <div className="flex justify-between font-medium border-t border-primary/20 pt-1 mt-1">
-                          <span>Balance receivable</span><span className="num">{fmtMoney(balanceDue)}</span>
-                        </div>
-                      </>
-                    )}
+                    <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
                   </div>
                 );
               })()}
@@ -607,37 +679,11 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           )}
 
           <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-          <Field label="Debtor *">
-            <div className="relative" ref={debtorRef}>
-              {form.debtor_id ? (
-                <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
-                  <span className="text-sm truncate">{debtors.find((d: any) => d.id === form.debtor_id)?.name ?? "Unknown"}</span>
-                  <button type="button" onClick={() => { setForm({ ...form, debtor_id: "" }); setDebtorSearch(""); }} className="shrink-0 text-muted-foreground hover:text-destructive" aria-label="Clear">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <input className="inp" placeholder="Search debtors…" value={debtorSearch}
-                    onChange={(e) => { setDebtorSearch(e.target.value); setDebtorOpen(true); }}
-                    onFocus={() => setDebtorOpen(true)} />
-                  {debtorOpen && debtorSearch.trim() && (
-                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
-                      {debtors.filter((d: any) => d.name?.toLowerCase().includes(debtorSearch.toLowerCase())).length === 0 ? (
-                        <div className="p-3 text-xs text-muted-foreground">No matching debtors.</div>
-                      ) : (
-                        debtors.filter((d: any) => d.name?.toLowerCase().includes(debtorSearch.toLowerCase())).slice(0, 20).map((d: any) => (
-                          <button key={d.id} type="button" onClick={() => { setForm({ ...form, debtor_id: d.id }); setDebtorSearch(""); setDebtorOpen(false); }}
-                            className="flex w-full items-center px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors text-left">
-                            {d.name}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+          <Field label="Debtor">
+            <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
+              <option value="">Select debtor</option>
+              {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
           </Field>
           <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3">
@@ -676,65 +722,14 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
             </Field>
           </div>
 
-          {!editing && (
-            <Field label="Link to purchase invoices (optional)">
-              <div className="space-y-2">
-                {/* Selected chips */}
-                {form.purchase_invoice_ids.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {form.purchase_invoice_ids.map((piId: string) => {
-                      const pi = purchases.find((p: any) => p.id === piId);
-                      return (
-                        <span key={piId} className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px]">
-                          <span className="font-mono truncate max-w-[120px]">{pi?.invoice_number ?? piId.slice(0, 8)}</span>
-                          {pi && <span className="text-muted-foreground">{fmtMoney(pi.amount)}</span>}
-                          <button type="button" onClick={() => setForm({ ...form, purchase_invoice_ids: form.purchase_invoice_ids.filter((id: string) => id !== piId) })}
-                            className="text-muted-foreground hover:text-destructive" aria-label="Remove">
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                {/* Search + dropdown */}
-                <div className="relative" ref={piRef}>
-                  <input className="inp" placeholder="Search purchase invoices…" value={piSearch}
-                    onChange={(e) => { setPiSearch(e.target.value); setPiOpen(true); }}
-                    onFocus={() => setPiOpen(true)} />
-                  {piOpen && piSearch.trim() && (
-                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
-                      {purchases.filter((p: any) => p.invoice_number?.toLowerCase().includes(piSearch.toLowerCase())).length === 0 ? (
-                        <div className="p-3 text-xs text-muted-foreground">No matching purchase invoices.</div>
-                      ) : (
-                        purchases.filter((p: any) => p.invoice_number?.toLowerCase().includes(piSearch.toLowerCase())).slice(0, 20).map((p: any) => {
-                          const alreadySelected = form.purchase_invoice_ids.includes(p.id);
-                          return (
-                            <button key={p.id} type="button"
-                              onClick={() => {
-                                if (alreadySelected) {
-                                  setForm({ ...form, purchase_invoice_ids: form.purchase_invoice_ids.filter((id: string) => id !== p.id) });
-                                } else {
-                                  setForm({ ...form, purchase_invoice_ids: [...form.purchase_invoice_ids, p.id] });
-                                }
-                                setPiSearch("");
-                              }}
-                              className={`flex w-full items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50 transition-colors ${alreadySelected ? "bg-primary/5" : ""}`}>
-                              <div className="flex items-center gap-2 min-w-0">
-                                {alreadySelected && <span className="text-primary shrink-0">✓</span>}
-                                <span className="font-mono truncate">{p.invoice_number}</span>
-                              </div>
-                              <span className="num text-muted-foreground shrink-0 ml-2">{fmtMoney(p.amount)}</span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+            <Field label="Link to purchase invoice (optional)">
+              <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
+                <option value="">— No link —</option>
+                {purchases.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
+                ))}
+              </select>
             </Field>
-          )}
           {!editing && (
             <div className="rounded-md border border-border p-3">
               <label className="flex items-center gap-2 text-xs">
@@ -834,7 +829,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
   const debtor = invoice.debtor;
-  const purchases = invoice.purchases;
+  const purchase = invoice.purchase;
   const openDoc = async (d: DocMeta) => {
     try {
       const encodedPath = d.path.split("/").map(encodeURIComponent).join("/");
@@ -885,6 +880,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               {invoice.po_date && <Detail label="PO date" value={fmtDate(invoice.po_date)} />}
               {invoice.short_payment != null && <Detail label="Short payment" value={fmtMoney(invoice.short_payment)} />}
               {invoice.late_days != null && <Detail label="Late days" value={String(invoice.late_days)} />}
+              {invoice.paid_note && <Detail label="Payment note" value={invoice.paid_note} />}
             </div>
             {invoice.noa_comments && (
               <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
@@ -920,37 +916,25 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             </div>
           )}
 
-          {/* Linked purchase invoices / suppliers */}
-          {purchases && purchases.length > 0 && (
+          {/* Linked purchase invoice / supplier */}
+          {purchase && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked purchase invoices ({purchases.length})
+                <Link2 className="mr-1 inline h-3.5 w-3.5" />Linked purchase invoice
               </h4>
-              <div className="-mx-4 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                    <tr className="border-b border-border">
-                      <th className="px-4 py-2 text-left font-normal">Invoice #</th>
-                      <th className="px-4 py-2 text-left font-normal">Supplier</th>
-                      <th className="px-4 py-2 text-right font-normal">Amount</th>
-                      <th className="px-4 py-2 text-left font-normal">Due</th>
-                      <th className="px-4 py-2 text-left font-normal">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {purchases.map((p: any) => (
-                      <tr key={p.id} className="border-b border-border/60">
-                        <td className="px-4 py-2.5 font-mono text-xs">
-                          <Link to="/app/purchases" search={{ view: p.id }} className="text-primary hover:underline">{p.invoice_number}</Link>
-                        </td>
-                        <td className="px-4 py-2.5">{p.vendor?.name ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-right num">{fmtMoney(p.amount)}</td>
-                        <td className="px-4 py-2.5">{p.due_date ? fmtDate(p.due_date) : "—"}</td>
-                        <td className="px-4 py-2.5"><StatusPill status={p.status} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Invoice #" value={purchase.invoice_number} />
+                <Detail label="Amount" value={fmtMoney(purchase.amount)} />
+                <Detail label="Status" value={purchase.status} />
+                {purchase.vendor && (
+                  <>
+                    <Detail label="Supplier" value={purchase.vendor.name} />
+                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "—"} />
+                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
+                  </>
+                )}
+                {purchase.due_date && <Detail label="Due date" value={fmtDate(purchase.due_date)} />}
+                {purchase.po_number && <Detail label="PO number" value={purchase.po_number} />}
               </div>
             </div>
           )}
@@ -1044,3 +1028,287 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
 }
+
+// ── Mass Import Modal ──
+
+interface ImportRow {
+  invoice_number: string;
+  amount: number;
+  issue_date: string;
+}
+
+function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: any[] }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"form" | "preview" | "done">("form");
+  const [debtorId, setDebtorId] = useState("");
+  const [paymentTermsDays, setPaymentTermsDays] = useState("30");
+  const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
+  const [blDate, setBlDate] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [poDate, setPoDate] = useState("");
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!debtorId) {
+      toast.error("Please select a debtor first");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ImportRow[] = json.map((row: any, idx: number) => {
+          // Try common column name variations
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
+          const amt = Number(row.amount ?? row["Amount"] ?? row.Amount ?? 0);
+          const issDate = row.issue_date ?? row["Issue Date"] ?? row.issueDate ?? row.Date ?? row.date ?? "";
+
+          // Normalize date if it's a serial number (Excel date)
+          let dateStr = String(issDate);
+          if (typeof issDate === "number" && !isNaN(issDate)) {
+            // Excel serial date
+            const d = new Date((issDate - 25569) * 86400 * 1000);
+            dateStr = d.toISOString().slice(0, 10);
+          }
+
+          return {
+            invoice_number: String(invNum).trim(),
+            amount: isNaN(amt) ? 0 : amt,
+            issue_date: dateStr || "",
+          };
+        }).filter((r) => r.invoice_number && r.amount > 0);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the Excel file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchImport = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        debtor_id: debtorId,
+        payment_terms_days: Number(paymentTermsDays) || 30,
+        due_date_source: dueDateSource,
+        bl_date: blDate || null,
+        po_number: poNumber.trim() || null,
+        po_date: poDate || null,
+        advance_rate: 0,
+        fee_rate: 0,
+        invoices: rows.map((r) => ({
+          invoice_number: r.invoice_number,
+          amount: r.amount,
+          issue_date: r.issue_date,
+        })),
+      };
+      return await api.post<{ created: any[]; errors: Array<{ invoice_number: string; error: string }> }>("/invoices/batch", payload);
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      const errList = (data.errors ?? []).map((e) => `${e.invoice_number}: ${e.error}`);
+      setResult({ created: data.created.length, errors: errList });
+      setStep("done");
+      if (errList.length === 0) {
+        toast.success(`${data.created.length} invoices created successfully`);
+      } else {
+        toast.success(`${data.created.length} created, ${errList.length} failed`);
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const computedDue = useMemo(() => {
+    if (!rows.length) return "";
+    const base = dueDateSource === "bl" && blDate ? blDate : rows[0].issue_date;
+    if (!base) return "";
+    const d = new Date(base);
+    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+    return d.toISOString().slice(0, 10);
+  }, [rows, dueDateSource, blDate, paymentTermsDays]);
+
+  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {step === "form" ? "Mass import invoices" : step === "preview" ? "Preview imported invoices" : "Import complete"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "form" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
+              <code className="font-mono text-primary">invoice_number</code>,{' '}
+              <code className="font-mono text-primary">amount</code>,{' '}
+              <code className="font-mono text-primary">issue_date</code>.
+              Each row becomes a separate invoice. Due dates are auto-calculated from payment terms.
+            </div>
+
+            <Field label="Debtor *">
+              <select required value={debtorId} onChange={(e) => setDebtorId(e.target.value)} className="inp">
+                <option value="">Select debtor</option>
+                {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Payment terms (days) *">
+                <input required type="number" min="0" className="inp" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(e.target.value)} />
+              </Field>
+              <Field label="Due date source">
+                <select className="inp" value={dueDateSource} onChange={(e) => setDueDateSource(e.target.value as any)}>
+                  <option value="invoice">From invoice date</option>
+                  <option value="bl">From BL date</option>
+                </select>
+              </Field>
+            </div>
+
+            {dueDateSource === "bl" && (
+              <Field label="BL date">
+                <input type="date" className="inp" value={blDate} onChange={(e) => setBlDate(e.target.value)} />
+              </Field>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="PO number (optional)">
+                <input className="inp" placeholder="PO-2026-001" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+              </Field>
+              <Field label="PO date">
+                <input type="date" className="inp" value={poDate} onChange={(e) => setPoDate(e.target.value)} />
+              </Field>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <Field label="Upload Excel / CSV file *">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                  onChange={handleFile}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                />
+              </Field>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span> ·
+                Found <strong className="text-foreground">{rows.length}</strong> invoices
+                · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+              </div>
+              <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
+              {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
+            </div>
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice number</th>
+                    <th className="px-5 py-2 text-left font-normal">Issue date</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Due date (computed)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => {
+                    const base = dueDateSource === "bl" && blDate ? blDate : r.issue_date;
+                    const d = new Date(base);
+                    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+                    const dueStr = d.toISOString().slice(0, 10);
+                    return (
+                      <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                        <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
+                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                        <td className="px-5 py-3 text-sm font-mono">{dueStr}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchImport.isPending}
+                onClick={() => batchImport.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {batchImport.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Import {rows.length} invoice{rows.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
+              <div className="text-2xl font-display text-success">{result.created}</div>
+              <div className="text-xs text-muted-foreground mt-1">Invoices created successfully</div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
+
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+

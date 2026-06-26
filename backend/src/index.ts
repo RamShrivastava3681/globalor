@@ -35,7 +35,7 @@ const app = express();
 
 // ── Global middleware ──
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
 
 // Global rate limiter applied to all routes
 app.use(apiLimiter);
