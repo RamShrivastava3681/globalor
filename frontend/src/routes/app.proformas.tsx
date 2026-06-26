@@ -1,15 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { z } from "zod";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { getToken } from "@/lib/api-client";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
@@ -42,6 +43,7 @@ function ProformasPage() {
   const canCreate = canWrite("purchase-orders");
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [viewing, setViewing] = useState<any | null>(null);
   const [editingPf, setEditingPf] = useState<any | null>(null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
@@ -144,6 +146,9 @@ function ProformasPage() {
               </button>
               <button onClick={() => setOpen("purchase")} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm">
                 <Plus className="h-4 w-4" /> Purchase proforma
+              </button>
+              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                <Upload className="h-4 w-4" /> Mass import
               </button>
             </div>
           ) : (
@@ -291,6 +296,8 @@ function ProformasPage() {
           </ol>
         </Card>
       </div>
+
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} />}
 
       {open && user && <NewProformaModal side={open} onClose={() => setOpen(null)} />}
 
@@ -666,4 +673,256 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+// ── Mass Import Modal ──
+
+interface ImportRow {
+  proforma_number: string;
+  proforma_date: string;
+  po_number: string;
+  amount: number;
+}
+
+function MassImportModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"form" | "preview" | "done">("form");
+  const [side, setSide] = useState<"sales" | "purchase">("sales");
+  const [partyId, setPartyId] = useState("");
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const partiesQ = useQuery({
+    queryKey: ["import-parties", side],
+    queryFn: async () => {
+      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      return (await api.get<any[]>("/vendors")) ?? [];
+    },
+  });
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!partyId) {
+      toast.error(`Please select a ${side === "sales" ? "debtor" : "supplier"} first`);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ImportRow[] = json.map((row: any, idx: number) => {
+          // Try common column name variations
+          const pfNum = row.proforma_number ?? row["Proforma Number"] ?? row["Proforma#"] ?? row.proformaNum ?? "";
+          const pfDate = row.proforma_date ?? row["Proforma Date"] ?? row.proformaDate ?? row.Date ?? row.date ?? "";
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row["Invoice#"] ?? row.po_number ?? row.PO ?? "";
+          const amt = Number(row.proforma_amount ?? row["Proforma Amount"] ?? row.amount ?? row.Amount ?? 0);
+
+          // Normalize date if it's a serial number (Excel date)
+          let dateStr = String(pfDate);
+          if (typeof pfDate === "number" && !isNaN(pfDate)) {
+            const d = new Date((pfDate - 25569) * 86400 * 1000);
+            dateStr = d.toISOString().slice(0, 10);
+          }
+
+          return {
+            proforma_number: String(pfNum).trim(),
+            proforma_date: dateStr || "",
+            po_number: String(invNum).trim(),
+            amount: isNaN(amt) ? 0 : amt,
+          };
+        }).filter((r) => r.proforma_number && r.amount > 0);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: proforma_number, proforma_date, invoice_number, proforma_amount");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the Excel file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchImport = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        side,
+        [side === "sales" ? "debtor_id" : "vendor_id"]: partyId,
+        items: rows.map((r) => ({
+          proforma_number: r.proforma_number,
+          proforma_date: r.proforma_date,
+          po_number: r.po_number,
+          amount: r.amount,
+        })),
+      };
+      return await api.post<{ created: number; errors: Array<{ proforma_number: string; error: string }> }>("/purchase-orders/batch", payload);
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      const errList = (data.errors ?? []).map((e) => `${e.proforma_number}: ${e.error}`);
+      setResult({ created: data.created, errors: errList });
+      setStep("done");
+      if (errList.length === 0) {
+        toast.success(`${data.created} proformas created successfully`);
+      } else {
+        toast.success(`${data.created} created, ${errList.length} failed`);
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {step === "form" ? "Mass import proformas" : step === "preview" ? "Preview imported proformas" : "Import complete"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "form" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
+              <code className="font-mono text-primary">proforma_number</code>,{' '}
+              <code className="font-mono text-primary">proforma_date</code>,{' '}
+              <code className="font-mono text-primary">invoice_number</code>,{' '}
+              <code className="font-mono text-primary">proforma_amount</code>.
+              Each row becomes a proforma invoice submitted for review.
+            </div>
+
+            <L label="Side *">
+              <div className="flex gap-2">
+                {(["sales", "purchase"] as const).map((s) => (
+                  <button key={s} onClick={() => { setSide(s); setPartyId(""); }}
+                    className={`rounded-md border px-4 py-2 text-sm transition ${
+                      side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                    }`}>{s === "sales" ? "Sales (Debtor)" : "Purchase (Supplier)"}</button>
+                ))}
+              </div>
+            </L>
+
+            <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
+              <select required value={partyId} onChange={(e) => setPartyId(e.target.value)} className="inp">
+                <option value="">Select {side === "sales" ? "debtor" : "supplier"}…</option>
+                {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </L>
+
+            <div className="border-t border-border pt-4">
+              <L label="Upload Excel / CSV file *">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                  onChange={handleFile}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                />
+              </L>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span> ·
+                Found <strong className="text-foreground">{rows.length}</strong> proformas
+                · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+              </div>
+              <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between"><span className="text-muted-foreground">Side</span><span className="capitalize">{side}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">{side === "sales" ? "Debtor" : "Supplier"}</span><span>{(partiesQ.data ?? []).find((p: any) => p.id === partyId)?.name ?? "—"}</span></div>
+            </div>
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Proforma #</th>
+                    <th className="px-5 py-2 text-left font-normal">Proforma date</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice / PO #</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{r.proforma_number}</td>
+                      <td className="px-5 py-3 text-sm">{fmtDate(r.proforma_date)}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{r.po_number}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchImport.isPending}
+                onClick={() => batchImport.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {batchImport.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Import {rows.length} proforma{rows.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
+              <div className="text-2xl font-display text-success">{result.created}</div>
+              <div className="text-xs text-muted-foreground mt-1">Proformas created successfully</div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
+
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
 }

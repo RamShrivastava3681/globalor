@@ -7,6 +7,7 @@ import {
   deleteItem,
   scanTable,
   queryByIndex,
+  batchPutItems,
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
@@ -152,6 +153,98 @@ router.delete("/:id", requireAuth, requireWriteAccess("purchase-orders"), async 
     res.json({ success: true });
   } catch (err) {
     console.error("Delete purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/purchase-orders/batch ── (mass import from Excel)
+const batchProformaSchema = z.object({
+  side: z.enum(["sales", "purchase"]),
+  debtor_id: z.string().nullable().optional(),
+  vendor_id: z.string().nullable().optional(),
+  items: z.array(z.object({
+    proforma_number: z.string().min(1).max(80),
+    proforma_date: z.string().min(1),
+    po_number: z.string().min(1).max(80),
+    amount: z.number().positive(),
+  })).min(1),
+});
+
+router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchProformaSchema.parse(req.body);
+    const now = nowISO();
+    const created: PurchaseOrder[] = [];
+    const errors: Array<{ proforma_number: string; error: string }> = [];
+
+    const ordersToCreate: PurchaseOrder[] = [];
+    for (const item of parsed.items) {
+      try {
+        const id = generateId();
+        const proformaDate = item.proforma_date || now.slice(0, 10);
+
+        const po: PurchaseOrder = {
+          id,
+          client_id: req.user!.id,
+          side: parsed.side as AdvanceSide,
+          debtor_id: parsed.side === "sales" ? parsed.debtor_id || null : null,
+          vendor_id: parsed.side === "purchase" ? parsed.vendor_id || null : null,
+          po_number: item.po_number,
+          proforma_number: item.proforma_number,
+          proforma_date: proformaDate,
+          amount: item.amount,
+          currency: "USD",
+          issue_date: proformaDate,
+          expected_date: null,
+          status: "proforma",
+          proforma_status: "pending_review",
+          proforma_review_comments: null,
+          proforma_reviewed_at: null,
+          proforma_reviewed_by: null,
+          proforma_funded_amount: null,
+          proforma_funded_at: null,
+          proforma_funded_by: null,
+          proforma_funding_reference: null,
+          notes: null,
+          documents: [],
+          created_at: now,
+          updated_at: now,
+        };
+
+        ordersToCreate.push(po);
+      } catch (err) {
+        errors.push({ proforma_number: item.proforma_number, error: "Invalid proforma data" });
+        console.error(`Batch build error for ${item.proforma_number}:`, err);
+      }
+    }
+
+    // Write all proformas in batches of 25
+    if (ordersToCreate.length > 0) {
+      const dbItems = ordersToCreate.map((po) => po as unknown as Record<string, unknown>);
+      try {
+        await batchPutItems(TABLES.PURCHASE_ORDERS, dbItems);
+        created.push(...ordersToCreate);
+      } catch (err) {
+        console.error("Batch write failed, falling back to individual writes:", err);
+        for (const po of ordersToCreate) {
+          try {
+            await putItem(TABLES.PURCHASE_ORDERS, po as any);
+            created.push(po);
+          } catch (innerErr) {
+            errors.push({ proforma_number: po.proforma_number || "", error: "Failed to create" });
+            console.error(`Batch fallback error for ${po.proforma_number}:`, innerErr);
+          }
+        }
+      }
+    }
+
+    res.status(201).json({ created: created.length, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create proformas error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
