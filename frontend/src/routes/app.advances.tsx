@@ -153,8 +153,10 @@ function AdvancesPage() {
                             <button
                               onClick={async () => {
                                 try {
-                                  const all = await api.get<any[]>("/invoices") ?? [];
-                                  const found = all.find((i: any) => i.id === inv.id);
+                                  const invId = a.side === "sales" ? a.invoice_id : a.purchase_invoice_id;
+                                  if (!invId) { toast.error("Invoice not found"); return; }
+                                  const endpoint = a.side === "sales" ? `/invoices/${invId}` : `/purchase-invoices/${invId}`;
+                                  const found = await api.get<any>(endpoint);
                                   if (found) setViewingInvoice(found);
                                   else toast.error("Invoice not found");
                                 } catch {
@@ -392,7 +394,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
             )}
           </div>
 
-          {/* Debtor details */}
+          {/* Debtor details (sales invoices) */}
           {debtor && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
@@ -415,6 +417,24 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
                   <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Vendor details (purchase invoices) */}
+          {invoice.vendor && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Supplier
+              </h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
+                <Detail label="Name" value={invoice.vendor.name} />
+                <Detail label="Contact" value={invoice.vendor.contact_name || "—"} />
+                <Detail label="Email" value={invoice.vendor.contact_email || "—"} />
+                <Detail label="Phone" value={invoice.vendor.contact_phone || "—"} />
+                <Detail label="Industry" value={invoice.vendor.industry || "—"} />
+                {invoice.vendor.address_line && <Detail label="Address" value={[invoice.vendor.address_line, invoice.vendor.city, invoice.vendor.country].filter(Boolean).join(", ")} />}
+                {invoice.vendor.website && <Detail label="Website" value={invoice.vendor.website} />}
+              </div>
             </div>
           )}
 

@@ -105,8 +105,11 @@ function PurchasesPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const piQ = useQuery({
-    queryKey: ["purchase_invoices"],
-    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+    queryKey: ["purchase_invoices", searchQuery],
+    queryFn: async () => {
+      const url = searchQuery.trim() ? `/purchase-invoices?search=${encodeURIComponent(searchQuery.trim())}` : "/purchase-invoices";
+      return (await api.get<any[]>(url)) ?? [];
+    },
   });
 
   const vendorsQ = useQuery({
@@ -172,15 +175,7 @@ function PurchasesPage() {
     if (filter !== "all" && p.status !== filter) return false;
     if (issueDateFrom && p.issue_date && p.issue_date < issueDateFrom) return false;
     if (issueDateTo && p.issue_date && p.issue_date > issueDateTo) return false;
-    const q = searchQuery.toLowerCase();
-    return (
-      p.invoice_number?.toLowerCase().includes(q) ||
-      p.po_number?.toLowerCase().includes(q) ||
-      p.vendor?.name?.toLowerCase().includes(q) ||
-      p.status?.toLowerCase().includes(q) ||
-      p.client?.company_name?.toLowerCase().includes(q) ||
-      p.client?.contact_name?.toLowerCase().includes(q)
-    );
+    return true;
   }).sort((a: any, b: any) => {
     const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
     const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");

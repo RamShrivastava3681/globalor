@@ -21,7 +21,21 @@ const router = Router();
 // ── GET /api/purchase-invoices ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+
+    // Server-side search filtering
+    const searchQuery = (req.query.search as string || "").toLowerCase().trim();
+    if (searchQuery) {
+      invoices = invoices.filter((pi) => {
+        const q = searchQuery;
+        return (
+          pi.invoice_number?.toLowerCase().includes(q) ||
+          pi.po_number?.toLowerCase().includes(q) ||
+          pi.status?.toLowerCase().includes(q) ||
+          pi.id.toLowerCase().includes(q)
+        );
+      });
+    }
 
     const enriched = await Promise.all(
       invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (pi) => {
@@ -63,6 +77,37 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
     );
   } catch (err) {
     console.error("Get purchase invoices mini error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/purchase-invoices/:id ── (single enriched purchase invoice)
+router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
+
+    const vendor = invoice.vendor_id ? await getItem(TABLES.VENDORS, { id: invoice.vendor_id }) as Vendor | undefined : undefined;
+    const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
+
+    // Enrich linked sales invoices
+    let linkedSales: any[] | undefined;
+    if (invoice.linked_sales_invoice_ids && invoice.linked_sales_invoice_ids.length > 0) {
+      const results = await Promise.all(
+        invoice.linked_sales_invoice_ids.map(async (sId) => {
+          const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
+          if (si?.debtor_id) {
+            si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+          }
+          return si;
+        }),
+      );
+      linkedSales = results.filter(Boolean);
+    }
+
+    res.json({ ...invoice, vendor, client, linkedSales });
+  } catch (err) {
+    console.error("Get purchase invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

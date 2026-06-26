@@ -107,9 +107,11 @@ function InvoicesPage() {
   const limit = 50;
 
   const invoicesQ = useQuery({
-    queryKey: ["invoices", "list", page, limit, sortField, sortOrder],
+    queryKey: ["invoices", "list", page, limit, sortField, sortOrder, searchQuery],
     queryFn: async () => {
-      const res = await api.get<any>("/invoices?page=" + page + "&limit=" + limit + "&sortField=" + sortField + "&sortOrder=" + sortOrder);
+      const params = new URLSearchParams({ page: String(page), limit: String(limit), sortField, sortOrder });
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      const res = await api.get<any>("/invoices?" + params.toString());
       return res ?? { data: [], total: 0, page: 1, limit: 50, totalPages: 0 };
     },
   });
@@ -214,21 +216,23 @@ function InvoicesPage() {
     }
   }, [view]);
 
-  // Client-side filtering on the current page's data
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
+  // Client-side filtering on the current page's data (status & date range only)
   const filtered = invoiceData.filter((i: any) => {
     if (filter !== "all" && i.status !== filter) return false;
     if (issueDateFrom && i.issue_date && i.issue_date < issueDateFrom) return false;
     if (issueDateTo && i.issue_date && i.issue_date > issueDateTo) return false;
-    const q = searchQuery.toLowerCase();
-    return (
-      i.invoice_number?.toLowerCase().includes(q) ||
-      i.debtor?.name?.toLowerCase().includes(q) ||
-      i.po_number?.toLowerCase().includes(q) ||
-      i.status?.toLowerCase().includes(q) ||
-      i.client?.company_name?.toLowerCase().includes(q) ||
-      i.client?.contact_name?.toLowerCase().includes(q)
-    );
+    return true;
   });
+
+  // Ensure we stay within valid page range
+  useEffect(() => {
+    if (page > totalPages) setPage(1);
+  }, [searchQuery, filter, issueDateFrom, issueDateTo]);
 
   return (
     <div>

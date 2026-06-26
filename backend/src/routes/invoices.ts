@@ -27,10 +27,25 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
 
+    // Server-side search filtering
+    const searchQuery = (req.query.search as string || "").toLowerCase().trim();
+    let filteredInvoices = invoices;
+    if (searchQuery) {
+      filteredInvoices = invoices.filter((inv) => {
+        const q = searchQuery;
+        return (
+          inv.invoice_number?.toLowerCase().includes(q) ||
+          inv.po_number?.toLowerCase().includes(q) ||
+          inv.status?.toLowerCase().includes(q) ||
+          inv.id.toLowerCase().includes(q)
+        );
+      });
+    }
+
     // Server-side sorting
     const sortOrder = req.query.sort === "asc" ? 1 : -1;
     const sortField = (req.query.sortField as string) || "created";
-    invoices.sort((a, b) => {
+    filteredInvoices.sort((a, b) => {
       let aVal: string, bVal: string;
       if (sortField === "issue") {
         aVal = a.issue_date ?? "9999";
@@ -50,10 +65,10 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
 
-      const total = invoices.length;
+      const total = filteredInvoices.length;
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
-      const pageItems = invoices.slice(startIdx, startIdx + limit);
+      const pageItems = filteredInvoices.slice(startIdx, startIdx + limit);
 
       // Enrich only the current page with relations
       const enriched = await Promise.all(
@@ -79,6 +94,30 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       );
 
       res.json({ data: enriched, total, page, limit, totalPages });
+    } else if (searchQuery) {
+      // If there's a search query but no pagination, return filtered + enriched results
+      const enriched = await Promise.all(
+        filteredInvoices.map(async (inv) => {
+          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
+          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
+          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+            const results = await Promise.all(
+              inv.purchase_invoice_ids.map(async (piId) => {
+                if (!piId) return null;
+                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
+                if (pi?.vendor_id) {
+                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+                }
+                return pi;
+              }),
+            );
+            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+          }
+          return { ...inv, debtor, client, purchases };
+        }),
+      );
+      res.json(enriched);
     } else {
       // Legacy mode: return all invoices enriched (for admin/checker/dashboard pages)
       const enriched = await Promise.all(
