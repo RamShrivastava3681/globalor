@@ -1259,11 +1259,46 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
 function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () => void; onPaid: () => void }) {
   const qc = useQueryClient();
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [amountPaid, setAmountPaid] = useState(() => String(invoice.amount ?? ""));
+  const [paidNote, setPaidNote] = useState("");
+  const [receiptDocs, setReceiptDocs] = useState<DocMeta[]>([]);
+
+  // Fetch advances against PO to show balance
+  const poLookupQ = useQuery({
+    queryKey: ["po-lookup-payment", invoice.po_number],
+    enabled: !!invoice.po_number,
+    queryFn: async () => {
+      const data = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(invoice.po_number)}`);
+      return data ?? { advances: [] };
+    },
+  });
+
+  const advancesTotal = ((poLookupQ.data?.advances ?? []) as any[])
+    .filter((a: any) => a.status !== "refunded")
+    .reduce((s: number, a: any) => s + Number(a.amount), 0);
+
+  const balanceDue = Math.max(0, Number(invoice.amount || 0) - advancesTotal);
+
+  // Suggest balance as the default paid amount once advances load
+  const suggestedAmount = balanceDue > 0 && balanceDue < Number(invoice.amount) ? balanceDue : Number(invoice.amount);
+  const [initialAmtSynced, setInitialAmtSynced] = useState(false);
+  useEffect(() => {
+    if (!initialAmtSynced && suggestedAmount !== Number(amountPaid)) {
+      setAmountPaid(String(suggestedAmount));
+      setInitialAmtSynced(true);
+    }
+  }, [suggestedAmount, initialAmtSynced, amountPaid]);
 
   const pay = useMutation({
     mutationFn: async () => {
       if (!date) throw new Error("Select a payment date");
-      await api.patch(`/purchase-invoices/${invoice.id}`, { status: "paid", paid_date: date });
+      const payload: any = {
+        status: "paid",
+        paid_date: date,
+        paid_note: paidNote || null,
+        documents: receiptDocs,
+      };
+      await api.patch(`/purchase-invoices/${invoice.id}`, payload);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
@@ -1274,9 +1309,11 @@ function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () 
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to mark as paid"),
   });
 
+  const effectiveAmount = Number(amountPaid) || invoice.amount;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="flex items-center gap-3">
             <DollarSign className="h-5 w-5 text-success" />
@@ -1285,7 +1322,7 @@ function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () 
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="space-y-5 p-5">
+        <div className="space-y-5 p-5 max-h-[70vh] overflow-y-auto">
           <div className="rounded-lg border border-border bg-background/40 p-3 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Invoice</span>
@@ -1296,9 +1333,25 @@ function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () 
               <span>{invoice.vendor?.name ?? "—"}</span>
             </div>
             <div className="flex justify-between mt-1">
-              <span className="text-muted-foreground">Amount</span>
+              <span className="text-muted-foreground">Invoice amount</span>
               <span className="num">{fmtMoney(invoice.amount)}</span>
             </div>
+            {invoice.po_number && poLookupQ.isFetching ? (
+              <div className="flex justify-between mt-1 pt-1 border-t border-border">
+                <span className="text-muted-foreground text-xs">Loading advances…</span>
+              </div>
+            ) : advancesTotal > 0 ? (
+              <>
+                <div className="flex justify-between mt-1">
+                  <span className="text-muted-foreground">Advances already paid</span>
+                  <span className="num text-primary">− {fmtMoney(advancesTotal)}</span>
+                </div>
+                <div className="flex justify-between mt-1 pt-1 border-t border-border font-medium">
+                  <span>Balance due</span>
+                  <span className="num">{fmtMoney(balanceDue)}</span>
+                </div>
+              </>
+            ) : null}
           </div>
 
           <div>
@@ -1312,6 +1365,35 @@ function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () 
             />
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount paid</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                pattern="[0-9]+(\.[0-9]+)?"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                className="h-10 w-full rounded-md border border-border bg-background pl-7 pr-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Payment note (optional)</label>
+            <textarea
+              rows={2}
+              value={paidNote}
+              onChange={(e) => setPaidNote(e.target.value)}
+              placeholder="Add a note about this payment…"
+              className="w-full rounded-md border border-border bg-background p-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <DocumentUploader userId="" scope="purchase_invoices" docs={receiptDocs} onChange={setReceiptDocs}
+            label="Payment receipt" hint="Upload proof of payment (bank transfer receipt, cheque copy, etc.)" />
+
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
             <button
@@ -1320,7 +1402,7 @@ function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () 
               className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             >
               {pay.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
-              Mark as paid — {fmtMoney(invoice.amount)}
+              {pay.isPending ? "Saving…" : `Pay $${effectiveAmount.toLocaleString()}`}
             </button>
           </div>
         </div>
@@ -1336,6 +1418,7 @@ interface ReceiptRow {
   invoice_number: string;
   amount_received: number;
   date_received: string;
+  paid_note?: string;
 }
 
 function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
@@ -1343,8 +1426,22 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
   const [rows, setRows] = useState<ReceiptRow[]>([]);
   const [fileName, setFileName] = useState("");
+  const [defaultPaidNote, setDefaultPaidNote] = useState("");
   const [result, setResult] = useState<{ closed: number; not_found: string[]; errors: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch mini invoice data to show amounts in preview
+  const allPiQ = useQuery({
+    queryKey: ["purchase-invoices-lookup"],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
+  });
+  const piByNumber = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const pi of allPiQ.data ?? []) {
+      map.set(pi.invoice_number, pi);
+    }
+    return map;
+  }, [allPiQ.data]);
 
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1364,6 +1461,7 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
           const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
           const amt = Number(row.amount_received ?? row.amount ?? row["Amount"] ?? row.Amount ?? row.received ?? row["Amount Received"] ?? 0);
           const recDate = row.date_received ?? row["Date Received"] ?? row.date ?? row.Date ?? row.receipt_date ?? row["Payment Date"] ?? row.payment_date ?? "";
+          const noteVal = row.paid_note ?? row["Note"] ?? row["Payment Note"] ?? row["paid_note"] ?? row.note ?? "";
 
           let dateStr = "";
           if (typeof recDate === "number" && !isNaN(recDate)) {
@@ -1387,6 +1485,7 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
             invoice_number: String(invNum).trim(),
             amount_received: isNaN(amt) ? 0 : amt,
             date_received: dateStr,
+            paid_note: String(noteVal).trim() || undefined,
           };
         }).filter((r) => r.invoice_number && r.amount_received >= 0 && r.date_received);
 
@@ -1411,6 +1510,7 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
         invoice_number: r.invoice_number,
         date_received: r.date_received,
         amount_received: r.amount_received,
+        paid_note: r.paid_note || defaultPaidNote || null,
       }));
       return await api.post<{ closed: any[]; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> }>("/purchase-invoices/batch-close", { items });
     },
@@ -1451,6 +1551,21 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
               Each row is matched by invoice number and the purchase invoice is marked as paid.
             </div>
 
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground">
+              You can also include a <code className="font-mono text-success">paid_note</code> column in your Excel file for per-row notes, or set a default note below.
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Default payment note (optional)</label>
+              <textarea
+                rows={2}
+                value={defaultPaidNote}
+                onChange={(e) => setDefaultPaidNote(e.target.value)}
+                placeholder="Applied to all rows unless a per-row paid_note is provided…"
+                className="w-full rounded-md border border-border bg-background p-2 text-sm placeholder:text-muted-foreground/50"
+              />
+            </div>
+
             <div className="border-t border-border pt-4">
               <L label="Upload Excel / CSV file *">
                 <input
@@ -1480,25 +1595,50 @@ function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
               <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
             </div>
 
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs">
+              <label className="flex items-center gap-2">
+                <span className="uppercase tracking-widest text-muted-foreground">Payment note</span>
+              </label>
+              <textarea
+                rows={1}
+                value={defaultPaidNote}
+                onChange={(e) => setDefaultPaidNote(e.target.value)}
+                placeholder="Default note for all rows (overridden by per-row paid_note)"
+                className="mt-1 w-full rounded-md border border-border bg-background p-2 text-xs placeholder:text-muted-foreground/50"
+              />
+            </div>
+
             <div className="-mx-5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">#</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice number</th>
+                    <th className="px-5 py-2 text-right font-normal">Invoice amount</th>
                     <th className="px-5 py-2 text-right font-normal">Amount received</th>
                     <th className="px-5 py-2 text-left font-normal">Date received</th>
+                    <th className="px-5 py-2 text-left font-normal">Note</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, idx) => (
-                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
-                      <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
-                      <td className="px-5 py-3 text-right num">{fmtMoney(r.amount_received)}</td>
-                      <td className="px-5 py-3 text-sm">{r.date_received ? fmtDate(r.date_received) : <span className="text-muted-foreground">—</span>}</td>
-                    </tr>
-                  ))}
+                  {rows.map((r, idx) => {
+                    const pi = piByNumber.get(r.invoice_number);
+                    const diff = pi ? r.amount_received - Number(pi.amount) : 0;
+                    const rowNote = r.paid_note || defaultPaidNote || "";
+                    return (
+                      <tr key={idx} className={`border-b border-border/60 hover:bg-muted/30 ${diff < 0 ? "bg-warning/5" : ""}`}>
+                        <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                        <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                        <td className="px-5 py-3 text-right num">{pi ? fmtMoney(pi.amount) : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="px-5 py-3 text-right num">
+                          {fmtMoney(r.amount_received)}
+                          {diff < 0 && <span className="ml-1 text-[10px] text-muted-foreground">(short {fmtMoney(Math.abs(diff))})</span>}
+                        </td>
+                        <td className="px-5 py-3 text-sm">{r.date_received ? fmtDate(r.date_received) : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="px-5 py-3 text-xs text-muted-foreground max-w-[160px] truncate" title={rowNote}>{rowNote || "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
