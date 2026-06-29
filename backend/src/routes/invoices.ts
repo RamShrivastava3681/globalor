@@ -58,7 +58,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     if (statusFilter === "open") {
       filteredInvoices = filteredInvoices.filter((inv) => inv.status === "pending" || inv.status === "approved");
     } else if (statusFilter === "close") {
-      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "funded");
+      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "funded" || inv.status === "paid");
     }
 
     // Date range filter
@@ -362,6 +362,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       type: "invoice_created",
       severity: "info",
       message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${debtor ? ` — ${debtor.name}` : ""}`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(invoice);
@@ -572,6 +573,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
       type: "invoice_created",
       severity: "info",
       message: `Batch imported ${created.length} invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json({ created, errors });

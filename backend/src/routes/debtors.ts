@@ -93,6 +93,7 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
       type: "debtor_created",
       severity: "info",
       message: `Debtor "${parsed.name}" added to the ledger`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(debtor);

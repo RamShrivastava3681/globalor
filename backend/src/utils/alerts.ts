@@ -13,6 +13,7 @@ export async function createActivityAlert(params: {
   type: AlertType;
   severity?: AlertSeverity;
   message: string;
+  created_by?: string | null;
 }): Promise<void> {
   const alert: Alert = {
     id: generateId(),
@@ -24,6 +25,7 @@ export async function createActivityAlert(params: {
     message: params.message,
     is_read: false,
     created_at: nowISO(),
+    created_by: params.created_by || null,
   };
   await putItem(TABLES.ALERTS, alert as any);
 }

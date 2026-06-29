@@ -76,6 +76,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
       type: "vendor_created",
       severity: "info",
       message: `Supplier "${parsed.name}" added to the vendor list`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(vendor);

@@ -270,6 +270,7 @@ export interface Alert {
   message: string;
   is_read: boolean;
   created_at: string;
+  created_by: string | null;
 }
 
 // ── JWT Payload ──

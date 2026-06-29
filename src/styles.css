@@ -166,6 +166,13 @@
   .bg-vault { background: var(--gradient-vault); }
   
   .border-hairline { border: 1px solid var(--color-border); }
+  
+  /* Responsive large number — shrinks on small screens to prevent overflow */
+  .num-lg {
+    font-size: clamp(1rem, 4cqi, 2rem);
+    overflow-wrap: anywhere;
+    line-height: 1.2;
+  }
   .text-balance { text-wrap: balance; }
   .grid-lines {
     background-image: var(--grid-pattern);

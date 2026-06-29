@@ -17,7 +17,23 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const alerts = await scanTable<Alert>(TABLES.ALERTS);
-    res.json(alerts.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+
+    // Enrich alerts with creator names from profiles
+    const userIds = [...new Set(alerts.map((a) => a.created_by).filter(Boolean))] as string[];
+    const profiles = await Promise.all(
+      userIds.map(async (uid) => {
+        const profile = await getItem(TABLES.PROFILES, { id: uid }) as { id: string; email: string | null; company_name: string; contact_name: string | null } | undefined;
+        return profile ? { id: profile.id, name: profile.contact_name || profile.email || profile.company_name } : null;
+      }),
+    );
+    const profileMap = new Map(profiles.filter(Boolean).map((p) => [p!.id, p!.name]));
+
+    const enriched = alerts.sort((a, b) => b.created_at.localeCompare(a.created_at)).map((a) => ({
+      ...a,
+      created_by_name: a.created_by ? profileMap.get(a.created_by) || null : null,
+    }));
+
+    res.json(enriched);
   } catch (err) {
     console.error("Get alerts error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -47,6 +63,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
       message: parsed.message,
       is_read: false,
       created_at: nowISO(),
+      created_by: req.user?.id || null,
     };
     await putItem(TABLES.ALERTS, alert as any);
     res.status(201).json(alert);

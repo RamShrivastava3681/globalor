@@ -88,6 +88,7 @@ router.post("/", requireAuth, requireWriteAccess("stock-movements"), async (req:
       type: "stock_movement_created",
       severity: "info",
       message: `${directionLabel}: ${parsed.quantity} ${parsed.unit} of "${parsed.item_name}"${parsed.sku ? ` (${parsed.sku})` : ""} recorded`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(movement);

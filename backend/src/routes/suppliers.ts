@@ -83,6 +83,7 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
       type: "supplier_created",
       severity: "info",
       message: `Factor supplier "${parsed.company_name}" added to the system`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(supplier);

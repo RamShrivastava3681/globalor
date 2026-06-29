@@ -102,6 +102,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       type: "invoice_created",
       severity: "info",
       message: `${parsed.type === "credit" ? "Credit" : "Debit"} note ${parsed.note_number} created for $${parsed.amount.toLocaleString()} — pending review`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(note);
@@ -186,6 +187,7 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
             type: "payment_received",
             severity: "info",
             message: `${note.type === "credit" ? "Credit" : "Debit"} note ${note.note_number} settled — invoice amount ${note.type === "credit" ? "reduced" : "increased"} from $${currentAmount.toLocaleString()} to $${newAmount.toLocaleString()}`,
+            created_by: req.user!.id,
           });
         }
       }

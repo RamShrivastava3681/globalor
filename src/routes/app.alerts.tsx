@@ -52,7 +52,7 @@ function AlertsPage() {
                   <div className="flex-1">
                     <div className="text-sm">{a.message}</div>
                     <div className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {a.type.replace(/_/g, " ")} · {a.severity} · {fmtDateTime(a.created_at)}
+                      {a.type.replace(/_/g, " ")} · {a.severity}{a.created_by_name ? ` · by ${a.created_by_name}` : ""} · {fmtDateTime(a.created_at)}
                     </div>
                   </div>
                   {!a.is_read && (

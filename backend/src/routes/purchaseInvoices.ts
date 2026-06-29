@@ -319,6 +319,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       type: "purchase_invoice_created",
       severity: "info",
       message: `Purchase invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${vendor ? ` — ${vendor.name}` : ""}`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json(invoice);
@@ -444,6 +445,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
       type: "purchase_invoice_created",
       severity: "info",
       message: `Batch imported ${created.length} purchase invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
+      created_by: req.user!.id,
     });
 
     res.status(201).json({ created, errors });

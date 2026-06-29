@@ -180,6 +180,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           message: `Invoice ${i.invoice_number} overdue ${dpd} days — $${i.amount.toLocaleString()}`,
           is_read: false,
           created_at: nowISO(),
+          created_by: req.user!.id,
         });
       }
       if (Number(i.amount) >= 100000) {
@@ -194,6 +195,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           message: `Large invoice received: $${i.amount.toLocaleString()} from ${debtor?.name ?? "debtor"}`,
           is_read: false,
           created_at: nowISO(),
+          created_by: req.user!.id,
         });
       }
     }
@@ -214,6 +216,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           message: `${d.name} at ${(util * 100).toFixed(0)}% of credit limit ($${exposure.toLocaleString()} / $${d.credit_limit.toLocaleString()})`,
           is_read: false,
           created_at: nowISO(),
+          created_by: req.user!.id,
         });
       }
       if (d.risk_score < 40) {
@@ -227,6 +230,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           message: `${d.name} risk score is low (${d.risk_score})`,
           is_read: false,
           created_at: nowISO(),
+          created_by: req.user!.id,
         });
       }
     }
