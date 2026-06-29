@@ -62,7 +62,7 @@ function ProformasPage() {
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const listQ = useQuery({
     queryKey: ["proformas"],
@@ -122,19 +122,12 @@ function ProformasPage() {
     };
   }, [listQ.data]);
 
-  const cancel = useMutation({
-    mutationFn: async (id: string) => {
-      await api.patch(`/purchase-orders/${id}`, { status: "cancelled" });
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Cancelled"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
 
   const del = useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/purchase-orders/${id}`);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Removed"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Deleted"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -252,7 +245,7 @@ function ProformasPage() {
                               <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
                             )}
                             {canCreate && p.status !== "invoiced" && p.status !== "cancelled" && p.proforma_status !== "funded" && (
-                              <button onClick={() => setCancelTarget(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
+                              <button onClick={() => setDeleteTarget(p)} className="rounded-md border border-destructive/30 px-2 py-0.5 text-[10px] text-destructive hover:bg-destructive/10">Delete</button>
                             )}
                             {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected" || p.proforma_status === "pending_review") && (
                               <button onClick={() => { if (confirm(`Remove proforma ${p.proforma_number || p.po_number}?`)) del.mutate(p.id); }} className="text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -278,32 +271,32 @@ function ProformasPage() {
         </Card>
       </div>
 
-      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Cancel proforma?
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete proforma?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This will set the proforma <strong>{cancelTarget?.proforma_number || cancelTarget?.po_number}</strong> to "cancelled".
-              You can still view it but it won't be processed further.
+              This will permanently delete proforma <strong>{deleteTarget?.proforma_number || deleteTarget?.po_number}</strong>.
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setCancelTarget(null)}>Go back</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Go back</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (cancelTarget) {
-                  cancel.mutate(cancelTarget.id);
-                  setCancelTarget(null);
+                if (deleteTarget) {
+                  del.mutate(deleteTarget.id);
+                  setDeleteTarget(null);
                 }
               }}
-              disabled={cancel.isPending}
+              disabled={del.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {cancel.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Yes, cancel proforma
+              {del.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes, delete proforma
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

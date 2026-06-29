@@ -31,7 +31,7 @@ export function Stat({ label, value, delta, tone = "neutral" }: { label: string;
   );
 }
 
-export function Card({ title, action, children, className = "" }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+export function Card({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <div className={`bg-glass-card overflow-hidden ${className}`}>
       {title && (
