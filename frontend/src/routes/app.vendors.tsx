@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -245,6 +245,27 @@ function AddVendorModal({ editing, onClose, onCreated }: { editing: any | null; 
 }
 
 function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoices: any[]; onClose: () => void }) {
+  // Filter & sort state
+  const [filter, setFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const visibleInvoices = useMemo(() => {
+    let result = [...invoices];
+    if (filter === "open") {
+      result = result.filter((p: any) => p.status !== "paid");
+    } else if (filter === "closed") {
+      result = result.filter((p: any) => p.status === "paid");
+    }
+    result.sort((a: any, b: any) => {
+      const aVal = sortField === "issue" ? (a.issue_date ?? "") : (a.due_date ?? "");
+      const bVal = sortField === "issue" ? (b.issue_date ?? "") : (b.due_date ?? "");
+      const cmp = aVal.localeCompare(bVal);
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    return result;
+  }, [invoices, filter, sortField, sortOrder]);
+
   const totalAmount = invoices.reduce((s: number, p: any) => s + Number(p.amount), 0);
   const paidInvoices = invoices.filter((p: any) => p.status === "paid");
   const totalPaid = paidInvoices.reduce((s: number, p: any) => s + Number(p.amount), 0);
@@ -301,8 +322,41 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
               <ShoppingCart className="mr-1 inline h-3.5 w-3.5" />Purchase invoices ({invoices.length})
             </h4>
-            {invoices.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No purchase invoices linked to this supplier.</div>
+            {/* Filter & sort controls */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {["all", "open", "closed"].map((s) => (
+                <button key={s} onClick={() => setFilter(s)}
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-widest transition ${
+                    filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}>{s === "all" ? "All" : s === "open" ? "Open" : "Closed"}</button>
+              ))}
+              <span className="ml-2 h-4 w-px bg-border" />
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort</span>
+              {(["issue", "due"] as const).map((field) => (
+                <button key={field}
+                  onClick={() => {
+                    if (sortField === field) {
+                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                    } else {
+                      setSortField(field);
+                      setSortOrder("asc");
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] transition ${
+                    sortField === field
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {field === "issue" ? "Issue date" : "Due date"}
+                  {sortField === field && (
+                    <span className="text-[9px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {visibleInvoices.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No purchase invoices match the current filter.</div>
             ) : (
               <div className="-mx-4 overflow-x-auto">
                 <table className="w-full text-sm">
@@ -319,7 +373,7 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.sort((a: any, b: any) => b.issue_date?.localeCompare(a.issue_date ?? "") ?? 0).map((p: any) => {
+                    {visibleInvoices.map((p: any) => {
                       const paymentDays = p.status === "paid" && p.issue_date && p.paid_date
                         ? daysBetween(p.issue_date, p.paid_date)
                         : null;

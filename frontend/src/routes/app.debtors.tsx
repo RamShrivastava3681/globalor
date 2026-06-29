@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2, AlertTriangle } from "lucide-react";
+import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2, AlertTriangle, DollarSign, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -28,6 +28,7 @@ function DebtorsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [bulkPayDebtor, setBulkPayDebtor] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const debtorsQ = useQuery({
@@ -52,6 +53,7 @@ function DebtorsPage() {
   });
 
   const canEdit = canWrite("debtors");
+  const canPay = canWrite("invoices") || canWrite("funding-queue");
 
   return (
     <div>
@@ -118,6 +120,11 @@ function DebtorsPage() {
                           <button onClick={() => setViewing(d)} className="mr-2 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary">
                             <Eye className="mr-1 inline h-3 w-3" />View
                           </button>
+                          {canPay && (
+                            <button onClick={() => setBulkPayDebtor(d)} className="mr-2 rounded-md border border-primary/50 px-2 py-1 text-xs text-primary hover:bg-primary/10">
+                              <DollarSign className="mr-0.5 inline h-3 w-3" />Bulk pay
+                            </button>
+                          )}
                           {canEdit && (
                             <>
                               <button onClick={() => { setEditing(d); setOpen(true); }} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
@@ -145,6 +152,18 @@ function DebtorsPage() {
           debtor={viewing}
           invoices={(invoicesQ.data ?? []).filter((i: any) => i.debtor_id === viewing.id)}
           onClose={() => setViewing(null)}
+        />
+      )}
+
+      {bulkPayDebtor && (
+        <BulkPaymentModal
+          debtor={bulkPayDebtor}
+          invoices={(invoicesQ.data ?? []).filter((i: any) => i.debtor_id === bulkPayDebtor.id)}
+          onClose={() => setBulkPayDebtor(null)}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["invoices-for-debtors"] });
+            qc.invalidateQueries({ queryKey: ["invoices"] });
+          }}
         />
       )}
     </div>
@@ -276,6 +295,31 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Filter & sort state
+  const [filter, setFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const filteredInvoices = useMemo(() => {
+    let result = [...invoices];
+    // Apply status filter
+    if (filter === "open") {
+      result = result.filter((i: any) => i.status !== "paid");
+    } else if (filter === "closed") {
+      result = result.filter((i: any) => i.status === "paid");
+    }
+    // Apply sort
+    result.sort((a: any, b: any) => {
+      const aVal = sortField === "issue" ? (a.issue_date ?? "") : (a.due_date ?? "");
+      const bVal = sortField === "issue" ? (b.issue_date ?? "") : (b.due_date ?? "");
+      const cmp = aVal.localeCompare(bVal);
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    return result;
+  }, [invoices, filter, sortField, sortOrder]);
+
+  const visibleInvoices = filteredInvoices;
+
   const allSelected = invoices.length > 0 && selectedIds.size === invoices.length;
 
   const toggleSelect = (id: string) => {
@@ -392,8 +436,41 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                 </button>
               )}
             </div>
-            {invoices.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No invoices linked to this debtor.</div>
+            {/* Filter & sort controls */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {["all", "open", "closed"].map((s) => (
+                <button key={s} onClick={() => setFilter(s)}
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-widest transition ${
+                    filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}>{s === "all" ? "All" : s === "open" ? "Open" : "Closed"}</button>
+              ))}
+              <span className="ml-2 h-4 w-px bg-border" />
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort</span>
+              {(["issue", "due"] as const).map((field) => (
+                <button key={field}
+                  onClick={() => {
+                    if (sortField === field) {
+                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                    } else {
+                      setSortField(field);
+                      setSortOrder("asc");
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] transition ${
+                    sortField === field
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {field === "issue" ? "Issue date" : "Due date"}
+                  {sortField === field && (
+                    <span className="text-[9px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {visibleInvoices.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No invoices match the current filter.</div>
             ) : (
               <div className="-mx-4 overflow-x-auto">
                 <table className="w-full text-sm">
@@ -420,7 +497,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                     </tr>
                   </thead>
                   <tbody>
-                    {invoices.sort((a: any, b: any) => b.issue_date?.localeCompare(a.issue_date ?? "") ?? 0).map((inv: any) => {
+                    {visibleInvoices.map((inv: any) => {
                       const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
                         ? daysBetween(inv.issue_date, inv.paid_date)
                         : null;
@@ -500,6 +577,297 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+function BulkPaymentModal({ debtor, invoices, onClose, onDone }: { debtor: any; invoices: any[]; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [sortField, setSortField] = useState<"issue" | "created">("issue");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Only open invoices
+  const openInvoices = useMemo(() => {
+    return invoices.filter((i: any) => i.status !== "paid");
+  }, [invoices]);
+
+  // Sorted open invoices
+  const sortedInvoices = useMemo(() => {
+    const result = [...openInvoices];
+    result.sort((a: any, b: any) => {
+      const aVal = sortField === "issue" ? (a.issue_date ?? "") : (a.created_at ?? "");
+      const bVal = sortField === "issue" ? (b.issue_date ?? "") : (b.created_at ?? "");
+      const cmp = aVal.localeCompare(bVal);
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    return result;
+  }, [openInvoices, sortField, sortOrder]);
+
+  const allSelected = sortedInvoices.length > 0 && selectedIds.size === sortedInvoices.length;
+  const selectedCount = selectedIds.size;
+
+  // Total amount of selected invoices
+  const selectedTotal = sortedInvoices
+    .filter((i: any) => selectedIds.has(i.id))
+    .reduce((s: number, i: any) => s + Number(i.amount), 0);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(sortedInvoices.map((i: any) => i.id)));
+    }
+  };
+
+  const bulkPay = useMutation({
+    mutationFn: async () => {
+      const totalAmount = Number(amount);
+      if (!totalAmount || totalAmount <= 0) throw new Error("Enter a valid payment amount");
+      if (!date) throw new Error("Select a payment date");
+      if (selectedIds.size === 0) throw new Error("Select at least one invoice");
+
+      // Get selected invoices in sorted order
+      const selected = sortedInvoices.filter((i: any) => selectedIds.has(i.id));
+
+      // Allocate: go through selected invoices in order, deduct full amount from total
+      let remaining = totalAmount;
+      const items: Array<{ id: string; invoice_number: string; date_received: string; amount_received: number }> = [];
+
+      for (const inv of selected) {
+        if (remaining <= 0) break;
+        const invoiceAmount = Number(inv.amount);
+        const allocated = Math.min(invoiceAmount, remaining);
+        items.push({
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          date_received: date,
+          amount_received: allocated,
+        });
+        remaining -= allocated;
+      }
+
+      if (items.length === 0) throw new Error("No invoices to pay");
+
+      return await api.post<{ paid: any[]; not_found: string[]; errors: any[] }>("/invoices/bulk-pay", { items });
+    },
+    onSuccess: (result) => {
+      const count = result.paid?.length ?? 0;
+      toast.success(`${count} invoice${count !== 1 ? "s" : ""} marked as paid`);
+      if (result.errors?.length > 0) {
+        toast.error(`${result.errors.length} invoice${result.errors.length !== 1 ? "s" : ""} failed`);
+      }
+      if (result.not_found?.length > 0) {
+        toast.warning(`${result.not_found.length} invoice${result.not_found.length !== 1 ? "s" : ""} not found`);
+      }
+      setSelectedIds(new Set());
+      onDone();
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to process payment"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <DollarSign className="h-5 w-5 text-primary" />
+            <h3 className="font-display text-lg">Bulk payment — {debtor.name}</h3>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          {/* Payment fields */}
+          <div className="flex flex-wrap items-end gap-4 rounded-lg border border-border bg-background/40 p-4">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Total amount received</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                pattern="[0-9]+(\\.[0-9]+)?"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="h-10 w-48 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+              {selectedCount > 0 && (
+                <div className="mt-1 text-[10px] text-muted-foreground">
+                  Selected total: {fmtMoney(selectedTotal)} ·
+                  {Number(amount) >= selectedTotal ? (
+                    <span className="text-success"> enough</span>
+                  ) : (
+                    <span className="text-destructive"> short by {fmtMoney(selectedTotal - Number(amount))}</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Payment date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+
+          {/* Open invoices list */}
+          <div className="rounded-lg border border-border bg-background/40 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-xs uppercase tracking-widest text-primary">
+                <FileText className="mr-1 inline h-3.5 w-3.5" />Open invoices ({openInvoices.length})
+              </h4>
+            </div>
+
+            {/* Sort controls */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
+              {(["issue", "created"] as const).map((field) => (
+                <button key={field}
+                  onClick={() => {
+                    if (sortField === field) {
+                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                    } else {
+                      setSortField(field);
+                      setSortOrder("asc");
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
+                    sortField === field
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <ArrowUpDown className="h-3 w-3" />
+                  {field === "issue" ? "Issue date" : "Created date"}
+                  {sortField === field && (
+                    <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {sortedInvoices.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No open invoices for this debtor.</div>
+            ) : (
+              <div className="-mx-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="w-10 px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+                        />
+                      </th>
+                      <th className="px-4 py-2 text-left font-normal">Invoice</th>
+                      <th className="px-4 py-2 text-right font-normal">Amount</th>
+                      <th className="px-4 py-2 text-left font-normal">Issue</th>
+                      <th className="px-4 py-2 text-left font-normal">Due</th>
+                      <th className="px-4 py-2 text-right font-normal">Allocation</th>
+                      <th className="px-4 py-2 text-left font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      // Pre-compute allocations for display
+                      let remaining = Number(amount) || 0;
+                      return sortedInvoices.map((inv: any) => {
+                        const isSelected = selectedIds.has(inv.id);
+                        let allocation = 0;
+                        if (isSelected && remaining > 0) {
+                          allocation = Math.min(Number(inv.amount), remaining);
+                          remaining -= allocation;
+                        }
+                        return (
+                          <tr key={inv.id} className={`border-b border-border/60 transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/30"}`}>
+                            <td className="w-10 px-2 py-2.5 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleSelect(inv.id)}
+                                className="h-4 w-4 cursor-pointer rounded border-border accent-primary"
+                              />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className="font-mono text-xs">{inv.invoice_number}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right num">{fmtMoney(inv.amount)}</td>
+                            <td className="px-4 py-2.5 text-sm">{fmtDate(inv.issue_date)}</td>
+                            <td className="px-4 py-2.5 text-sm">{inv.due_date ? fmtDate(inv.due_date) : "—"}</td>
+                            <td className={`px-4 py-2.5 text-right num ${isSelected && allocation > 0 ? "text-success" : "text-muted-foreground"}`}>
+                              {isSelected && allocation > 0 ? fmtMoney(allocation) : "—"}
+                            </td>
+                            <td className="px-4 py-2.5"><StatusPill status={inv.status} /></td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Summary */}
+          {selectedCount > 0 && (
+            <div className="rounded-lg border border-border bg-background/40 p-3 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Selected invoices</span>
+                <span>{selectedCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total selected amount</span>
+                <span className="num">{fmtMoney(selectedTotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Amount entered</span>
+                <span className="num">{fmtMoney(Number(amount) || 0)}</span>
+              </div>
+              <div className="flex justify-between border-t border-border pt-1 mt-1">
+                <span className="text-muted-foreground">Shortfall / surplus</span>
+                <span className={`num ${(Number(amount) || 0) >= selectedTotal ? "text-success" : "text-destructive"}`}>
+                  {fmtMoney(Math.abs((Number(amount) || 0) - selectedTotal))}
+                  {(Number(amount) || 0) >= selectedTotal ? " surplus" : " short"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            <button
+              disabled={bulkPay.isPending || selectedCount === 0 || !Number(amount)}
+              onClick={() => bulkPay.mutate()}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {bulkPay.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <DollarSign className="h-4 w-4" />
+              )}
+              Mark {selectedCount} invoice{selectedCount !== 1 ? "s" : ""} as paid
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

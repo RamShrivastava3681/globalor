@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -97,6 +97,8 @@ function PurchasesPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [paying, setPaying] = useState<any | null>(null);
+  const [importReceiptsOpen, setImportReceiptsOpen] = useState(false);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
@@ -150,16 +152,6 @@ function PurchasesPage() {
     }
   }, [view, piQ.data]);
 
-  const updateStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const patch: any = { status };
-      if (status === "paid") patch.paid_date = new Date().toISOString().slice(0, 10);
-      await api.patch(`/purchase-invoices/${id}`, patch);
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); toast.success("Updated"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
   const remove = useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/purchase-invoices/${id}`);
@@ -207,6 +199,11 @@ function PurchasesPage() {
               <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
                 <Upload className="h-4 w-4" /> Mass import
               </button>
+              {canEdit && (
+                <button onClick={() => setImportReceiptsOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-success/40 px-4 py-2 text-sm font-medium text-success hover:bg-success/5">
+                  <DollarSign className="h-4 w-4" /> Mass import receipts
+                </button>
+              )}
             </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -380,6 +377,11 @@ function PurchasesPage() {
                             <button onClick={() => setViewing(p)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
                               <Eye className="h-3 w-3" /> View
                             </button>
+                            {canEdit && p.status !== "paid" && (
+                              <button onClick={() => setPaying(p)} className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10">
+                                <DollarSign className="h-3 w-3" /> Pay
+                              </button>
+                            )}
                             {p.status === "pending" && (
                               canReview ? (
                                 <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
@@ -426,12 +428,25 @@ function PurchasesPage() {
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} vendors={vendorsQ.data ?? []} />}
 
+      {importReceiptsOpen && <MassImportReceiptsModal onClose={() => setImportReceiptsOpen(false)} />}
+
+      {paying && (
+        <PaymentModal
+          invoice={paying}
+          onClose={() => setPaying(null)}
+          onPaid={() => {
+            qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+          }}
+        />
+      )}
+
       {viewing && (
         <PurchaseInvoiceDetailModal
           invoice={viewing}
           salesLinks={linkedSales(viewing.id)}
           inventory={viewedInventory}
           onClose={() => setViewing(null)}
+          onPay={() => { setPaying(viewing); setViewing(null); }}
         />
       )}
     </div>
@@ -724,7 +739,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }: { invoice: any; salesLinks: any[]; inventory: any[]; onClose: () => void }) {
+function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose, onPay }: { invoice: any; salesLinks: any[]; inventory: any[]; onClose: () => void; onPay?: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
   const vendor = invoice.vendor;
 
@@ -911,6 +926,11 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
+            {onPay && invoice.status !== "paid" && (
+              <button onClick={() => onPay()} className="inline-flex items-center gap-2 rounded-md border border-success/50 px-4 py-2 text-sm text-success hover:bg-success/10">
+                <DollarSign className="h-4 w-4" /> Mark as paid
+              </button>
+            )}
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
           </div>
         </div>
@@ -1223,6 +1243,308 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
             )}
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
+
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Payment Modal (single invoice) ──
+
+function PaymentModal({ invoice, onClose, onPaid }: { invoice: any; onClose: () => void; onPaid: () => void }) {
+  const qc = useQueryClient();
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const pay = useMutation({
+    mutationFn: async () => {
+      if (!date) throw new Error("Select a payment date");
+      await api.patch(`/purchase-invoices/${invoice.id}`, { status: "paid", paid_date: date });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      toast.success(`Invoice ${invoice.invoice_number} marked as paid`);
+      onPaid();
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to mark as paid"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex items-center gap-3">
+            <DollarSign className="h-5 w-5 text-success" />
+            <h3 className="font-display text-lg">Mark as paid</h3>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <div className="rounded-lg border border-border bg-background/40 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Invoice</span>
+              <span className="font-mono">{invoice.invoice_number}</span>
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-muted-foreground">Supplier</span>
+              <span>{invoice.vendor?.name ?? "—"}</span>
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-muted-foreground">Amount</span>
+              <span className="num">{fmtMoney(invoice.amount)}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Payment date *</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            <button
+              disabled={pay.isPending || !date}
+              onClick={() => pay.mutate()}
+              className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {pay.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
+              Mark as paid — {fmtMoney(invoice.amount)}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Mass Import Receipts Modal (batch close existing purchase invoices) ──
+
+interface ReceiptRow {
+  invoice_number: string;
+  amount_received: number;
+  date_received: string;
+}
+
+function MassImportReceiptsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"form" | "preview" | "done">("form");
+  const [rows, setRows] = useState<ReceiptRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ closed: number; not_found: string[]; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ReceiptRow[] = json.map((row: any) => {
+          const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
+          const amt = Number(row.amount_received ?? row.amount ?? row["Amount"] ?? row.Amount ?? row.received ?? row["Amount Received"] ?? 0);
+          const recDate = row.date_received ?? row["Date Received"] ?? row.date ?? row.Date ?? row.receipt_date ?? row["Payment Date"] ?? row.payment_date ?? "";
+
+          let dateStr = "";
+          if (typeof recDate === "number" && !isNaN(recDate)) {
+            const d = new Date((recDate - 25569) * 86400 * 1000);
+            if (!isNaN(d.getTime())) {
+              dateStr = d.toISOString().slice(0, 10);
+            }
+          } else if (typeof recDate === "string") {
+            const cleaned = recDate.trim();
+            if (cleaned) {
+              const d = new Date(cleaned);
+              if (!isNaN(d.getTime())) {
+                dateStr = d.toISOString().slice(0, 10);
+              } else if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
+                dateStr = cleaned;
+              }
+            }
+          }
+
+          return {
+            invoice_number: String(invNum).trim(),
+            amount_received: isNaN(amt) ? 0 : amt,
+            date_received: dateStr,
+          };
+        }).filter((r) => r.invoice_number && r.amount_received >= 0 && r.date_received);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: invoice_number, amount_received, date_received");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchClose = useMutation({
+    mutationFn: async () => {
+      const items = rows.map((r) => ({
+        invoice_number: r.invoice_number,
+        date_received: r.date_received,
+        amount_received: r.amount_received,
+      }));
+      return await api.post<{ closed: any[]; not_found: string[]; errors: Array<{ invoice_number: string; error: string }> }>("/purchase-invoices/batch-close", { items });
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      const errList = (data.errors ?? []).map((e) => `${e.invoice_number}: ${e.error}`);
+      setResult({ closed: data.closed.length, not_found: data.not_found ?? [], errors: errList });
+      setStep("done");
+      if (errList.length === 0 && (data.not_found ?? []).length === 0) {
+        toast.success(`${data.closed.length} purchase invoices marked as paid`);
+      } else {
+        const issues = [...errList, ...(data.not_found ?? []).map((n: string) => `${n}: Not found`)];
+        toast.success(`${data.closed.length} closed, ${issues.length} issues`);
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount_received, 0), [rows]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {step === "form" ? "Mass import receipts" : step === "preview" ? "Preview receipts" : "Import complete"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "form" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs text-muted-foreground">
+              <strong className="text-success">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
+              <code className="font-mono text-success">invoice_number</code>,{' '}
+              <code className="font-mono text-success">amount_received</code>,{' '}
+              <code className="font-mono text-success">date_received</code>.
+              Each row is matched by invoice number and the purchase invoice is marked as paid.
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <L label="Upload Excel / CSV file *">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                  onChange={handleFile}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-success/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-success hover:file:bg-success/20"
+                />
+              </L>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span>
+                Found <strong className="text-foreground">{rows.length}</strong> receipts
+                Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+              </div>
+              <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice number</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount received</th>
+                    <th className="px-5 py-2 text-left font-normal">Date received</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.amount_received)}</td>
+                      <td className="px-5 py-3 text-sm">{r.date_received ? fmtDate(r.date_received) : <span className="text-muted-foreground">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchClose.isPending}
+                onClick={() => batchClose.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {batchClose.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <DollarSign className="h-4 w-4" />}
+                Close {rows.length} invoice{rows.length !== 1 ? "s" : ""} as paid
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
+              <div className="text-2xl font-display text-success">{result.closed}</div>
+              <div className="text-xs text-muted-foreground mt-1">Purchase invoices marked as paid</div>
+            </div>
+            {result.not_found.length > 0 && (
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-warning mb-2">Not found ({result.not_found.length})</div>
+                <ul className="space-y-1">
+                  {result.not_found.map((n, i) => (
+                    <li key={i} className="text-xs text-warning">{n}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white">Done</button>
             </div>
           </div>
         )}
