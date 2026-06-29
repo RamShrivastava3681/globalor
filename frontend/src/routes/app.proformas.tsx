@@ -4,13 +4,23 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown, Upload } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown, Upload, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { z } from "zod";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { getToken } from "@/lib/api-client";
 import * as XLSX from "xlsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
@@ -50,6 +60,7 @@ function ProformasPage() {
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
 
 
   const listQ = useQuery({
@@ -271,7 +282,7 @@ function ProformasPage() {
                               <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
                             )}
                             {canCreate && p.status !== "invoiced" && p.status !== "cancelled" && p.proforma_status !== "funded" && (
-                              <button onClick={() => cancel.mutate(p.id)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
+                              <button onClick={() => setCancelTarget(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
                             )}
                             {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected" || p.proforma_status === "pending_review") && (
                               <button onClick={() => { if (confirm(`Remove proforma ${p.proforma_number || p.po_number}?`)) del.mutate(p.id); }} className="text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -296,6 +307,37 @@ function ProformasPage() {
           </ol>
         </Card>
       </div>
+
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Cancel proforma?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will set the proforma <strong>{cancelTarget?.proforma_number || cancelTarget?.po_number}</strong> to "cancelled".
+              You can still view it but it won't be processed further.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCancelTarget(null)}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (cancelTarget) {
+                  cancel.mutate(cancelTarget.id);
+                  setCancelTarget(null);
+                }
+              }}
+              disabled={cancel.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancel.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes, cancel proforma
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} />}
 

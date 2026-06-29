@@ -19,6 +19,7 @@ export const Route = createFileRoute("/app/dashboard")({
 function Dashboard() {
   const { isAdmin, isTreasury, user } = useAuth();
   const [viewingExpense, setViewingExpense] = useState<any | null>(null);
+  const [advanceTab, setAdvanceTab] = useState<"sales" | "purchase">("sales");
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
@@ -61,12 +62,15 @@ function Dashboard() {
   const expenses = expensesQ.data ?? [];
   const proformas = proformasQ.data ?? [];
 
+  const advancesQ = useQuery({
+    queryKey: ["advances"],
+    queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
+  });
+  const advances = advancesQ.data ?? [];
+
   const totalOutstanding = invoices
     .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
     .reduce((s: number, i: any) => s + Number(i.amount), 0);
-  const totalAdvanced = invoices
-    .filter((i: any) => i.status === "advanced" || i.status === "paid")
-    .reduce((s: number, i: any) => s + (Number(i.amount) * Number(i.advance_rate)) / 100, 0);
   const overdueCount = invoices.filter((i: any) => i.status === "overdue" || (i.due_date && i.status !== "paid" && daysBetween(i.due_date) > 0)).length;
   const collectionRate = invoices.length ? Math.round((invoices.filter((i: any) => i.status === "paid").length / invoices.length) * 100) : 0;
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
@@ -159,7 +163,6 @@ function Dashboard() {
 
         <div className="grid gap-4 md:grid-cols-4">
           <Stat label="Outstanding (AR)" value={fmtMoney(totalOutstanding)} delta={`${invoices.length} invoices`} />
-          <Stat label="Advanced" value={fmtMoney(totalAdvanced)} delta="Across funded invoices" tone="good" />
           <Stat label="Overdue" value={String(overdueCount)} delta={overdueCount > 0 ? "Action required" : "All clean"} tone={overdueCount ? "bad" : "good"} />
           <Stat label="Collection rate" value={`${collectionRate}%`} delta="Lifetime" tone={collectionRate >= 90 ? "good" : "warn"} />
         </div>
@@ -343,6 +346,83 @@ function Dashboard() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title={
+            <div className="flex items-center gap-3">
+              <span>Advances</span>
+              <div className="flex gap-1">
+                {(["sales", "purchase"] as const).map((s) => (
+                  <button key={s} onClick={() => setAdvanceTab(s)}
+                    className={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-widest transition ${
+                      advanceTab === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                    }`}>{s === "sales" ? "Received from buyer" : "Given to supplier"}</button>
+                ))}
+              </div>
+            </div>
+          }
+          action={<Link to="/app/advances" className="text-xs text-primary">View all →</Link>}
+        >
+          {advances.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">No advances yet.</div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Linked to</th>
+                    <th className="px-5 py-2 text-left font-normal">Party</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {advances
+                    .filter((a: any) => a.side === advanceTab)
+                    .slice(0, 6)
+                    .map((a: any) => {
+                      const cp = a.order
+                        ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
+                        : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                      return (
+                        <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
+                          <td className="px-5 py-3">
+                            {a.order ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-primary">
+                                PO {a.order.po_number}
+                              </span>
+                            ) : a.invoice || a.purchase ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-primary">
+                                {(a.invoice?.invoice_number || a.purchase?.invoice_number)}
+                              </span>
+                            ) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-5 py-3">{cp ?? "—"}</td>
+                          <td className="px-5 py-3 text-right num text-primary">{fmtMoney(a.amount)}</td>
+                          <td className="px-5 py-3">
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                              a.status === "applied" ? "border-success/50 text-success"
+                              : a.status === "refunded" ? "border-muted text-muted-foreground"
+                              : "border-warning/50 text-warning"
+                            }`}>{a.status}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  {advances.filter((a: any) => a.side === advanceTab).length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">
+                        No {advanceTab === "sales" ? "advances received from buyers" : "advances given to suppliers"} yet.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

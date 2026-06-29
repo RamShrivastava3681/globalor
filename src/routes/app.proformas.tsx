@@ -4,11 +4,21 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { z } from "zod";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
@@ -52,6 +62,7 @@ function ProformasPage() {
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
 
   const listQ = useQuery({
     queryKey: ["proformas"],
@@ -241,7 +252,7 @@ function ProformasPage() {
                               <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
                             )}
                             {canCreate && p.status !== "invoiced" && p.status !== "cancelled" && p.proforma_status !== "funded" && (
-                              <button onClick={() => cancel.mutate(p.id)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
+                              <button onClick={() => setCancelTarget(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Cancel</button>
                             )}
                             {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected" || p.proforma_status === "pending_review") && (
                               <button onClick={() => { if (confirm(`Remove proforma ${p.proforma_number || p.po_number}?`)) del.mutate(p.id); }} className="text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -266,6 +277,37 @@ function ProformasPage() {
           </ol>
         </Card>
       </div>
+
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Cancel proforma?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will set the proforma <strong>{cancelTarget?.proforma_number || cancelTarget?.po_number}</strong> to "cancelled".
+              You can still view it but it won't be processed further.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCancelTarget(null)}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (cancelTarget) {
+                  cancel.mutate(cancelTarget.id);
+                  setCancelTarget(null);
+                }
+              }}
+              disabled={cancel.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancel.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes, cancel proforma
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {open && user && <NewProformaModal side={open} onClose={() => setOpen(null)} />}
 
@@ -471,7 +513,20 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
   const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+
+  const deletePf = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/purchase-orders/${proforma.id}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success("Proforma deleted");
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete proforma"),
+  });
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -637,7 +692,23 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <div>
+              {(proforma.status === "cancelled" || proforma.proforma_status === "rejected" || proforma.proforma_status === "pending_review") && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Permanently delete proforma ${proforma.proforma_number || proforma.po_number}? This cannot be undone.`)) {
+                      deletePf.mutate();
+                    }
+                  }}
+                  disabled={deletePf.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  {deletePf.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  Delete
+                </button>
+              )}
+            </div>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
           </div>
         </div>
