@@ -101,14 +101,27 @@ function PurchasesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [issueDateFrom, setIssueDateFrom] = useState("");
   const [issueDateTo, setIssueDateTo] = useState("");
-  const [sortField, setSortField] = useState<"issue" | "due">("issue");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const limit = 50;
 
   const piQ = useQuery({
-    queryKey: ["purchase_invoices", searchQuery],
+    queryKey: ["purchase_invoices", searchQuery, issueDateFrom, issueDateTo, createdFrom, createdTo, page, limit],
     queryFn: async () => {
-      const url = searchQuery.trim() ? `/purchase-invoices?search=${encodeURIComponent(searchQuery.trim())}` : "/purchase-invoices";
-      return (await api.get<any[]>(url)) ?? [];
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      if (issueDateFrom) params.set("issueDateFrom", issueDateFrom);
+      if (issueDateTo) params.set("issueDateTo", issueDateTo);
+      if (createdFrom) params.set("createdFrom", createdFrom);
+      if (createdTo) params.set("createdTo", createdTo);
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      params.set("sortField", sortField);
+      params.set("sort", sortOrder);
+      return (await api.get<any>(`/purchase-invoices?${params.toString()}`)) ?? { data: [], total: 0, page: 1, limit: 50, totalPages: 0 };
     },
   });
 
@@ -139,10 +152,16 @@ function PurchasesPage() {
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
 
+  // Reset to page 1 when filters or sort change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filter, issueDateFrom, issueDateTo, createdFrom, createdTo, sortField, sortOrder]);
+
   // Auto-open detail modal when navigating from a linked invoice
   useEffect(() => {
     if (view && piQ.data) {
-      const found = piQ.data.find((p: any) => p.id === view);
+      const data = Array.isArray(piQ.data) ? piQ.data : (piQ.data?.data ?? []);
+      const found = data.find((p: any) => p.id === view);
       if (found) {
         setViewing(found);
         navigate({ to: "/app/purchases", search: { view: undefined }, replace: true });
@@ -161,19 +180,31 @@ function PurchasesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (piQ.data ?? []).filter((p: any) => {
+  // Handle both paginated { data, total } and legacy array responses
+  const invoiceData = Array.isArray(piQ.data) ? piQ.data : (piQ.data?.data ?? []);
+  const totalItems = !Array.isArray(piQ.data) ? piQ.data?.total ?? 0 : invoiceData.length;
+  const totalPages = !Array.isArray(piQ.data) ? piQ.data?.totalPages ?? 1 : 1;
+
+  const filtered = invoiceData.filter((p: any) => {
     if (filter !== "all" && p.status !== filter) return false;
-    if (issueDateFrom && p.issue_date && p.issue_date < issueDateFrom) return false;
-    if (issueDateTo && p.issue_date && p.issue_date > issueDateTo) return false;
     return true;
   }).sort((a: any, b: any) => {
-    const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
-    const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+    let aVal: string, bVal: string;
+    if (sortField === "issue") {
+      aVal = a.issue_date ?? "9999";
+      bVal = b.issue_date ?? "9999";
+    } else if (sortField === "created") {
+      aVal = a.created_at ?? "9999";
+      bVal = b.created_at ?? "9999";
+    } else {
+      aVal = a.due_date ?? "9999";
+      bVal = b.due_date ?? "9999";
+    }
     const cmp = aVal.localeCompare(bVal);
     return sortOrder === "asc" ? cmp : -cmp;
   });
 
-  const totals = (piQ.data ?? []).reduce(
+  const totals = invoiceData.reduce(
     (a: any, p: any) => {
       a.all += Number(p.amount);
       if (p.status !== "paid") a.open += Number(p.amount);
@@ -210,7 +241,7 @@ function PurchasesPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Total purchases"><div className="num num-lg">{fmtMoney(totals.all)}</div></Card>
           <Card title="Open payables"><div className="num num-lg text-warning">{fmtMoney(totals.open)}</div></Card>
-          <Card title="Suppliers used"><div className="num text-3xl">{new Set((piQ.data ?? []).map((p: any) => p.vendor_id)).size}</div></Card>
+          <Card title="Suppliers used"><div className="num text-3xl">{new Set(invoiceData.map((p: any) => p.vendor_id)).size}</div></Card>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -223,6 +254,7 @@ function PurchasesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Issue date</span>
           {datePresets.map((preset) => {
             const range = preset.getRange();
             const active = issueDateFrom === range.from && issueDateTo === range.to;
@@ -244,13 +276,13 @@ function PurchasesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">From</label>
             <input type="date" value={issueDateFrom}
               onChange={(e) => setIssueDateFrom(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">To</label>
             <input type="date" value={issueDateTo}
               onChange={(e) => setIssueDateTo(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
@@ -258,19 +290,62 @@ function PurchasesPage() {
           {(issueDateFrom || issueDateTo) && (
             <button onClick={() => { setIssueDateFrom(""); setIssueDateTo(""); }}
               className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear dates
+              Clear
             </button>
           )}
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Created date</span>
+          {datePresets.map((preset) => {
+            const range = preset.getRange();
+            const active = createdFrom === range.from && createdTo === range.to;
+            return (
+              <button key={preset.label} onClick={() => {
+                const r = preset.getRange();
+                setCreatedFrom(r.from);
+                setCreatedTo(r.to);
+              }}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}>
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">From</label>
+            <input type="date" value={createdFrom}
+              onChange={(e) => setCreatedFrom(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">To</label>
+            <input type="date" value={createdTo}
+              onChange={(e) => setCreatedTo(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          {(createdFrom || createdTo) && (
+            <button onClick={() => { setCreatedFrom(""); setCreatedTo(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline">
+              Clear
+            </button>
+          )}
+        </div>
+
         <div className="relative">
-          <input type="text" placeholder="Search purchases by invoice, supplier, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder="Search purchases by invoice number, supplier name, PO, status..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
           <div className="flex gap-1">
-            {(["issue", "due"] as const).map((field) => (
+            {(["created", "issue", "due"] as const).map((field) => (
               <button
                 key={field}
                 onClick={() => {
@@ -288,7 +363,7 @@ function PurchasesPage() {
                 }`}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                {field === "issue" ? "Issue date" : "Due date"}
+                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "Due date"}
                 {sortField === field && (
                   <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
                 )}
@@ -401,6 +476,57 @@ function PurchasesPage() {
             </div>
           )}
         </Card>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4">
+            <div className="text-xs text-muted-foreground">
+              {totalItems.toLocaleString()} total purchase invoices · Page {page} of {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 7) {
+                    pageNum = i + 1;
+                  } else if (page <= 4) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 3) {
+                    pageNum = totalPages - 6 + i;
+                  } else {
+                    pageNum = page - 3 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className={`min-w-[2rem] rounded-md border px-2 py-1.5 text-xs transition ${
+                        pageNum === page
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {open && user && (

@@ -18,48 +18,131 @@ import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
-// ── GET /api/purchase-invoices ──
+// ── GET /api/purchase-invoices ── (paginated when page/limit provided, legacy array otherwise)
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+
     let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
 
-    // Server-side search filtering
+    // Server-side search filtering (including vendor name)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     if (searchQuery) {
+      // Load vendors only when a search query is present
+      const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+      const vendorMap = new Map<string, Vendor>();
+      for (const v of allVendors) {
+        vendorMap.set(v.id, v);
+      }
+
       invoices = invoices.filter((pi) => {
         const q = searchQuery;
+        const vendorName = (vendorMap.get(pi.vendor_id)?.name ?? "").toLowerCase();
+        const visibleUid = pi.id.slice(-8).toLowerCase();
         return (
           pi.invoice_number?.toLowerCase().includes(q) ||
           pi.po_number?.toLowerCase().includes(q) ||
           pi.status?.toLowerCase().includes(q) ||
-          pi.id.toLowerCase().includes(q)
+          pi.id.toLowerCase().includes(q) ||
+          visibleUid.includes(q) ||
+          vendorName.includes(q)
         );
       });
     }
 
-    const enriched = await Promise.all(
-      invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(async (pi) => {
-        const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-        const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
-        // Enrich linked sales invoices
-        let linkedSales: any[] | undefined;
-        if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
-          const results = await Promise.all(
-            pi.linked_sales_invoice_ids.map(async (sId) => {
-              const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-              if (si?.debtor_id) {
-                si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
-              }
-              return si;
-            }),
-          );
-          linkedSales = results.filter(Boolean);
-        }
-        return { ...pi, vendor, client, linkedSales };
-      }),
-    );
+    // Date range filters
+    const issueDateFrom = req.query.issueDateFrom as string | undefined;
+    const issueDateTo = req.query.issueDateTo as string | undefined;
+    if (issueDateFrom) {
+      invoices = invoices.filter((pi) => pi.issue_date && pi.issue_date >= issueDateFrom);
+    }
+    if (issueDateTo) {
+      invoices = invoices.filter((pi) => pi.issue_date && pi.issue_date <= issueDateTo);
+    }
 
-    res.json(enriched);
+    const createdFrom = req.query.createdFrom as string | undefined;
+    const createdTo = req.query.createdTo as string | undefined;
+    if (createdFrom) {
+      invoices = invoices.filter((pi) => pi.created_at && pi.created_at.slice(0, 10) >= createdFrom);
+    }
+    if (createdTo) {
+      invoices = invoices.filter((pi) => pi.created_at && pi.created_at.slice(0, 10) <= createdTo);
+    }
+
+    // Server-side sorting
+    const sortOrder = req.query.sort === "asc" ? 1 : -1;
+    const sortField = (req.query.sortField as string) || "created";
+    invoices.sort((a, b) => {
+      let aVal: string, bVal: string;
+      if (sortField === "issue") {
+        aVal = a.issue_date ?? "9999";
+        bVal = b.issue_date ?? "9999";
+      } else if (sortField === "due") {
+        aVal = a.due_date ?? "9999";
+        bVal = b.due_date ?? "9999";
+      } else {
+        aVal = a.created_at ?? "";
+        bVal = b.created_at ?? "";
+      }
+      return sortOrder * aVal.localeCompare(bVal);
+    });
+
+    if (hasPagination) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const total = invoices.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIdx = (page - 1) * limit;
+      const pageItems = invoices.slice(startIdx, startIdx + limit);
+
+      // Enrich only the current page
+      const enriched = await Promise.all(
+        pageItems.map(async (pi) => {
+          const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+          const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
+          let linkedSales: any[] | undefined;
+          if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
+            const results = await Promise.all(
+              pi.linked_sales_invoice_ids.map(async (sId) => {
+                const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
+                if (si?.debtor_id) {
+                  si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+                }
+                return si;
+              }),
+            );
+            linkedSales = results.filter(Boolean);
+          }
+          return { ...pi, vendor, client, linkedSales };
+        }),
+      );
+
+      res.json({ data: enriched, total, page, limit, totalPages });
+    } else {
+      // Legacy mode: return all enriched invoices as array
+      const enriched = await Promise.all(
+        invoices.map(async (pi) => {
+          const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
+          const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
+          let linkedSales: any[] | undefined;
+          if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
+            const results = await Promise.all(
+              pi.linked_sales_invoice_ids.map(async (sId) => {
+                const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
+                if (si?.debtor_id) {
+                  si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+                }
+                return si;
+              }),
+            );
+            linkedSales = results.filter(Boolean);
+          }
+          return { ...pi, vendor, client, linkedSales };
+        }),
+      );
+
+      res.json(enriched);
+    }
   } catch (err) {
     console.error("Get purchase invoices error:", err);
     res.status(500).json({ error: "Internal server error" });

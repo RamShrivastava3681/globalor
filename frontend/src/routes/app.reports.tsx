@@ -196,25 +196,57 @@ function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const limit = 50;
+
+  // Tabs that support server-side pagination
+  const PAGINATED_TABS: ReportTab[] = ["sales-invoices", "purchase-invoices", "aging"];
+  const isPaginated = PAGINATED_TABS.includes(tab);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api.get<any[]>(`/reports/${tab}`);
-      setData(result ?? []);
+      const params = new URLSearchParams();
+      if (isPaginated) {
+        params.set("page", String(page));
+        params.set("limit", String(limit));
+      }
+      const qs = params.toString();
+      const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
+      const result = await api.get<any>(url);
+
+      if (isPaginated && result?.data) {
+        setData(result.data ?? []);
+        setTotalItems(result.total ?? 0);
+        setTotalPages(result.totalPages ?? 1);
+      } else {
+        setData(Array.isArray(result) ? result : (result ?? []));
+        const arr = Array.isArray(result) ? result : (result ?? []);
+        setTotalItems(arr.length);
+        setTotalPages(1);
+      }
     } catch (err) {
       toast.error("Failed to load report data");
       setData([]);
+      setTotalItems(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, page, isPaginated]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Filter data
+  // Reset page when tab or filters change
+  useEffect(() => {
+    setPage(1);
+  }, [tab, statusFilter, searchQuery]);
+
+  // Filter data (status + search are client-side)
   const filtered = data.filter((row) => {
     // Status filter
     if (statusFilter !== "all") {
@@ -236,29 +268,64 @@ function ReportsPage() {
     return true;
   });
 
-  // ── Excel Export ──
-  const exportExcel = () => {
+  // ── Fetch all data for export (bypasses pagination) ──
+  const fetchExportData = useCallback(async () => {
+    // The backend returns full array when no page/limit params are sent
+    const result = await api.get<any>(`/reports/${tab}`);
+    const allData = Array.isArray(result) ? result : (result?.data ?? result ?? []);
+    // Apply the same client-side status + search filters
+    return allData.filter((row: any) => {
+      if (statusFilter !== "all") {
+        const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
+        if (statusFilter === "open") {
+          if (!OPEN_STATUSES.includes(rowStatus)) return false;
+        } else if (statusFilter === "closed") {
+          if (!CLOSED_STATUSES.includes(rowStatus)) return false;
+        } else if (rowStatus !== statusFilter) {
+          return false;
+        }
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const searchable = JSON.stringify(Object.values(row)).toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tab, statusFilter, searchQuery]);
+
+  // ── Excel Export (fetches all data) ──
+  const exportExcel = async () => {
     try {
+      const allData = await fetchExportData();
+      if (allData.length === 0) {
+        toast.error("No data to export");
+        return;
+      }
       const columns = getColumns(tab);
       const wsData = [
         columns.map((c) => c.label),
-        ...filtered.map((row) => columns.map((c) => c.render(row))),
+        ...allData.map((row: any) => columns.map((c) => c.render(row))),
       ];
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-      // Set column widths
       ws["!cols"] = columns.map(() => ({ wch: 20 }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, TABS.find((t) => t.id === tab)?.label ?? tab);
       XLSX.writeFile(wb, `${tab}-report.xlsx`);
-      toast.success("Excel file downloaded");
+      toast.success(`Excel file downloaded · ${allData.length} records`);
     } catch (err) {
       toast.error("Failed to export Excel");
     }
   };
 
-  // ── High-quality PDF Export ──
-  const exportPdf = () => {
+  // ── High-quality PDF Export (fetches all data) ──
+  const exportPdf = async () => {
     try {
+      const allData = await fetchExportData();
+      if (allData.length === 0) {
+        toast.error("No data to export");
+        return;
+      }
       const columns = getColumns(tab);
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
@@ -270,13 +337,19 @@ function ReportsPage() {
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
-      doc.text(`Total records: ${filtered.length}`, 14, 34);
+      doc.text(`Total records: ${allData.length}`, 14, 34);
 
       // Table with autoTable plugin for crisp rendering
-      (doc as any).autoTable({
+      const autoTable = (doc as any).autoTable;
+      if (typeof autoTable !== "function") {
+        toast.error("PDF export plugin not available");
+        return;
+      }
+
+      autoTable.call(doc, {
         startY: 40,
         head: [columns.map((c) => c.label)],
-        body: filtered.map((row) => columns.map((c) => c.render(row))),
+        body: allData.map((row: any) => columns.map((c) => c.render(row))),
         styles: {
           fontSize: 7,
           cellPadding: 1.5,
@@ -295,13 +368,12 @@ function ReportsPage() {
           fillColor: [245, 247, 250],
         },
         margin: { top: 40, bottom: 20 },
-        didDrawPage: (data: any) => {
-          // Footer
+        didDrawPage: (tableData: any) => {
           const pageCount = (doc as any).internal.getNumberOfPages();
           doc.setFontSize(7);
           doc.setTextColor(150);
           doc.text(
-            `Page ${data.pageNumber} of ${pageCount}`,
+            `Page ${tableData.pageNumber} of ${pageCount}`,
             doc.internal.pageSize.width / 2,
             doc.internal.pageSize.height - 10,
             { align: "center" },
@@ -310,7 +382,7 @@ function ReportsPage() {
       });
 
       doc.save(`${tab}-report.pdf`);
-      toast.success("PDF file downloaded");
+      toast.success(`PDF file downloaded · ${allData.length} records`);
     } catch (err) {
       console.error("PDF export error:", err);
       toast.error("Failed to export PDF");
@@ -398,7 +470,7 @@ function ReportsPage() {
       </div>
 
       {/* Data */}
-      <div className="p-6 md:p-10">
+      <div className="p-6 md:p-10 space-y-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -409,34 +481,88 @@ function ReportsPage() {
             <p className="text-sm">No records found</p>
           </div>
         ) : (
-          <Card title={`${currentTab.label} (${filtered.length})`}>
-            <div className="overflow-x-auto -mx-6">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border">
-                    {columns.map((col) => (
-                      <th key={col.key} className="px-4 py-3 text-left font-medium uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                        {col.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((row, i) => (
-                    <tr key={row.id ?? i} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
+          <>
+            <Card title={`${currentTab.label} (${filtered.length})`}>
+              <div className="overflow-x-auto -mx-6">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border">
                       {columns.map((col) => (
-                        <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">
-                          <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" ? "num font-medium" : ""}>
-                            {col.render(row)}
-                          </span>
-                        </td>
+                        <th key={col.key} className="px-4 py-3 text-left font-medium uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                          {col.label}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                  </thead>
+                  <tbody>
+                    {filtered.map((row, i) => (
+                      <tr key={row.id ?? i} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
+                        {columns.map((col) => (
+                          <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">
+                            <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" ? "num font-medium" : ""}>
+                              {col.render(row)}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Pagination for sales-invoices, purchase-invoices, aging */}
+            {isPaginated && totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <div className="text-xs text-muted-foreground">
+                  {totalItems.toLocaleString()} total records · Page {page} of {totalPages}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    ← Previous
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                      let pageNum: number;
+                      if (totalPages <= 7) {
+                        pageNum = i + 1;
+                      } else if (page <= 4) {
+                        pageNum = i + 1;
+                      } else if (page >= totalPages - 3) {
+                        pageNum = totalPages - 6 + i;
+                      } else {
+                        pageNum = page - 3 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPage(pageNum)}
+                          className={`min-w-[2rem] rounded-md border px-2 py-1.5 text-xs transition ${
+                            pageNum === page
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

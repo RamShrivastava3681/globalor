@@ -73,28 +73,52 @@ async function enrichAdvance(a: Advance) {
   return { ...a, invoice, purchase, order };
 }
 
-// ── GET /api/reports/sales-invoices ──
-router.get("/sales-invoices", requireAuth, async (_req: AuthRequest, res: Response) => {
+// ── GET /api/reports/sales-invoices ── (paginated)
+router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
-    const enriched = await Promise.all(
-      invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(enrichInvoice),
-    );
-    res.json(enriched);
+    invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+    if (hasPagination) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const total = invoices.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIdx = (page - 1) * limit;
+      const pageItems = invoices.slice(startIdx, startIdx + limit);
+      const enriched = await Promise.all(pageItems.map(enrichInvoice));
+      res.json({ data: enriched, total, page, limit, totalPages });
+    } else {
+      const enriched = await Promise.all(invoices.map(enrichInvoice));
+      res.json(enriched);
+    }
   } catch (err) {
     console.error("Reports sales-invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ── GET /api/reports/purchase-invoices ──
-router.get("/purchase-invoices", requireAuth, async (_req: AuthRequest, res: Response) => {
+// ── GET /api/reports/purchase-invoices ── (paginated)
+router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
-    const enriched = await Promise.all(
-      invoices.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(enrichPurchaseInvoice),
-    );
-    res.json(enriched);
+    invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+    if (hasPagination) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const total = invoices.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIdx = (page - 1) * limit;
+      const pageItems = invoices.slice(startIdx, startIdx + limit);
+      const enriched = await Promise.all(pageItems.map(enrichPurchaseInvoice));
+      res.json({ data: enriched, total, page, limit, totalPages });
+    } else {
+      const enriched = await Promise.all(invoices.map(enrichPurchaseInvoice));
+      res.json(enriched);
+    }
   } catch (err) {
     console.error("Reports purchase-invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -115,8 +139,8 @@ router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) =
   }
 });
 
-// ── GET /api/reports/aging ──
-router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
+// ── GET /api/reports/aging ── (paginated)
+router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
     const now = new Date();
@@ -142,16 +166,34 @@ router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
       })
       .sort((a, b) => b.aging_days - a.aging_days);
 
-    // Enrich with debtor/client names
-    const enriched = await Promise.all(
-      aging.map(async (item) => {
-        const debtor = await getItem(TABLES.DEBTORS, { id: item.debtor_id }) as Debtor | undefined;
-        const client = await getItem(TABLES.PROFILES, { id: item.client_id }) as Profile | undefined;
-        return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
-      }),
-    );
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+    if (hasPagination) {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const total = aging.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIdx = (page - 1) * limit;
+      const pageItems = aging.slice(startIdx, startIdx + limit);
 
-    res.json(enriched);
+      const enriched = await Promise.all(
+        pageItems.map(async (item) => {
+          const debtor = await getItem(TABLES.DEBTORS, { id: item.debtor_id }) as Debtor | undefined;
+          const client = await getItem(TABLES.PROFILES, { id: item.client_id }) as Profile | undefined;
+          return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
+        }),
+      );
+
+      res.json({ data: enriched, total, page, limit, totalPages });
+    } else {
+      const enriched = await Promise.all(
+        aging.map(async (item) => {
+          const debtor = await getItem(TABLES.DEBTORS, { id: item.debtor_id }) as Debtor | undefined;
+          const client = await getItem(TABLES.PROFILES, { id: item.client_id }) as Profile | undefined;
+          return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
+        }),
+      );
+      res.json(enriched);
+    }
   } catch (err) {
     console.error("Reports aging error:", err);
     res.status(500).json({ error: "Internal server error" });
