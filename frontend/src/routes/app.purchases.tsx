@@ -970,19 +970,36 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
           const issDate = row.issue_date ?? row["Issue Date"] ?? row.issueDate ?? row.Date ?? row.date ?? "";
 
           // Normalize date if it's a serial number (Excel date)
-          let dateStr = String(issDate);
+          let dateStr = "";
           if (typeof issDate === "number" && !isNaN(issDate)) {
             // Excel serial date
             const d = new Date((issDate - 25569) * 86400 * 1000);
-            dateStr = d.toISOString().slice(0, 10);
+            if (!isNaN(d.getTime())) {
+              dateStr = d.toISOString().slice(0, 10);
+            }
+          } else if (typeof issDate === "string") {
+            // For string dates, just take the first 10 characters (YYYY-MM-DD)
+            const cleaned = issDate.trim();
+            if (cleaned) {
+              // Try parsing directly
+              const d = new Date(cleaned);
+              if (!isNaN(d.getTime())) {
+                dateStr = d.toISOString().slice(0, 10);
+              } else {
+                // If it already looks like YYYY-MM-DD, use it directly
+                if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
+                  dateStr = cleaned;
+                }
+              }
+            }
           }
 
           return {
             invoice_number: String(invNum).trim(),
             amount: isNaN(amt) ? 0 : amt,
-            issue_date: dateStr || "",
+            issue_date: dateStr,
           };
-        }).filter((r) => r.invoice_number && r.amount > 0);
+        }).filter((r) => r.invoice_number && r.amount > 0 && r.issue_date);
 
         if (parsed.length === 0) {
           toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");
@@ -1034,9 +1051,14 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
     if (!rows.length) return "";
     const base = dueDateSource === "bl" && blDate ? blDate : rows[0].issue_date;
     if (!base) return "";
-    const d = new Date(base);
-    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
-    return d.toISOString().slice(0, 10);
+    try {
+      const d = new Date(base);
+      if (isNaN(d.getTime())) return "";
+      d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+      return d.toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
   }, [rows, dueDateSource, blDate, paymentTermsDays]);
 
   const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
@@ -1144,15 +1166,22 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
                 </thead>
                 <tbody>
                   {rows.map((r, idx) => {
-                    const base = dueDateSource === "bl" && blDate ? blDate : r.issue_date;
-                    const d = new Date(base);
-                    d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
-                    const dueStr = d.toISOString().slice(0, 10);
+                    let dueStr = "—";
+                    try {
+                      const base = dueDateSource === "bl" && blDate ? blDate : r.issue_date;
+                      if (base) {
+                        const d = new Date(base);
+                        if (!isNaN(d.getTime())) {
+                          d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
+                          dueStr = d.toISOString().slice(0, 10);
+                        }
+                      }
+                    } catch {}
                     return (
                       <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
                         <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
+                        <td className="px-5 py-3 text-sm">{r.issue_date ? fmtDate(r.issue_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                         <td className="px-5 py-3 text-sm font-mono">{dueStr}</td>
                       </tr>
