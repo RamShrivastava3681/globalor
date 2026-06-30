@@ -116,8 +116,13 @@ function PurchasesPage() {
   const totalItems = !Array.isArray(piQ.data) ? piQ.data?.total ?? 0 : invoiceData.length;
   const totalPages = !Array.isArray(piQ.data) ? piQ.data?.totalPages ?? 1 : 1;
 
+  const closedStatuses = ["paid", "funded", "rejected", "disputed"];
   const filtered = invoiceData.filter((p: any) => {
-    if (filter !== "all" && p.status !== filter) return false;
+    if (filter !== "all") {
+      if (filter === "closed") {
+        if (!closedStatuses.includes(p.status)) return false;
+      } else if (p.status !== filter) return false;
+    }
     return true;
   });
 
@@ -162,11 +167,11 @@ function PurchasesPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {["all", "approved", "funded"].map((s) => (
+          {["all", "approved", "closed"].map((s) => (
             <button key={s} onClick={() => setFilter(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : s === "approved" ? "Open (Approved)" : "Closed (Funded)"}</button>
+              }`}>{s === "all" ? "All" : s === "approved" ? "Open (Approved)" : "Closed"}</button>
           ))}
         </div>
 
