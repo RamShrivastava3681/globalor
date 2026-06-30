@@ -210,6 +210,97 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
   }
 });
 
+// ── POST /api/credit-debit-notes/batch ──
+const batchCreateSchema = z.object({
+  type: z.enum(["credit", "debit"]),
+  notes: z.array(z.object({
+    note_number: z.string().min(1).max(80),
+    date: z.string().optional(),
+    amount: z.number().positive(),
+    debtor_supplier_name: z.string().max(200).nullable().optional(),
+    linked_invoice_number: z.string().max(80).nullable().optional(),
+    reason: z.string().max(500).nullable().optional(),
+  })).min(1).max(500),
+});
+
+router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchCreateSchema.parse(req.body);
+    const { type, notes } = parsed;
+    const now = nowISO();
+    const errors: Array<{ row: number; error: string }> = [];
+    const created: string[] = [];
+
+    // Pre-fetch all invoices and purchase invoices for number lookup
+    const allInvoices = await scanTable<{ id: string; invoice_number: string }>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<{ id: string; invoice_number: string }>(TABLES.PURCHASE_INVOICES);
+    const invoiceByNumber = new Map<string, { id: string; type: "sales" }>();
+    const purchaseByNumber = new Map<string, { id: string; type: "purchase" }>();
+    for (const inv of allInvoices) invoiceByNumber.set(inv.invoice_number, { id: inv.id, type: "sales" });
+    for (const inv of allPurchaseInvoices) purchaseByNumber.set(inv.invoice_number, { id: inv.id, type: "purchase" });
+
+    for (let i = 0; i < notes.length; i++) {
+      const row = notes[i];
+      const rowNum = i + 1;
+
+      try {
+        let linked_invoice_id: string | null = null;
+        let linked_invoice_type: "sales" | "purchase" | null = null;
+
+        if (row.linked_invoice_number) {
+          const salesMatch = invoiceByNumber.get(row.linked_invoice_number);
+          const purchaseMatch = purchaseByNumber.get(row.linked_invoice_number);
+          if (salesMatch) {
+            linked_invoice_id = salesMatch.id;
+            linked_invoice_type = "sales";
+          } else if (purchaseMatch) {
+            linked_invoice_id = purchaseMatch.id;
+            linked_invoice_type = "purchase";
+          } else {
+            errors.push({ row: rowNum, error: `Invoice "${row.linked_invoice_number}" not found` });
+            continue;
+          }
+        }
+
+        const id = generateId();
+        const note = {
+          id,
+          client_id: req.user!.id,
+          type,
+          note_number: row.note_number,
+          date: row.date || new Date().toISOString().slice(0, 10),
+          amount: row.amount,
+          debtor_supplier_name: row.debtor_supplier_name || null,
+          linked_invoice_id,
+          linked_invoice_type,
+          reason: row.reason || null,
+          status: "pending",
+          reviewed_at: null,
+          reviewed_by: null,
+          settled_at: null,
+          settled_by: null,
+          created_at: now,
+          updated_at: now,
+        };
+
+        await putItem(TABLES.CREDIT_DEBIT_NOTES, note as any);
+        created.push(note.note_number);
+      } catch (err) {
+        errors.push({ row: rowNum, error: err instanceof Error ? err.message : "Unknown error" });
+      }
+    }
+
+    res.status(201).json({ created: created.length, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create credit/debit notes error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── DELETE /api/credit-debit-notes/:id ──
 router.delete("/:id", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {

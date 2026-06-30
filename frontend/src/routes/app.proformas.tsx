@@ -22,6 +22,65 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const datePresets = [
+  {
+    label: "Today",
+    getRange: () => {
+      const today = new Date().toISOString().slice(0, 10);
+      return { from: today, to: today };
+    },
+  },
+  {
+    label: "This week",
+    getRange: () => {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const from = new Date(now);
+      from.setDate(now.getDate() - dayOfWeek);
+      const to = new Date(now);
+      to.setDate(from.getDate() + 6);
+      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+    },
+  },
+  {
+    label: "This month",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "Last month",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "This quarter",
+    getRange: () => {
+      const now = new Date();
+      const q = Math.floor(now.getMonth() / 3);
+      const from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), (q + 1) * 3, 0).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+  {
+    label: "This year",
+    getRange: () => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), 11, 31).toISOString().slice(0, 10);
+      return { from, to };
+    },
+  },
+];
+
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
   component: ProformasPage,
@@ -59,8 +118,11 @@ function ProformasPage() {
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortField, setSortField] = useState<"proforma" | "created" | "due">("proforma");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [createdAtFrom, setCreatedAtFrom] = useState("");
+  const [createdAtTo, setCreatedAtTo] = useState("");
 
 
   const listQ = useQuery({
@@ -99,6 +161,11 @@ function ProformasPage() {
       return p.proforma_status === queue;
     })
     .filter((p: any) => {
+      if (createdAtFrom && p.created_at && p.created_at < createdAtFrom) return false;
+      if (createdAtTo && p.created_at && p.created_at > createdAtTo + "T23:59:59.999Z") return false;
+      return true;
+    })
+    .filter((p: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
@@ -111,8 +178,17 @@ function ProformasPage() {
       );
     })
     .sort((a: any, b: any) => {
-      const aVal = (a.proforma_date ?? a.issue_date ?? "9999");
-      const bVal = (b.proforma_date ?? b.issue_date ?? "9999");
+      let aVal: string, bVal: string;
+      if (sortField === "created") {
+        aVal = a.created_at ?? "9999";
+        bVal = b.created_at ?? "9999";
+      } else if (sortField === "due") {
+        aVal = a.expected_date ?? a.proforma_date ?? a.issue_date ?? "9999";
+        bVal = b.expected_date ?? b.proforma_date ?? b.issue_date ?? "9999";
+      } else {
+        aVal = a.proforma_date ?? a.issue_date ?? "9999";
+        bVal = b.proforma_date ?? b.issue_date ?? "9999";
+      }
       const cmp = aVal.localeCompare(bVal);
       return sortOrder === "asc" ? cmp : -cmp;
     });
@@ -191,6 +267,46 @@ function ProformasPage() {
           ))}
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {datePresets.map((preset) => {
+            const range = preset.getRange();
+            const active = createdAtFrom === range.from && createdAtTo === range.to;
+            return (
+              <button key={preset.label} onClick={() => {
+                const r = preset.getRange();
+                setCreatedAtFrom(r.from);
+                setCreatedAtTo(r.to);
+              }}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}>
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Created from</label>
+            <input type="date" value={createdAtFrom}
+              onChange={(e) => setCreatedAtFrom(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
+            <input type="date" value={createdAtTo}
+              onChange={(e) => setCreatedAtTo(e.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
+          </div>
+          {(createdAtFrom || createdAtTo) && (
+            <button onClick={() => { setCreatedAtFrom(""); setCreatedAtTo(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline">
+              Clear dates
+            </button>
+          )}
+        </div>
         <div className="relative">
           <input type="text" placeholder="Search proformas by number, PO, counterparty..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
@@ -199,17 +315,28 @@ function ProformasPage() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
           <div className="flex gap-1">
-            {(["issue"] as const).map((field) => (
+            {(["proforma", "created", "due"] as const).map((field) => (
               <button
                 key={field}
-                onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                onClick={() => {
+                  if (sortField === field) {
+                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+                  } else {
+                    setSortField(field);
+                    setSortOrder("asc");
+                  }
+                }}
                 className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                  "border-primary bg-primary/10 text-primary"
+                  sortField === field
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                Issue date
-                <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                {field === "created" ? "Created date" : field === "due" ? "Due date" : "Proforma date"}
+                {sortField === field && (
+                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                )}
               </button>
             ))}
           </div>
@@ -274,11 +401,8 @@ function ProformasPage() {
                             {canCreate && (p.proforma_status === "pending_review" || p.proforma_status === "rejected") && (
                               <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
                             )}
-                            {canCreate && p.status !== "invoiced" && p.status !== "cancelled" && p.proforma_status !== "funded" && (
+                            {canCreate && (
                               <button onClick={() => setDeleteTarget(p)} className="rounded-md border border-destructive/30 px-2 py-0.5 text-[10px] text-destructive hover:bg-destructive/10">Delete</button>
-                            )}
-                            {canCreate && (p.status === "cancelled" || p.proforma_status === "rejected" || p.proforma_status === "pending_review") && (
-                              <button onClick={() => { if (confirm(`Remove proforma ${p.proforma_number || p.po_number}?`)) del.mutate(p.id); }} className="text-muted-foreground hover:text-destructive" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                             )}
                           </div>
                         </td>
@@ -683,20 +807,18 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
 
           <div className="flex items-center justify-between gap-2 pt-2">
             <div>
-              {(proforma.status === "cancelled" || proforma.proforma_status === "rejected" || proforma.proforma_status === "pending_review") && (
-                <button
-                  onClick={() => {
-                    if (confirm(`Permanently delete proforma ${proforma.proforma_number || proforma.po_number}? This cannot be undone.`)) {
-                      deletePf.mutate();
-                    }
-                  }}
-                  disabled={deletePf.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                >
-                  {deletePf.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  Delete
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  if (confirm(`Permanently delete proforma ${proforma.proforma_number || proforma.po_number}? This cannot be undone.`)) {
+                    deletePf.mutate();
+                  }
+                }}
+                disabled={deletePf.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                {deletePf.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Delete
+              </button>
             </div>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
           </div>

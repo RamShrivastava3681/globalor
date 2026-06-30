@@ -65,6 +65,13 @@ function Dashboard() {
   });
   const advances = advancesQ.data ?? [];
 
+  const salesAdvancesTotal = advances
+    .filter((a: any) => a.side === "sales")
+    .reduce((s: number, a: any) => s + Number(a.amount), 0);
+  const purchaseAdvancesTotal = advances
+    .filter((a: any) => a.side === "purchase")
+    .reduce((s: number, a: any) => s + Number(a.amount), 0);
+
   const totalOutstanding = invoices
     .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
     .reduce((s: number, i: any) => s + Number(i.amount), 0);
@@ -361,61 +368,80 @@ function Dashboard() {
           {advances.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No advances yet.</div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked to</th>
-                    <th className="px-5 py-2 text-left font-normal">Party</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {advances
-                    .filter((a: any) => a.side === advanceTab)
-                    .slice(0, 6)
-                    .map((a: any) => {
-                      const cp = a.order
-                        ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-                        : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
-                      return (
-                        <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
-                          <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
-                          <td className="px-5 py-3">
-                            {a.order ? (
-                              <span className="inline-flex items-center gap-1 text-xs text-primary">
-                                PO {a.order.po_number}
-                              </span>
-                            ) : a.invoice || a.purchase ? (
-                              <span className="inline-flex items-center gap-1 text-xs text-primary">
-                                {(a.invoice?.invoice_number || a.purchase?.invoice_number)}
-                              </span>
-                            ) : <span className="text-muted-foreground">—</span>}
-                          </td>
-                          <td className="px-5 py-3">{cp ?? "—"}</td>
-                          <td className="px-5 py-3 text-right num text-primary">{fmtMoney(a.amount)}</td>
-                          <td className="px-5 py-3">
-                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                              a.status === "applied" ? "border-success/50 text-success"
-                              : a.status === "refunded" ? "border-muted text-muted-foreground"
-                              : "border-warning/50 text-warning"
-                            }`}>{a.status}</span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  {advances.filter((a: any) => a.side === advanceTab).length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">
-                        No {advanceTab === "sales" ? "advances received from buyers" : "advances given to suppliers"} yet.
-                      </td>
+            <>
+              {/* Summary totals */}
+              <div className="mb-3 grid grid-cols-2 gap-3">
+                <div className={`rounded-lg border p-3 transition ${advanceTab === "sales" ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Received from buyers</span>
+                    <span className="text-[10px] text-muted-foreground">{advances.filter((a: any) => a.side === "sales").length} advances</span>
+                  </div>
+                  <div className="mt-1 font-display text-lg text-success">{fmtMoney(salesAdvancesTotal)}</div>
+                </div>
+                <div className={`rounded-lg border p-3 transition ${advanceTab === "purchase" ? "border-primary/40 bg-primary/5" : "border-border"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Given to suppliers</span>
+                    <span className="text-[10px] text-muted-foreground">{advances.filter((a: any) => a.side === "purchase").length} advances</span>
+                  </div>
+                  <div className="mt-1 font-display text-lg text-warning">{fmtMoney(purchaseAdvancesTotal)}</div>
+                </div>
+              </div>
+              <div className="-mx-5 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Linked to</th>
+                      <th className="px-5 py-2 text-left font-normal">Party</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-left font-normal">Status</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {advances
+                      .filter((a: any) => a.side === advanceTab)
+                      .slice(0, 6)
+                      .map((a: any) => {
+                        const cp = a.order
+                          ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
+                          : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                        return (
+                          <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
+                            <td className="px-5 py-3">
+                              {a.order ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-primary">
+                                  PO {a.order.po_number}
+                                </span>
+                              ) : a.invoice || a.purchase ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-primary">
+                                  {(a.invoice?.invoice_number || a.purchase?.invoice_number)}
+                                </span>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="px-5 py-3">{cp ?? "—"}</td>
+                            <td className="px-5 py-3 text-right num text-primary">{fmtMoney(a.amount)}</td>
+                            <td className="px-5 py-3">
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                                a.status === "applied" ? "border-success/50 text-success"
+                                : a.status === "refunded" ? "border-muted text-muted-foreground"
+                                : "border-warning/50 text-warning"
+                              }`}>{a.status}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {advances.filter((a: any) => a.side === advanceTab).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">
+                          No {advanceTab === "sales" ? "advances received from buyers" : "advances given to suppliers"} yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </Card>
 

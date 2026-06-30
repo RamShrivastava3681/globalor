@@ -16,75 +16,6 @@ export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPage,
 });
 
-const datePresets = [
-  {
-    label: "Today",
-    getRange: () => {
-      const today = new Date().toISOString().slice(0, 10);
-      return { from: today, to: today };
-    },
-  },
-  {
-    label: "This week",
-    getRange: () => {
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const from = new Date(now);
-      from.setDate(now.getDate() - dayOfWeek);
-      const to = new Date(now);
-      to.setDate(from.getDate() + 6);
-      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-    },
-  },
-  {
-    label: "This month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "Last month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This quarter",
-    getRange: () => {
-      const now = new Date();
-      const q = Math.floor(now.getMonth() / 3);
-      const from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), (q + 1) * 3, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "Last quarter",
-    getRange: () => {
-      const now = new Date();
-      const q = Math.floor(now.getMonth() / 3);
-      const from = new Date(now.getFullYear(), (q - 1) * 3, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), q * 3, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This year",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), 11, 31).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-];
-
 function PurchasesPage() {
   const { view } = Route.useSearch();
   const navigate = useNavigate();
@@ -109,7 +40,7 @@ function PurchasesPage() {
   const limit = 50;
 
   const piQ = useQuery({
-    queryKey: ["purchase_invoices", searchQuery, issueDateFrom, issueDateTo, createdFrom, createdTo, page, limit],
+    queryKey: ["purchase_invoices", searchQuery, issueDateFrom, issueDateTo, createdFrom, createdTo, page, limit, sortField, sortOrder],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
@@ -188,20 +119,6 @@ function PurchasesPage() {
   const filtered = invoiceData.filter((p: any) => {
     if (filter !== "all" && p.status !== filter) return false;
     return true;
-  }).sort((a: any, b: any) => {
-    let aVal: string, bVal: string;
-    if (sortField === "issue") {
-      aVal = a.issue_date ?? "9999";
-      bVal = b.issue_date ?? "9999";
-    } else if (sortField === "created") {
-      aVal = a.created_at ?? "9999";
-      bVal = b.created_at ?? "9999";
-    } else {
-      aVal = a.due_date ?? "9999";
-      bVal = b.due_date ?? "9999";
-    }
-    const cmp = aVal.localeCompare(bVal);
-    return sortOrder === "asc" ? cmp : -cmp;
   });
 
   const totals = invoiceData.reduce(
@@ -245,44 +162,23 @@ function PurchasesPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {["all", "pending", "approved", "paid", "overdue", "disputed"].map((s) => (
+          {["all", "approved", "funded"].map((s) => (
             <button key={s} onClick={() => setFilter(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s}</button>
+              }`}>{s === "all" ? "All" : s === "approved" ? "Open (Approved)" : "Closed (Funded)"}</button>
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Issue date</span>
-          {datePresets.map((preset) => {
-            const range = preset.getRange();
-            const active = issueDateFrom === range.from && issueDateTo === range.to;
-            return (
-              <button key={preset.label} onClick={() => {
-                const r = preset.getRange();
-                setIssueDateFrom(r.from);
-                setIssueDateTo(r.to);
-              }}
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                  active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}>
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">From</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
             <input type="date" value={issueDateFrom}
               onChange={(e) => setIssueDateFrom(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">To</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
             <input type="date" value={issueDateTo}
               onChange={(e) => setIssueDateTo(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
@@ -290,41 +186,20 @@ function PurchasesPage() {
           {(issueDateFrom || issueDateTo) && (
             <button onClick={() => { setIssueDateFrom(""); setIssueDateTo(""); }}
               className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear
+              Clear dates
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Created date</span>
-          {datePresets.map((preset) => {
-            const range = preset.getRange();
-            const active = createdFrom === range.from && createdTo === range.to;
-            return (
-              <button key={preset.label} onClick={() => {
-                const r = preset.getRange();
-                setCreatedFrom(r.from);
-                setCreatedTo(r.to);
-              }}
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                  active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}>
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">From</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">Created from</label>
             <input type="date" value={createdFrom}
               onChange={(e) => setCreatedFrom(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">To</label>
+            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
             <input type="date" value={createdTo}
               onChange={(e) => setCreatedTo(e.target.value)}
               className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
@@ -332,7 +207,7 @@ function PurchasesPage() {
           {(createdFrom || createdTo) && (
             <button onClick={() => { setCreatedFrom(""); setCreatedTo(""); }}
               className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear
+              Clear dates
             </button>
           )}
         </div>
@@ -804,8 +679,18 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
                           <input type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 49.99)" className="inp" value={item.unit_cost} onChange={(e) => setInvItems((prev) => prev.map((it, i) => i === idx ? { ...it, unit_cost: e.target.value } : it))} />
                         </L>
                       </div>
+                      <div className="mt-2 flex justify-between border-t border-border pt-1.5 text-xs">
+                        <span className="text-muted-foreground">Item total</span>
+                        <span className="num font-medium">{fmtMoney((Number(item.quantity) || 0) * (Number(item.unit_cost) || 0))}</span>
+                      </div>
                     </div>
                   ))}
+                  {invItems.length > 0 && (
+                    <div className="-mt-2 flex justify-between border-t border-border pt-2 text-sm font-medium">
+                      <span>Total inventory value</span>
+                      <span className="num text-primary">{fmtMoney(invItems.reduce((s, item) => s + (Number(item.quantity) || 0) * (Number(item.unit_cost) || 0), 0))}</span>
+                    </div>
+                  )}
                   <button type="button" onClick={() => setInvItems((prev) => [...prev, { item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" }])}
                     className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">
                     <Plus className="h-3.5 w-3.5" /> Add item

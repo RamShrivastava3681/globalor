@@ -16,75 +16,6 @@ export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
 });
 
-const datePresets = [
-  {
-    label: "Today",
-    getRange: () => {
-      const today = new Date().toISOString().slice(0, 10);
-      return { from: today, to: today };
-    },
-  },
-  {
-    label: "This week",
-    getRange: () => {
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const from = new Date(now);
-      from.setDate(now.getDate() - dayOfWeek);
-      const to = new Date(now);
-      to.setDate(from.getDate() + 6);
-      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-    },
-  },
-  {
-    label: "This month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "Last month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This quarter",
-    getRange: () => {
-      const now = new Date();
-      const q = Math.floor(now.getMonth() / 3);
-      const from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), (q + 1) * 3, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "Last quarter",
-    getRange: () => {
-      const now = new Date();
-      const q = Math.floor(now.getMonth() / 3);
-      const from = new Date(now.getFullYear(), (q - 1) * 3, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), q * 3, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This year",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), 11, 31).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-];
-
 function InvoicesPage() {
   const { view } = Route.useSearch();
   const navigate = useNavigate();
@@ -109,7 +40,7 @@ function InvoicesPage() {
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list", page, limit, sortField, sortOrder, searchQuery, filter, issueDateFrom, issueDateTo],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit), sortField, sortOrder, filter });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit), sortField, sort: sortOrder, filter });
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
       if (issueDateFrom) params.set("issueDateFrom", issueDateFrom);
       if (issueDateTo) params.set("issueDateTo", issueDateTo);
@@ -259,26 +190,6 @@ function InvoicesPage() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {datePresets.map((preset) => {
-            const range = preset.getRange();
-            const active = issueDateFrom === range.from && issueDateTo === range.to;
-            return (
-              <button key={preset.label} onClick={() => {
-                const r = preset.getRange();
-                setIssueDateFrom(r.from);
-                setIssueDateTo(r.to);
-              }}
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                  active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}>
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <div className="flex items-center gap-2">
             <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
