@@ -469,6 +469,22 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     return !!base;
   });
 
+  // Auto-calculate total amount from inventory items when inventory tracking is enabled
+  const inventoryTotal = useMemo(() => {
+    if (!invEnabled) return 0;
+    return invItems.reduce((sum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const cost = Number(item.unit_cost) || 0;
+      return sum + qty * cost;
+    }, 0);
+  }, [invItems, invEnabled]);
+
+  useEffect(() => {
+    if (invEnabled && inventoryTotal > 0) {
+      setForm((prev) => ({ ...prev, amount: String(inventoryTotal) }));
+    }
+  }, [inventoryTotal, invEnabled]);
+
   const filteredInv = useMemo(() => {
     if (!invSearch.trim() || !availableInventory) return [];
     const q = invSearch.toLowerCase();
@@ -600,7 +616,20 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
               {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
-          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+          <Field label="Total invoice amount (USD)">
+            <input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+            {invEnabled && inventoryTotal > 0 && (
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                Auto-calculated from inventory: <span className="font-mono text-primary">{fmtMoney(inventoryTotal)}</span>
+                {Number(form.amount) !== inventoryTotal && (
+                  <button type="button" onClick={() => setForm((prev) => ({ ...prev, amount: String(inventoryTotal) }))}
+                    className="ml-2 underline hover:text-primary">
+                    Recalculate
+                  </button>
+                )}
+              </div>
+            )}
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
             <Field label="BL date">
