@@ -220,6 +220,7 @@ function ReportsPage() {
         params.set("page", String(page));
         params.set("limit", String(limit));
         if (searchQuery) params.set("search", searchQuery);
+        if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
       }
       const qs = params.toString();
       const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
@@ -243,7 +244,7 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter]);
 
   useEffect(() => {
     fetchData();
@@ -254,34 +255,40 @@ function ReportsPage() {
     setPage(1);
   }, [tab, statusFilter, searchQuery]);
 
-  // Filter data (status + search are client-side)
-  const filtered = data.filter((row) => {
-    // Status filter
-    if (statusFilter !== "all") {
-      const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
-      if (statusFilter === "open") {
-        if (!getOpenStatuses(tab).includes(rowStatus)) return false;
-      } else if (statusFilter === "closed") {
-        if (!getClosedStatuses(tab).includes(rowStatus)) return false;
-      } else if (rowStatus !== statusFilter) {
-        return false;
-      }
-    }
-    // Text search
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const searchable = JSON.stringify(Object.values(row)).toLowerCase();
-      if (!searchable.includes(q)) return false;
-    }
-    return true;
-  });
+  // For paginated tabs, the server handles search + status filtering.
+  // For non-paginated tabs, we apply client-side filtering.
+  const filtered = isPaginated
+    ? data
+    : data.filter((row) => {
+        if (statusFilter !== "all") {
+          const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
+          if (statusFilter === "open") {
+            if (!getOpenStatuses(tab).includes(rowStatus)) return false;
+          } else if (statusFilter === "closed") {
+            if (!getClosedStatuses(tab).includes(rowStatus)) return false;
+          } else if (rowStatus !== statusFilter) {
+            return false;
+          }
+        }
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const searchable = JSON.stringify(Object.values(row)).toLowerCase();
+          if (!searchable.includes(q)) return false;
+        }
+        return true;
+      });
 
   // ── Fetch all data for export (bypasses pagination) ──
   const fetchExportData = useCallback(async () => {
     // The backend returns full array when no page/limit params are sent
-    const result = await api.get<any>(`/reports/${tab}`);
+    const params = new URLSearchParams();
+    if (searchQuery) params.set("search", searchQuery);
+    if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+    const qs = params.toString();
+    const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
+    const result = await api.get<any>(url);
     const allData = Array.isArray(result) ? result : (result?.data ?? result ?? []);
-    // Apply the same client-side status + search filters
+    // For consistent export, apply client-side filters too (covers non-paginated tabs)
     return allData.filter((row: any) => {
       if (statusFilter !== "all") {
         const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();

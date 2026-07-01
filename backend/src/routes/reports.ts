@@ -8,6 +8,31 @@ import type {
 
 const router = Router();
 
+// ── Status filter helpers (mirrors frontend logic) ──
+const SALES_OPEN_STATUSES = ["pending", "approved", "advanced", "overdue", "disputed"];
+const SALES_CLOSED_STATUSES = ["funded", "paid"];
+const PURCHASE_OPEN_STATUSES = ["pending", "approved", "advanced", "overdue", "disputed"];
+const PURCHASE_CLOSED_STATUSES = ["funded", "paid"];
+
+function applyStatusFilter<T extends { status?: string }>(
+  items: T[],
+  statusFilter: string,
+  openStatuses: string[],
+  closedStatuses: string[],
+): T[] {
+  if (!statusFilter || statusFilter === "all") return items;
+  return items.filter((item) => {
+    const rowStatus = (item.status ?? "").toLowerCase();
+    if (statusFilter === "open") {
+      return openStatuses.includes(rowStatus);
+    } else if (statusFilter === "closed") {
+      return closedStatuses.includes(rowStatus);
+    } else {
+      return rowStatus === statusFilter;
+    }
+  });
+}
+
 // ── GET /api/reports/sales-invoices ── (paginated)
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -61,12 +86,18 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 
     // Server-side search filter (applied before pagination)
     const search = (req.query.search as string) || "";
-    const filtered = search
+    let filtered = search
       ? invoices.filter((inv) => {
           const searchable = JSON.stringify(Object.values({ ...inv, debtor: debtorMap.get(inv.debtor_id), client: profileMap.get(inv.client_id) })).toLowerCase();
           return searchable.includes(search.toLowerCase());
         })
       : invoices;
+
+    // Server-side status filter (applied before pagination, after search)
+    const statusFilter = (req.query.status as string) || "";
+    if (statusFilter) {
+      filtered = applyStatusFilter(filtered, statusFilter, SALES_OPEN_STATUSES, SALES_CLOSED_STATUSES);
+    }
 
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
@@ -108,12 +139,18 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
 
     // Server-side search filter (applied before pagination)
     const search = (req.query.search as string) || "";
-    const filtered = search
+    let filtered = search
       ? invoices.filter((pi) => {
           const searchable = JSON.stringify(Object.values({ ...pi, vendor: vendorMap.get(pi.vendor_id), client: profileMap.get(pi.client_id) })).toLowerCase();
           return searchable.includes(search.toLowerCase());
         })
       : invoices;
+
+    // Server-side status filter (applied before pagination, after search)
+    const statusFilter = (req.query.status as string) || "";
+    if (statusFilter) {
+      filtered = applyStatusFilter(filtered, statusFilter, PURCHASE_OPEN_STATUSES, PURCHASE_CLOSED_STATUSES);
+    }
 
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
@@ -207,7 +244,7 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     // Server-side search filter (applied before pagination)
     // Inline enrichment to make debtor/client names searchable
     const search = (req.query.search as string) || "";
-    const filtered = search
+    let filtered = search
       ? aging.filter((item) => {
           const enriched = {
             ...item,
@@ -218,6 +255,12 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
           return searchable.includes(search.toLowerCase());
         })
       : aging;
+
+    // Server-side status filter (applied before pagination, after search)
+    const statusFilter = (req.query.status as string) || "";
+    if (statusFilter) {
+      filtered = applyStatusFilter(filtered, statusFilter, SALES_OPEN_STATUSES, SALES_CLOSED_STATUSES);
+    }
 
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
