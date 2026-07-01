@@ -30,7 +30,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     const enriched = orders
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((po) => ({
         ...po,
         debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,

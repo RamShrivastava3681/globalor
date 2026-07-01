@@ -136,7 +136,7 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
     const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
     res.json(
       invoices
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
         .map((i) => ({ id: i.id, invoice_number: i.invoice_number, amount: i.amount })),
     );
   } catch (err) {

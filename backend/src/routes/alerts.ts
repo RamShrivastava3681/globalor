@@ -28,7 +28,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     );
     const profileMap = new Map(profiles.filter(Boolean).map((p) => [p!.id, p!.name]));
 
-    const enriched = alerts.sort((a, b) => b.created_at.localeCompare(a.created_at)).map((a) => ({
+    const enriched = alerts.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')).map((a) => ({
       ...a,
       created_by_name: a.created_by ? profileMap.get(a.created_by) || null : null,
     }));

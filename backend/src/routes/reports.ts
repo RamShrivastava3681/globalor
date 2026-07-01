@@ -12,7 +12,7 @@ const router = Router();
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
-    invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
     // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
@@ -83,7 +83,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
-    invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
     // Preload vendors and profiles into lookup maps
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
@@ -131,7 +131,7 @@ router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) =
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     const enriched = orders
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((po) => ({
         ...po,
         debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
@@ -246,7 +246,7 @@ router.get("/advances", requireAuth, async (_req: AuthRequest, res: Response) =>
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
     const enriched = advances
-      .sort((a, b) => b.advance_date.localeCompare(a.advance_date))
+      .sort((a, b) => (b.advance_date ?? '').localeCompare(a.advance_date ?? ''))
       .map((a) => {
         let invoice, purchase, order;
 
@@ -303,7 +303,7 @@ router.get("/expenses", requireAuth, async (_req: AuthRequest, res: Response) =>
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
 
     const enriched = expenses
-      .sort((a: any, b: any) => b.expense_date.localeCompare(a.expense_date))
+      .sort((a: any, b: any) => (b.expense_date ?? '').localeCompare(a.expense_date ?? ''))
       .map((e: any) => {
         let invoice, purchase;
         if (e.invoice_id) {

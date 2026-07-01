@@ -27,7 +27,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
 
     const enriched = notes
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((note) => {
         let linkedInvoice: { invoice_number: string; amount: number; status: string } | null = null;
         if (note.linked_invoice_id) {
