@@ -59,18 +59,27 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
       return { ...inv, debtor, client, purchases };
     };
 
+    // Server-side search filter (applied before pagination)
+    const search = (req.query.search as string) || "";
+    const filtered = search
+      ? invoices.filter((inv) => {
+          const searchable = JSON.stringify(Object.values({ ...inv, debtor: debtorMap.get(inv.debtor_id), client: profileMap.get(inv.client_id) })).toLowerCase();
+          return searchable.includes(search.toLowerCase());
+        })
+      : invoices;
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
-      const total = invoices.length;
+      const total = filtered.length;
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
-      const pageItems = invoices.slice(startIdx, startIdx + limit);
+      const pageItems = filtered.slice(startIdx, startIdx + limit);
       const enriched = pageItems.map(enrichInvoiceFast);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = invoices.map(enrichInvoiceFast);
+      const enriched = filtered.map(enrichInvoiceFast);
       res.json(enriched);
     }
   } catch (err) {
@@ -97,18 +106,27 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
       client: profileMap.get(pi.client_id),
     });
 
+    // Server-side search filter (applied before pagination)
+    const search = (req.query.search as string) || "";
+    const filtered = search
+      ? invoices.filter((pi) => {
+          const searchable = JSON.stringify(Object.values({ ...pi, vendor: vendorMap.get(pi.vendor_id), client: profileMap.get(pi.client_id) })).toLowerCase();
+          return searchable.includes(search.toLowerCase());
+        })
+      : invoices;
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
-      const total = invoices.length;
+      const total = filtered.length;
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
-      const pageItems = invoices.slice(startIdx, startIdx + limit);
+      const pageItems = filtered.slice(startIdx, startIdx + limit);
       const enriched = pageItems.map(enrichPiFast);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = invoices.map(enrichPiFast);
+      const enriched = filtered.map(enrichPiFast);
       res.json(enriched);
     }
   } catch (err) {
@@ -186,18 +204,33 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
       return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
     };
 
+    // Server-side search filter (applied before pagination)
+    // Inline enrichment to make debtor/client names searchable
+    const search = (req.query.search as string) || "";
+    const filtered = search
+      ? aging.filter((item) => {
+          const enriched = {
+            ...item,
+            debtor_name: debtorMap.get(item.debtor_id)?.name,
+            client_name: profileMap.get(item.client_id)?.company_name,
+          };
+          const searchable = JSON.stringify(Object.values(enriched)).toLowerCase();
+          return searchable.includes(search.toLowerCase());
+        })
+      : aging;
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
-      const total = aging.length;
+      const total = filtered.length;
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
-      const pageItems = aging.slice(startIdx, startIdx + limit);
+      const pageItems = filtered.slice(startIdx, startIdx + limit);
       const enriched = pageItems.map(enrichAgingItem);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = aging.map(enrichAgingItem);
+      const enriched = filtered.map(enrichAgingItem);
       res.json(enriched);
     }
   } catch (err) {

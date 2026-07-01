@@ -219,6 +219,7 @@ function ReportsPage() {
       if (isPaginated) {
         params.set("page", String(page));
         params.set("limit", String(limit));
+        if (searchQuery) params.set("search", searchQuery);
       }
       const qs = params.toString();
       const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
