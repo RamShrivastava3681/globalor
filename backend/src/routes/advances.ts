@@ -19,47 +19,56 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const advances = await scanTable<Advance>(TABLES.ADVANCES);
 
-    const enriched = await Promise.all(
-      advances
-        .sort((a, b) => b.advance_date.localeCompare(a.advance_date))
-        .map(async (a) => {
-          let invoice, purchase, order;
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS);
+    const allDebtors = await scanTable<any>(TABLES.DEBTORS);
+    const allVendors = await scanTable<any>(TABLES.VENDORS);
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+    const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
-          if (a.invoice_id) {
-            const inv = await getItem(TABLES.INVOICES, { id: a.invoice_id }) as any;
-            if (inv) {
-              const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as any;
-              invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
-            }
+    const enriched = advances
+      .sort((a, b) => b.advance_date.localeCompare(a.advance_date))
+      .map((a) => {
+        let invoice, purchase, order;
+
+        if (a.invoice_id) {
+          const inv = invoiceMap.get(a.invoice_id);
+          if (inv) {
+            const debtor = debtorMap.get(inv.debtor_id);
+            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
           }
+        }
 
-          if (a.purchase_invoice_id) {
-            const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: a.purchase_invoice_id }) as any;
-            if (pi) {
-              const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as any;
-              purchase = { invoice_number: pi.invoice_number, amount: pi.amount, vendor: vendor ? { name: vendor.name } : undefined };
-            }
+        if (a.purchase_invoice_id) {
+          const pi = piMap.get(a.purchase_invoice_id);
+          if (pi) {
+            const vendor = vendorMap.get(pi.vendor_id);
+            purchase = { invoice_number: pi.invoice_number, amount: pi.amount, vendor: vendor ? { name: vendor.name } : undefined };
           }
+        }
 
-          if (a.purchase_order_id) {
-            const po = await getItem(TABLES.PURCHASE_ORDERS, { id: a.purchase_order_id }) as any;
-            if (po) {
-              let debtor, vendor;
-              if (po.debtor_id) debtor = await getItem(TABLES.DEBTORS, { id: po.debtor_id }) as any;
-              if (po.vendor_id) vendor = await getItem(TABLES.VENDORS, { id: po.vendor_id }) as any;
-              order = {
-                po_number: po.po_number,
-                amount: po.amount,
-                status: po.status,
-                debtor: debtor ? { name: debtor.name } : undefined,
-                vendor: vendor ? { name: vendor.name } : undefined,
-              };
-            }
+        if (a.purchase_order_id) {
+          const po = poMap.get(a.purchase_order_id);
+          if (po) {
+            const debtor = po.debtor_id ? debtorMap.get(po.debtor_id) : undefined;
+            const vendor = po.vendor_id ? vendorMap.get(po.vendor_id) : undefined;
+            order = {
+              po_number: po.po_number,
+              amount: po.amount,
+              status: po.status,
+              debtor: debtor ? { name: debtor.name } : undefined,
+              vendor: vendor ? { name: vendor.name } : undefined,
+            };
           }
+        }
 
-          return { ...a, invoice, purchase, order };
-        }),
-    );
+        return { ...a, invoice, purchase, order };
+      });
 
     res.json(enriched);
   } catch (err) {

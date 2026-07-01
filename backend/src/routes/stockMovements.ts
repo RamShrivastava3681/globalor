@@ -2,7 +2,6 @@ import { Router, Response } from "express";
 import { z } from "zod";
 import {
   putItem,
-  getItem,
   deleteItem,
   scanTable,
   TABLES,
@@ -19,22 +18,26 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const movements = await scanTable<StockMovement>(TABLES.STOCK_MOVEMENTS);
 
-    const enriched = await Promise.all(
-      movements
-        .sort((a, b) => b.movement_date.localeCompare(a.movement_date))
-        .map(async (m) => {
-          let invoice, purchase;
-          if (m.invoice_id) {
-            const inv = await getItem(TABLES.INVOICES, { id: m.invoice_id }) as any;
-            if (inv) invoice = { id: inv.id, invoice_number: inv.invoice_number };
-          }
-          if (m.purchase_invoice_id) {
-            const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: m.purchase_invoice_id }) as any;
-            if (pi) purchase = { id: pi.id, invoice_number: pi.invoice_number };
-          }
-          return { ...m, invoice, purchase };
-        }),
-    );
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+
+    const enriched = movements
+      .sort((a, b) => b.movement_date.localeCompare(a.movement_date))
+      .map((m) => {
+        let invoice, purchase;
+        if (m.invoice_id) {
+          const inv = invoiceMap.get(m.invoice_id);
+          if (inv) invoice = { id: inv.id, invoice_number: inv.invoice_number };
+        }
+        if (m.purchase_invoice_id) {
+          const pi = piMap.get(m.purchase_invoice_id);
+          if (pi) purchase = { id: pi.id, invoice_number: pi.invoice_number };
+        }
+        return { ...m, invoice, purchase };
+      });
 
     res.json(enriched);
   } catch (err) {

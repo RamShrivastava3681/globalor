@@ -27,17 +27,41 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
 
+    // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
+    // to avoid N+1 GetItem calls during enrichment
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const piMap = new Map(allPurchaseInvoices.map((pi) => [pi.id, pi]));
+
+    // Fast synchronous enrichment function
+    const enrichInv = (inv: Invoice) => {
+      const debtor = inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined;
+      const client = inv.client_id ? profileMap.get(inv.client_id) : undefined;
+      let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+      if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+        purchases = inv.purchase_invoice_ids
+          .filter((piId): piId is string => !!piId)
+          .map((piId) => {
+            const pi = piMap.get(piId);
+            if (pi && (pi as any).vendor_id) {
+              return { ...pi, vendor: vendorMap.get((pi as any).vendor_id) } as PurchaseInvoice & { vendor?: Vendor };
+            }
+            return pi;
+          })
+          .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+      }
+      return { ...inv, debtor, client, purchases };
+    };
+
     // Server-side search filtering (including debtor name and visible UID)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     let filteredInvoices = invoices;
     if (searchQuery) {
-      // Load debtors only when a search query is present
-      const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-      const debtorMap = new Map<string, Debtor>();
-      for (const d of allDebtors) {
-        debtorMap.set(d.id, d);
-      }
-
       filteredInvoices = invoices.filter((inv) => {
         const q = searchQuery;
         const debtorName = (debtorMap.get(inv.debtor_id)?.name ?? "").toLowerCase();
@@ -99,77 +123,14 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       const startIdx = (page - 1) * limit;
       const pageItems = filteredInvoices.slice(startIdx, startIdx + limit);
 
-      // Enrich only the current page with relations
-      const enriched = await Promise.all(
-        pageItems.map(async (inv) => {
-          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
-          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
-          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
-          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
-            const results = await Promise.all(
-              inv.purchase_invoice_ids.map(async (piId) => {
-                if (!piId) return null;
-                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
-                if (pi?.vendor_id) {
-                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-                }
-                return pi;
-              }),
-            );
-            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
-          }
-          return { ...inv, debtor, client, purchases };
-        }),
-      );
-
+      const enriched = pageItems.map(enrichInv);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else if (searchQuery) {
-      // If there's a search query but no pagination, return filtered + enriched results
-      const enriched = await Promise.all(
-        filteredInvoices.map(async (inv) => {
-          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
-          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
-          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
-          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
-            const results = await Promise.all(
-              inv.purchase_invoice_ids.map(async (piId) => {
-                if (!piId) return null;
-                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
-                if (pi?.vendor_id) {
-                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-                }
-                return pi;
-              }),
-            );
-            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
-          }
-          return { ...inv, debtor, client, purchases };
-        }),
-      );
+      const enriched = filteredInvoices.map(enrichInv);
       res.json(enriched);
     } else {
       // Legacy mode: return all invoices enriched (for admin/checker/dashboard pages)
-      const enriched = await Promise.all(
-        invoices.map(async (inv) => {
-          const debtor = inv.debtor_id ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined : undefined;
-          const client = inv.client_id ? await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined : undefined;
-          let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
-          if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
-            const results = await Promise.all(
-              inv.purchase_invoice_ids.map(async (piId) => {
-                if (!piId) return null;
-                const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as PurchaseInvoice | undefined;
-                if (pi?.vendor_id) {
-                  (pi as any).vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-                }
-                return pi;
-              }),
-            );
-            purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
-          }
-          return { ...inv, debtor, client, purchases };
-        }),
-      );
+      const enriched = invoices.map(enrichInv);
       res.json(enriched);
     }
   } catch (err) {

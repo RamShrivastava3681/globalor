@@ -21,17 +21,22 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
 
-    const enriched = await Promise.all(
-      orders
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .map(async (po) => {
-          let debtor, vendor, client;
-          if (po.debtor_id) debtor = await getItem(TABLES.DEBTORS, { id: po.debtor_id }) as Debtor | undefined;
-          if (po.vendor_id) vendor = await getItem(TABLES.VENDORS, { id: po.vendor_id }) as Vendor | undefined;
-          if (po.client_id) client = await getItem(TABLES.PROFILES, { id: po.client_id }) as Profile | undefined;
-          return { ...po, debtor, vendor, client };
-        }),
-    );
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    const enriched = orders
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((po) => ({
+        ...po,
+        debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
+        vendor: po.vendor_id ? vendorMap.get(po.vendor_id) : undefined,
+        client: po.client_id ? profileMap.get(po.client_id) : undefined,
+      }));
 
     res.json(enriched);
   } catch (err) {

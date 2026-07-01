@@ -25,16 +25,40 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
 
+    // Preload all vendors, profiles, debtors, and invoices into lookup maps
+    // to avoid N+1 GetItem calls during enrichment
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allSalesInvoices = await scanTable<any>(TABLES.INVOICES);
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const salesInvMap = new Map(allSalesInvoices.map((si) => [si.id, si]));
+
+    // Fast synchronous enrichment
+    const enrichPi = (pi: PurchaseInvoice) => {
+      const vendor = vendorMap.get(pi.vendor_id);
+      const client = profileMap.get(pi.client_id);
+      let linkedSales: any[] | undefined;
+      if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
+        linkedSales = pi.linked_sales_invoice_ids
+          .filter((sId): sId is string => !!sId)
+          .map((sId) => {
+            const si = salesInvMap.get(sId);
+            if (si) {
+              return { ...si, debtor: debtorMap.get(si.debtor_id) };
+            }
+            return null;
+          })
+          .filter(Boolean);
+      }
+      return { ...pi, vendor, client, linkedSales };
+    };
+
     // Server-side search filtering (including vendor name)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     if (searchQuery) {
-      // Load vendors only when a search query is present
-      const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-      const vendorMap = new Map<string, Vendor>();
-      for (const v of allVendors) {
-        vendorMap.set(v.id, v);
-      }
-
       invoices = invoices.filter((pi) => {
         const q = searchQuery;
         const vendorName = (vendorMap.get(pi.vendor_id)?.name ?? "").toLowerCase();
@@ -94,53 +118,10 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
       const pageItems = invoices.slice(startIdx, startIdx + limit);
-
-      // Enrich only the current page
-      const enriched = await Promise.all(
-        pageItems.map(async (pi) => {
-          const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-          const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
-          let linkedSales: any[] | undefined;
-          if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
-            const results = await Promise.all(
-              pi.linked_sales_invoice_ids.map(async (sId) => {
-                const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-                if (si?.debtor_id) {
-                  si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
-                }
-                return si;
-              }),
-            );
-            linkedSales = results.filter(Boolean);
-          }
-          return { ...pi, vendor, client, linkedSales };
-        }),
-      );
-
+      const enriched = pageItems.map(enrichPi);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      // Legacy mode: return all enriched invoices as array
-      const enriched = await Promise.all(
-        invoices.map(async (pi) => {
-          const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-          const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
-          let linkedSales: any[] | undefined;
-          if (pi.linked_sales_invoice_ids && pi.linked_sales_invoice_ids.length > 0) {
-            const results = await Promise.all(
-              pi.linked_sales_invoice_ids.map(async (sId) => {
-                const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-                if (si?.debtor_id) {
-                  si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
-                }
-                return si;
-              }),
-            );
-            linkedSales = results.filter(Boolean);
-          }
-          return { ...pi, vendor, client, linkedSales };
-        }),
-      );
-
+      const enriched = invoices.map(enrichPi);
       res.json(enriched);
     }
   } catch (err) {

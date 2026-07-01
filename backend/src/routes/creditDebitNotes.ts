@@ -20,25 +20,29 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const notes = await scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES);
 
-    const enriched = await Promise.all(
-      notes
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .map(async (note) => {
-          let linkedInvoice: { invoice_number: string; amount: number; status: string } | null = null;
-          if (note.linked_invoice_id) {
-            const table = note.linked_invoice_type === "sales" ? TABLES.INVOICES : TABLES.PURCHASE_INVOICES;
-            const inv = await getItem(table, { id: note.linked_invoice_id }) as any;
-            if (inv) {
-              linkedInvoice = {
-                invoice_number: inv.invoice_number,
-                amount: inv.amount,
-                status: inv.status,
-              };
-            }
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+
+    const enriched = notes
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((note) => {
+        let linkedInvoice: { invoice_number: string; amount: number; status: string } | null = null;
+        if (note.linked_invoice_id) {
+          const map = note.linked_invoice_type === "sales" ? invoiceMap : piMap;
+          const inv = map.get(note.linked_invoice_id);
+          if (inv) {
+            linkedInvoice = {
+              invoice_number: inv.invoice_number,
+              amount: inv.amount,
+              status: inv.status,
+            };
           }
-          return { ...note, linkedInvoice };
-        }),
-    );
+        }
+        return { ...note, linkedInvoice };
+      });
 
     res.json(enriched);
   } catch (err) {

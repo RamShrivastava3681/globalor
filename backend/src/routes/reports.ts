@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
-import { scanTable, getItem, TABLES } from "../db/client.js";
+import { scanTable, TABLES } from "../db/client.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
   PurchaseOrder, Advance, Expense, Supplier,
@@ -8,76 +8,56 @@ import type {
 
 const router = Router();
 
-// ── Helper: enrich an invoice with related entities ──
-async function enrichInvoice(inv: Invoice) {
-  const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
-  const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
-  let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
-  if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
-    const results = await Promise.all(
-      inv.purchase_invoice_ids.map(async (piId) => {
-        const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: piId }) as any;
-        if (pi?.vendor_id) {
-          pi.vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-        }
-        return pi;
-      }),
-    );
-    purchases = results.filter(Boolean);
-  }
-  return { ...inv, debtor, client, purchases };
-}
-
-// ── Helper: enrich a purchase invoice with vendor ──
-async function enrichPurchaseInvoice(pi: PurchaseInvoice) {
-  const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as Vendor | undefined;
-  const client = await getItem(TABLES.PROFILES, { id: pi.client_id }) as Profile | undefined;
-  return { ...pi, vendor, client };
-}
-
-// ── Helper: enrich a purchase order/proforma with parties ──
-async function enrichProforma(po: PurchaseOrder) {
-  let debtor, vendor, client;
-  if (po.debtor_id) debtor = await getItem(TABLES.DEBTORS, { id: po.debtor_id }) as Debtor | undefined;
-  if (po.vendor_id) vendor = await getItem(TABLES.VENDORS, { id: po.vendor_id }) as Vendor | undefined;
-  if (po.client_id) client = await getItem(TABLES.PROFILES, { id: po.client_id }) as Profile | undefined;
-  return { ...po, debtor, vendor, client };
-}
-
-// ── Helper: enrich an advance ──
-async function enrichAdvance(a: Advance) {
-  let invoice, purchase, order;
-  if (a.invoice_id) {
-    const inv = await getItem(TABLES.INVOICES, { id: a.invoice_id }) as any;
-    if (inv) {
-      const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as any;
-      invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
-    }
-  }
-  if (a.purchase_invoice_id) {
-    const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: a.purchase_invoice_id }) as any;
-    if (pi) {
-      const vendor = await getItem(TABLES.VENDORS, { id: pi.vendor_id }) as any;
-      purchase = { invoice_number: pi.invoice_number, amount: pi.amount, vendor: vendor ? { name: vendor.name } : undefined };
-    }
-  }
-  if (a.purchase_order_id) {
-    const po = await getItem(TABLES.PURCHASE_ORDERS, { id: a.purchase_order_id }) as any;
-    if (po) {
-      let d, v;
-      if (po.debtor_id) d = await getItem(TABLES.DEBTORS, { id: po.debtor_id }) as any;
-      if (po.vendor_id) v = await getItem(TABLES.VENDORS, { id: po.vendor_id }) as any;
-      order = { po_number: po.po_number, amount: po.amount, status: po.status, debtor: d ? { name: d.name } : undefined, vendor: v ? { name: v.name } : undefined };
-    }
-  }
-  return { ...a, invoice, purchase, order };
-}
-
 // ── GET /api/reports/sales-invoices ── (paginated)
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
     invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+    // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
+    // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+
+    // Preload referenced purchase invoices
+    const referencedPiIds = new Set<string>();
+    for (const inv of invoices) {
+      if (inv.purchase_invoice_ids) {
+        for (const piId of inv.purchase_invoice_ids) {
+          if (piId) referencedPiIds.add(piId);
+        }
+      }
+    }
+    const purchaseInvoiceMap = new Map<string, PurchaseInvoice & { vendor?: Vendor }>();
+    if (referencedPiIds.size > 0) {
+      const allPis = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+      for (const pi of allPis) {
+        if (referencedPiIds.has(pi.id)) {
+          if (pi.vendor_id) {
+            (pi as any).vendor = vendorMap.get(pi.vendor_id);
+          }
+          purchaseInvoiceMap.set(pi.id, pi);
+        }
+      }
+    }
+
+    // Fast enrichment using lookup maps (synchronous, no DB calls)
+    const enrichInvoiceFast = (inv: Invoice) => {
+      const debtor = debtorMap.get(inv.debtor_id);
+      const client = profileMap.get(inv.client_id);
+      let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
+      if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
+        purchases = inv.purchase_invoice_ids
+          .filter((piId): piId is string => !!piId)
+          .map((piId) => purchaseInvoiceMap.get(piId))
+          .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
+      }
+      return { ...inv, debtor, client, purchases };
+    };
 
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
@@ -87,10 +67,10 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
       const pageItems = invoices.slice(startIdx, startIdx + limit);
-      const enriched = await Promise.all(pageItems.map(enrichInvoice));
+      const enriched = pageItems.map(enrichInvoiceFast);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = await Promise.all(invoices.map(enrichInvoice));
+      const enriched = invoices.map(enrichInvoiceFast);
       res.json(enriched);
     }
   } catch (err) {
@@ -105,6 +85,18 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
     const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
     invoices.sort((a, b) => b.created_at.localeCompare(a.created_at));
 
+    // Preload vendors and profiles into lookup maps
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    const enrichPiFast = (pi: PurchaseInvoice) => ({
+      ...pi,
+      vendor: vendorMap.get(pi.vendor_id),
+      client: profileMap.get(pi.client_id),
+    });
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -113,10 +105,10 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
       const pageItems = invoices.slice(startIdx, startIdx + limit);
-      const enriched = await Promise.all(pageItems.map(enrichPurchaseInvoice));
+      const enriched = pageItems.map(enrichPiFast);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = await Promise.all(invoices.map(enrichPurchaseInvoice));
+      const enriched = invoices.map(enrichPiFast);
       res.json(enriched);
     }
   } catch (err) {
@@ -129,9 +121,24 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
 router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
-    const enriched = await Promise.all(
-      orders.sort((a, b) => b.created_at.localeCompare(a.created_at)).map(enrichProforma),
-    );
+
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    const enriched = orders
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((po) => ({
+        ...po,
+        debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
+        vendor: po.vendor_id ? vendorMap.get(po.vendor_id) : undefined,
+        client: po.client_id ? profileMap.get(po.client_id) : undefined,
+      }));
+
     res.json(enriched);
   } catch (err) {
     console.error("Reports proformas error:", err);
@@ -144,6 +151,12 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES);
     const now = new Date();
+
+    // Preload debtors and profiles into lookup maps
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     const aging = invoices
       .filter((inv) => inv.status !== "paid" && inv.status !== "rejected" && inv.due_date != null)
@@ -166,6 +179,13 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
       })
       .sort((a, b) => b.aging_days - a.aging_days);
 
+    // Fast enrichment using lookup maps
+    const enrichAgingItem = (item: any) => {
+      const debtor = debtorMap.get(item.debtor_id);
+      const client = profileMap.get(item.client_id);
+      return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
+    };
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -174,24 +194,10 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
       const totalPages = Math.ceil(total / limit);
       const startIdx = (page - 1) * limit;
       const pageItems = aging.slice(startIdx, startIdx + limit);
-
-      const enriched = await Promise.all(
-        pageItems.map(async (item) => {
-          const debtor = await getItem(TABLES.DEBTORS, { id: item.debtor_id }) as Debtor | undefined;
-          const client = await getItem(TABLES.PROFILES, { id: item.client_id }) as Profile | undefined;
-          return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
-        }),
-      );
-
+      const enriched = pageItems.map(enrichAgingItem);
       res.json({ data: enriched, total, page, limit, totalPages });
     } else {
-      const enriched = await Promise.all(
-        aging.map(async (item) => {
-          const debtor = await getItem(TABLES.DEBTORS, { id: item.debtor_id }) as Debtor | undefined;
-          const client = await getItem(TABLES.PROFILES, { id: item.client_id }) as Profile | undefined;
-          return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
-        }),
-      );
+      const enriched = aging.map(enrichAgingItem);
       res.json(enriched);
     }
   } catch (err) {
@@ -226,9 +232,58 @@ router.get("/suppliers", requireAuth, async (_req: AuthRequest, res: Response) =
 router.get("/advances", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
     const advances = await scanTable<Advance>(TABLES.ADVANCES);
-    const enriched = await Promise.all(
-      advances.sort((a, b) => b.advance_date.localeCompare(a.advance_date)).map(enrichAdvance),
-    );
+
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS);
+    const allDebtors = await scanTable<any>(TABLES.DEBTORS);
+    const allVendors = await scanTable<any>(TABLES.VENDORS);
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+    const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+
+    const enriched = advances
+      .sort((a, b) => b.advance_date.localeCompare(a.advance_date))
+      .map((a) => {
+        let invoice, purchase, order;
+
+        if (a.invoice_id) {
+          const inv = invoiceMap.get(a.invoice_id);
+          if (inv) {
+            const debtor = debtorMap.get(inv.debtor_id);
+            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
+          }
+        }
+
+        if (a.purchase_invoice_id) {
+          const pi = piMap.get(a.purchase_invoice_id);
+          if (pi) {
+            const vendor = vendorMap.get(pi.vendor_id);
+            purchase = { invoice_number: pi.invoice_number, amount: pi.amount, vendor: vendor ? { name: vendor.name } : undefined };
+          }
+        }
+
+        if (a.purchase_order_id) {
+          const po = poMap.get(a.purchase_order_id);
+          if (po) {
+            const debtor = po.debtor_id ? debtorMap.get(po.debtor_id) : undefined;
+            const vendor = po.vendor_id ? vendorMap.get(po.vendor_id) : undefined;
+            order = {
+              po_number: po.po_number,
+              amount: po.amount,
+              status: po.status,
+              debtor: debtor ? { name: debtor.name } : undefined,
+              vendor: vendor ? { name: vendor.name } : undefined,
+            };
+          }
+        }
+
+        return { ...a, invoice, purchase, order };
+      });
+
     res.json(enriched);
   } catch (err) {
     console.error("Reports advances error:", err);
@@ -240,22 +295,28 @@ router.get("/advances", requireAuth, async (_req: AuthRequest, res: Response) =>
 router.get("/expenses", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
     const expenses = await scanTable<any>(TABLES.EXPENSES);
-    const enriched = await Promise.all(
-      expenses
-        .sort((a: any, b: any) => b.expense_date.localeCompare(a.expense_date))
-        .map(async (e: any) => {
-          let invoice, purchase;
-          if (e.invoice_id) {
-            const inv = await getItem(TABLES.INVOICES, { id: e.invoice_id }) as any;
-            if (inv) invoice = { invoice_number: inv.invoice_number };
-          }
-          if (e.purchase_invoice_id) {
-            const pi = await getItem(TABLES.PURCHASE_INVOICES, { id: e.purchase_invoice_id }) as any;
-            if (pi) purchase = { invoice_number: pi.invoice_number };
-          }
-          return { ...e, invoice, purchase };
-        }),
-    );
+
+    // Preload lookup maps to avoid N+1 GetItem calls
+    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+
+    const enriched = expenses
+      .sort((a: any, b: any) => b.expense_date.localeCompare(a.expense_date))
+      .map((e: any) => {
+        let invoice, purchase;
+        if (e.invoice_id) {
+          const inv = invoiceMap.get(e.invoice_id);
+          if (inv) invoice = { invoice_number: inv.invoice_number };
+        }
+        if (e.purchase_invoice_id) {
+          const pi = piMap.get(e.purchase_invoice_id);
+          if (pi) purchase = { invoice_number: pi.invoice_number };
+        }
+        return { ...e, invoice, purchase };
+      });
+
     res.json(enriched);
   } catch (err) {
     console.error("Reports expenses error:", err);
