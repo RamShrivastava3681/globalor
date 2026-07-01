@@ -31,8 +31,8 @@ const TABS: { id: ReportTab; label: string }[] = [
 // "open" = pending/approved/advanced/overdue, "closed" = paid/rejected for invoice types
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "proformas": ["all", "open", "closed", "proforma", "invoiced", "cancelled"],
-  "sales-invoices": ["all", "open", "closed", "pending", "approved", "advanced", "paid", "overdue", "rejected", "funded"],
-  "purchase-invoices": ["all", "open", "closed", "pending", "approved", "paid", "overdue", "disputed", "advanced", "funded"],
+  "sales-invoices": ["all", "open", "closed"],
+  "purchase-invoices": ["all", "open", "closed"],
   "aging": ["all", "overdue", "pending"],
   "debtors": ["all"],
   "suppliers": ["all"],
@@ -40,9 +40,16 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "expenses": ["all"],
 };
 
-// ── Open (non-closed) statuses for invoice-type reports ──
-const OPEN_STATUSES = ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
-const CLOSED_STATUSES = ["paid", "rejected", "cancelled", "disputed"];
+// ── Tab-specific open/closed statuses ──
+function getOpenStatuses(tab: ReportTab): string[] {
+  if (tab === "sales-invoices" || tab === "purchase-invoices") return ["pending", "approved", "advanced", "overdue", "disputed"];
+  return ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
+}
+
+function getClosedStatuses(tab: ReportTab): string[] {
+  if (tab === "sales-invoices" || tab === "purchase-invoices") return ["funded", "paid"];
+  return ["paid", "rejected", "cancelled", "disputed"];
+}
 
 // ── Column definitions for each report ──
 
@@ -252,9 +259,9 @@ function ReportsPage() {
     if (statusFilter !== "all") {
       const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
       if (statusFilter === "open") {
-        if (!OPEN_STATUSES.includes(rowStatus)) return false;
+        if (!getOpenStatuses(tab).includes(rowStatus)) return false;
       } else if (statusFilter === "closed") {
-        if (!CLOSED_STATUSES.includes(rowStatus)) return false;
+        if (!getClosedStatuses(tab).includes(rowStatus)) return false;
       } else if (rowStatus !== statusFilter) {
         return false;
       }
@@ -278,9 +285,9 @@ function ReportsPage() {
       if (statusFilter !== "all") {
         const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
         if (statusFilter === "open") {
-          if (!OPEN_STATUSES.includes(rowStatus)) return false;
+          if (!getOpenStatuses(tab).includes(rowStatus)) return false;
         } else if (statusFilter === "closed") {
-          if (!CLOSED_STATUSES.includes(rowStatus)) return false;
+          if (!getClosedStatuses(tab).includes(rowStatus)) return false;
         } else if (rowStatus !== statusFilter) {
           return false;
         }
