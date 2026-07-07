@@ -447,27 +447,29 @@ function InvoicesPage() {
           )}
         </Card>
 
-        {/* Pagination controls */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between pt-4">
-            <div className="flex items-center gap-3">
+        {/* Pagination controls — page size always visible */}
+        <div className="flex items-center justify-between pt-4">
+          <div className="flex items-center gap-3">
+            {totalPages > 0 && (
               <div className="text-xs text-muted-foreground">
-                {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+                {totalInvoices.toLocaleString()} total invoices{totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Show</label>
-                <select
-                  value={limit}
-                  onChange={(e) => setLimit(Number(e.target.value))}
-                  className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  {[20, 50, 100, 200, 500].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                <span className="text-[10px] text-muted-foreground">per page</span>
-              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Show</label>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                {[10, 20, 50, 100, 200, 500].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-muted-foreground">per page</span>
             </div>
+          </div>
+          {totalPages > 1 && (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -512,8 +514,8 @@ function InvoicesPage() {
                 Next →
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
