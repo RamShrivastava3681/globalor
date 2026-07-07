@@ -147,6 +147,7 @@ export interface Invoice {
   payment_terms_days: number;
   bl_date: string | null;
   due_date_source: "invoice" | "bl";
+  has_contractual_due_date: boolean;
   documents: DocMeta[];
   created_at: string;
   updated_at: string;

@@ -274,6 +274,7 @@ function InvoicesPage() {
                     <th className="px-5 py-2 text-right font-normal">Recv'd</th>
                     <th className="px-5 py-2 text-right font-normal">Short pay</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual</th>
                     <th className="px-5 py-2 text-left font-normal">Paid</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -306,6 +307,13 @@ function InvoicesPage() {
                         <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
                         <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            i.has_contractual_due_date ? "border-success/50 text-success" : "border-border text-muted-foreground"
+                          }`}>
+                            {i.has_contractual_due_date ? "Yes" : "N/A"}
+                          </span>
+                        </td>
                         <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                         <td className="px-5 py-3"><StatusPill status={i.status} /></td>
@@ -453,6 +461,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     payment_terms_days: String(editing?.payment_terms_days ?? "30"),
     bl_date: editing?.bl_date ?? "",
     due_date_source: editing?.due_date_source ?? "invoice",
+    has_contractual_due_date: editing?.has_contractual_due_date ?? false,
     po_number: editing?.po_number ?? "",
     po_date: editing?.po_date ?? "",
     purchase_invoice_id: editing?.purchase_invoice_id ?? "",
@@ -467,6 +476,21 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     const terms = Number(editing?.payment_terms_days ?? 30) || 30;
     const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
     return !!base;
+  });
+
+  // Track whether the user has manually overridden the auto-computed due date
+  const [isDueDateOverridden, setIsDueDateOverridden] = useState(() => {
+    if (!editing?.due_date) return false;
+    // If editing an existing invoice that has a due_date, check if it differs from the computed value
+    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : editing?.issue_date;
+    if (base) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + terms);
+      const computed = d.toISOString().slice(0, 10);
+      return editing.due_date !== computed;
+    }
+    return !!editing.due_date;
   });
 
   // Auto-calculate total amount from inventory items when inventory tracking is enabled
@@ -522,7 +546,8 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     d.setDate(d.getDate() + termsDays);
     return d.toISOString().slice(0, 10);
   })();
-  const effectiveDue = form.due_date || computedDue;
+  // Always show computedDue when hasDueDate is true, unless manually overridden
+  const effectiveDue = hasDueDate ? (isDueDateOverridden ? form.due_date : computedDue) : "";
 
   const save = useMutation({
     mutationFn: async () => {
@@ -533,7 +558,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
         amount: Number(form.amount),
         fee_rate: 0,
         issue_date: form.issue_date,
-        due_date: hasDueDate ? effectiveDue : null,
+        due_date: hasDueDate ? (isDueDateOverridden ? form.due_date : computedDue) : null,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
@@ -654,15 +679,39 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                   <input type="checkbox" checked={hasDueDate} onChange={(e) => {
                     const v = e.target.checked;
                     setHasDueDate(v);
+                    setIsDueDateOverridden(false);
                     if (!v) setForm({ ...form, due_date: "" });
-                    else setForm({ ...form, due_date: computedDue });
+                    else setForm({ ...form, due_date: "" });
                   }} />
                   Enable due date
                 </label>
                 {hasDueDate && (
-                  <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+                  <div className="flex items-center gap-2">
+                    <input type="date" value={effectiveDue} onChange={(e) => {
+                      setIsDueDateOverridden(true);
+                      setForm({ ...form, due_date: e.target.value });
+                    }} className="inp flex-1" />
+                    {isDueDateOverridden && (
+                      <button type="button" onClick={() => {
+                        setIsDueDateOverridden(false);
+                        setForm({ ...form, due_date: "" });
+                      }}
+                        className="shrink-0 rounded-md border border-border px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-primary transition-colors">
+                        Auto
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
+            </Field>
+            <Field label="Contractual due date">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                <input type="checkbox" checked={form.has_contractual_due_date} onChange={(e) => setForm({ ...form, has_contractual_due_date: e.target.checked })} />
+                Has contractual due date
+              </label>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                When checked, displays "Yes" in the invoices list. Does not affect late days or due date calculations.
+              </p>
             </Field>
           </div>
 
@@ -814,6 +863,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="Due date" value={fmtDate(invoice.due_date)} />
+              <Detail label="Contractual due date" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
               <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
@@ -990,6 +1040,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const [blDate, setBlDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [poDate, setPoDate] = useState("");
+  const [hasContractualDueDate, setHasContractualDueDate] = useState(false);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState("");
   const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
@@ -1056,6 +1107,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
         payment_terms_days: Number(paymentTermsDays) || 30,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
+        has_contractual_due_date: hasContractualDueDate,
         po_number: poNumber.trim() || null,
         po_date: poDate || null,
         advance_rate: 0,
@@ -1145,6 +1197,16 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
               <Field label="PO date">
                 <input type="date" className="inp" value={poDate} onChange={(e) => setPoDate(e.target.value)} />
               </Field>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={hasContractualDueDate} onChange={(e) => setHasContractualDueDate(e.target.checked)} />
+                <span className="uppercase tracking-widest text-muted-foreground">Has contractual due date</span>
+              </label>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                When checked, displays "Yes" in the invoices list for all imported invoices. Does not affect late days or due date calculations.
+              </p>
             </div>
 
             <div className="border-t border-border pt-4">
