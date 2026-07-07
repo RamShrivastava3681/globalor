@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, ArrowRightLeft
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -76,6 +76,7 @@ function AppLayout() {
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/expenses", label: "Expenses", icon: Receipt },
         { to: "/app/advances", label: "Advances", icon: Wallet },
+        { to: "/app/bulk-payments", label: "Bulk payments", icon: ArrowRightLeft },
         { to: "/app/inventory", label: "Inventory", icon: Boxes },
         { to: "/app/debtors", label: "Debtors", icon: Building2 },
         { to: "/app/vendors", label: "Suppliers", icon: Truck },

@@ -336,6 +336,21 @@ export interface CreditDebitNote {
   updated_at: string;
 }
 
+// ── Payment Records (bulk payment reconciliation) ──
+export interface PaymentRecord {
+  id: string;
+  client_id: string;
+  debtor_id: string;
+  amount: number;
+  payment_date: string;
+  remaining: number;
+  invoices_closed: number;
+  credit_note_ids: string[];
+  mode: "manual" | "fifo" | "two_pass_fifo";
+  created_at: string;
+  updated_at: string;
+}
+
 export interface NoaInvoiceResult {
   id: string;
   invoice_number: string;

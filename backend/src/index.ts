@@ -78,6 +78,10 @@ app.use("/api/upload", uploadLimiter, uploadRoutes);
 import creditDebitNoteRoutes from "./routes/creditDebitNotes.js";
 app.use("/api/credit-debit-notes", creditDebitNoteRoutes);
 
+// Bulk payments
+import bulkPaymentRoutes from "./routes/bulkPayments.js";
+app.use("/api/bulk-payments", bulkPaymentRoutes);
+
 // Reports
 app.use("/api/reports", requireAuth, reportRoutes);
 
