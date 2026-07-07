@@ -376,6 +376,21 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
     ? Math.round(overdueDaysList.reduce((a, b) => a + b, 0) / overdueDaysList.length)
     : null;
 
+  // Median, max, min payment days
+  const sortedPaymentDays = [...paymentDays].sort((a, b) => a - b);
+  const medianPaymentDays = paymentDays.length > 0
+    ? (paymentDays.length % 2 === 0
+      ? Math.round((sortedPaymentDays[paymentDays.length / 2 - 1] + sortedPaymentDays[paymentDays.length / 2]) / 2)
+      : sortedPaymentDays[Math.floor(paymentDays.length / 2)])
+    : null;
+  const maxPaymentDays = paymentDays.length > 0 ? Math.max(...paymentDays) : null;
+  const minPaymentDays = paymentDays.length > 0 ? Math.min(...paymentDays) : null;
+
+  // Outstanding, remaining credit, closed count
+  const outstanding = totalAmount - totalPaid;
+  const remaining = Math.max(0, Number(debtor.credit_limit) - outstanding);
+  const closedCount = paidInvoices.length;
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
@@ -408,11 +423,17 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           {/* Stats cards */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
             <StatsCard label="Total invoices" value={String(invoices.length)} />
+            <StatsCard label="Closed" value={String(closedCount)} accent={closedCount > 0 ? "text-success" : ""} />
+            <StatsCard label="Overdue" value={String(overdueCount)} accent={overdueCount > 0 ? "text-destructive" : ""} />
+            <StatsCard label="Outstanding" value={fmtMoney(outstanding)} accent={outstanding > 0 ? "text-warning" : "text-success"} />
             <StatsCard label="Total invoiced" value={fmtMoney(totalAmount)} />
             <StatsCard label="Total paid" value={fmtMoney(totalPaid)} />
-            <StatsCard label="Avg payment days" value={avgPaymentDays != null ? `${avgPaymentDays}d` : "—"} />
+            <StatsCard label="Avg days" value={avgPaymentDays != null ? `${avgPaymentDays}d` : "—"} />
+            <StatsCard label="Median days" value={medianPaymentDays != null ? `${medianPaymentDays}d` : "—"} />
+            <StatsCard label="Max days" value={maxPaymentDays != null ? `${maxPaymentDays}d` : "—"} accent={maxPaymentDays != null && maxPaymentDays > 90 ? "text-destructive" : ""} />
+            <StatsCard label="Min days" value={minPaymentDays != null ? `${minPaymentDays}d` : "—"} accent={minPaymentDays != null && minPaymentDays > 0 ? "text-success" : ""} />
             <StatsCard label="Avg overdue days" value={avgOverdueDays != null ? `${avgOverdueDays}d` : "—"} accent={avgOverdueDays != null && avgOverdueDays > 0 ? "text-destructive" : ""} />
-            <StatsCard label="Overdue" value={String(overdueCount)} accent={overdueCount > 0 ? "text-destructive" : ""} />
+            <StatsCard label="Remaining" value={fmtMoney(remaining)} accent={remaining > 0 ? "text-success" : "text-muted-foreground"} />
           </div>
 
           {/* Invoices table */}
