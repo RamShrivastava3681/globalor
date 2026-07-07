@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useCallback } from "react";
 import { api } from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import {
   ArrowRightLeft, Loader2, CheckCircle2, Wallet, AlertTriangle,
@@ -80,7 +79,7 @@ function daysLateCalc(dueDate: string | null, anchorDate: string): number {
 
 function fmtDateShort(d: string | null | undefined): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function outstanding(inv: InvoiceInfo): number {
@@ -193,8 +192,7 @@ function computeManualPreview(
 // ── Page Component ──
 
 function BulkPaymentsPage() {
-  const { isAdmin, isTreasury, canWrite } = useAuth();
-  const canEdit = isAdmin || isTreasury || canWrite("funding-queue");
+
   const qc = useQueryClient();
 
   // ── Core state ──
@@ -208,7 +206,6 @@ function BulkPaymentsPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<PaymentResult | null>(null);
-  const [debtorSearch, setDebtorSearch] = useState("");
   const [historyFilterDebtorId, setHistoryFilterDebtorId] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -260,6 +257,13 @@ function BulkPaymentsPage() {
   });
 
   const openInvoices = invoicesQ.data ?? [];
+
+  // Sort invoices by due date ascending (earliest first), null due dates last
+  const sortedInvoices = useMemo(() => {
+    return [...openInvoices].sort((a, b) =>
+      (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
+    );
+  }, [openInvoices]);
 
   // ── Fetch credit notes ──
   const creditNotesQ = useQuery({
@@ -380,15 +384,6 @@ function BulkPaymentsPage() {
     && (mode !== "manual" || selectedInvoiceIds.size > 0)
     && !submitting;
 
-  // ── Filtered debtor list ──
-  const filteredDebtors = useMemo(() => {
-    const q = debtorSearch.toLowerCase().trim();
-    if (!q) return debtorsQ.data ?? [];
-    return (debtorsQ.data ?? []).filter(
-      (d) => d.name.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q)
-    );
-  }, [debtorSearch, debtorsQ.data]);
-
   return (
     <div>
       <PageHeader
@@ -403,40 +398,18 @@ function BulkPaymentsPage() {
           <div className="space-y-4">
             <div className="relative">
               <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search customer..."
-                value={debtorSearch}
-                onChange={(e) => setDebtorSearch(e.target.value)}
-                onFocus={() => setDebtorSearch("")}
-                className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all"
-              />
-              {debtorSearch && filteredDebtors.length > 0 && (
-                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
-                  {filteredDebtors.map((d) => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => { handleDebtorChange(d.id); setDebtorSearch(""); }}
-                      className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50 ${
-                        d.id === selectedDebtorId ? "bg-primary/10 text-primary" : ""
-                      }`}
-                    >
-                      <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">{d.name}</div>
-                        {d.industry && <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{d.industry}</div>}
-                      </div>
-                      {d.id === selectedDebtorId && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {debtorSearch && filteredDebtors.length === 0 && (
-                <div className="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card p-4 text-center text-xs text-muted-foreground shadow-xl">
-                  No customers match your search.
-                </div>
-              )}
+              <select
+                value={selectedDebtorId}
+                onChange={(e) => handleDebtorChange(e.target.value)}
+                className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all appearance-none cursor-pointer"
+              >
+                <option value="" disabled>Select a customer…</option>
+                {(debtorsQ.data ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}{d.industry ? ` — ${d.industry}` : ""}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {selectedDebtor && (
@@ -446,7 +419,7 @@ function BulkPaymentsPage() {
                   <span className="font-medium">{selectedDebtor.name}</span>
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {openInvoices.length} open invoice{openInvoices.length !== 1 ? "s" : ""}
+                  {sortedInvoices.length} open invoice{sortedInvoices.length !== 1 ? "s" : ""}
                   {" · "}
                   {unappliedCredit > 0 ? `${fmtMoney(unappliedCredit)} in unapplied credit` : "No unapplied credit"}
                 </div>
@@ -565,7 +538,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Step 3: Mode Selection ── */}
-        {selectedDebtorId && openInvoices.length > 0 && (
+        {selectedDebtorId && sortedInvoices.length > 0 && (
           <Card title="3. Payment mode">
             <div className="mb-4 flex flex-wrap gap-2">
               {([
@@ -625,7 +598,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Invoice Table ── */}
-        {selectedDebtorId && openInvoices.length > 0 && (
+        {selectedDebtorId && sortedInvoices.length > 0 && (
           <Card title="Invoices">
             {invoicesQ.isLoading ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
@@ -648,7 +621,7 @@ function BulkPaymentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {openInvoices.map((inv) => {
+                    {sortedInvoices.map((inv) => {
                       const overdue = isOverdue(inv.due_date, paymentDate);
                       const late = daysLateCalc(inv.due_date, paymentDate);
                       const isSelected = selectedInvoiceIds.has(inv.id);
@@ -764,7 +737,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Submit Button ── */}
-        {selectedDebtorId && openInvoices.length > 0 && (
+        {selectedDebtorId && sortedInvoices.length > 0 && (
           <div className="sticky bottom-6 z-10">
             <Card className="border-primary/20 shadow-lg">
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -827,7 +800,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── No invoices ── */}
-        {selectedDebtorId && !invoicesQ.isLoading && openInvoices.length === 0 && (
+        {selectedDebtorId && !invoicesQ.isLoading && sortedInvoices.length === 0 && (
           <Card>
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <CheckCircle2 className="mb-3 h-10 w-10 text-success/60" />
