@@ -345,6 +345,10 @@ export interface PaymentRecord {
   payment_date: string;
   remaining: number;
   invoices_closed: number;
+  /** Array of invoice data for invoices that were fully closed (paid) by this payment */
+  closed_invoices: Array<{ id: string; invoice_number: string; amount: number }>;
+  /** Array of invoice data for invoices that were partially paid by this payment */
+  partial_invoices?: Array<{ id: string; invoice_number: string; amount_paid: number }>;
   credit_note_ids: string[];
   mode: "manual" | "fifo" | "two_pass_fifo";
   created_at: string;

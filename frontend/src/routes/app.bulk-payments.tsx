@@ -1,14 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useCallback } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import {
   ArrowRightLeft, Loader2, CheckCircle2, Wallet, AlertTriangle,
   Building2, CalendarDays, DollarSign, CreditCard, SkipForward, History,
-  ScrollText, ChevronDown,
+  ScrollText, ChevronDown, Undo2, AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/bulk-payments")({
   component: BulkPaymentsPage,
@@ -365,6 +375,9 @@ function BulkPaymentsPage() {
         toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
       }
 
+      // Immediately update the balance in cache to the new remaining so the user sees it right away
+      qc.setQueryData(["bulk-payment-balance", selectedDebtorId], res.remaining);
+      // Also invalidate to ensure a fresh fetch from the server
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
       qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
@@ -961,31 +974,22 @@ function BulkPaymentsPage() {
                         <th className="px-5 py-2 text-center font-normal">Mode</th>
                         <th className="px-5 py-2 text-right font-normal">Closed</th>
                         <th className="px-5 py-2 text-right font-normal">Credits</th>
+                        <th className="px-5 py-2 text-center font-normal">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(historyQ.data?.payments ?? []).map((p) => (
-                        <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                          <td className="px-5 py-3 text-xs">{fmtDateShort(p.payment_date)}</td>
-                          <td className="px-5 py-3">
-                            <div className="text-xs font-medium">{p.debtor_name}</div>
-                          </td>
-                          <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(p.amount)}</td>
-                          <td className={`px-5 py-3 text-right font-mono text-xs ${p.remaining > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}`}>
-                            {p.remaining > 0 ? fmtMoney(p.remaining) : "—"}
-                          </td>
-                          <td className="px-5 py-3 text-center">
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                              p.mode === "manual" ? "bg-primary/15 text-primary"
-                              : p.mode === "two_pass_fifo" ? "bg-purple-500/15 text-purple-500"
-                              : "bg-warning/15 text-warning"
-                            }`}>
-                              {p.mode === "two_pass_fifo" ? "2-pass" : p.mode}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{p.invoices_closed}</td>
-                          <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{p.credit_note_ids.length || "—"}</td>
-                        </tr>
+                        <HistoryRow
+                          key={p.id}
+                          payment={p}
+                          onReversed={() => {
+                            qc.invalidateQueries({ queryKey: ["bulk-payment-history"] });
+                            qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
+                            qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
+                            qc.invalidateQueries({ queryKey: ["invoices"] });
+                            qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+                          }}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -1003,5 +1007,107 @@ function BulkPaymentsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// ── History Row Sub-Component ──
+
+function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; onReversed: () => void }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reversing, setReversing] = useState(false);
+
+  const handleReverse = async () => {
+    setReversing(true);
+    try {
+      await api.post(`/bulk-payments/reverse/${payment.id}`, {});
+      toast.success(`Payment of ${fmtMoney(payment.amount)} reversed — invoices reopened`);
+      setConfirmOpen(false);
+      onReversed();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reverse failed");
+    } finally {
+      setReversing(false);
+    }
+  };
+
+  return (
+    <>
+      <tr className="border-b border-border/60 hover:bg-muted/30">
+        <td className="px-5 py-3 text-xs">{fmtDateShort(payment.payment_date)}</td>
+        <td className="px-5 py-3">
+          <div className="text-xs font-medium">{payment.debtor_name}</div>
+        </td>
+        <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
+        <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}`}>
+          {payment.remaining > 0 ? fmtMoney(payment.remaining) : "—"}
+        </td>
+        <td className="px-5 py-3 text-center">
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+            payment.mode === "manual" ? "bg-primary/15 text-primary"
+            : payment.mode === "two_pass_fifo" ? "bg-purple-500/15 text-purple-500"
+            : "bg-warning/15 text-warning"
+          }`}>
+            {payment.mode === "two_pass_fifo" ? "2-pass" : payment.mode}
+          </span>
+        </td>
+        <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{payment.invoices_closed}</td>
+        <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{payment.credit_note_ids.length || "—"}</td>
+        <td className="px-5 py-3 text-center">
+          <button
+            onClick={() => setConfirmOpen(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2.5 py-1 text-[10px] font-medium text-destructive transition-all hover:bg-destructive/10 hover:border-destructive/50"
+            title="Reverse this payment — reopen invoices and restore credit notes"
+          >
+            <Undo2 className="h-3 w-3" />
+            Reverse
+          </button>
+        </td>
+      </tr>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Reverse payment?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                This will reverse the bulk payment of <strong>{fmtMoney(payment.amount)}</strong> for{" "}
+                <strong>{payment.debtor_name}</strong>.
+              </p>
+              <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                <li>{payment.invoices_closed} invoice{payment.invoices_closed !== 1 ? "s" : ""} will be reopened</li>
+                {payment.credit_note_ids.length > 0 && (
+                  <li>{payment.credit_note_ids.length} credit note{payment.credit_note_ids.length !== 1 ? "s" : ""} will be restored to approved</li>
+                )}
+                {payment.remaining > 0 && (
+                  <li>Remaining balance of {fmtMoney(payment.remaining)} will be removed</li>
+                )}
+                <li>The payment record will be permanently deleted</li>
+              </ul>
+              <p className="text-xs font-medium text-destructive">This action cannot be undone.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reversing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reversing}
+              onClick={(e) => {
+                e.preventDefault();
+                handleReverse();
+              }}
+              className="inline-flex items-center gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {reversing ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Reversing…</>
+              ) : (
+                <><Undo2 className="h-4 w-4" /> Reverse payment</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

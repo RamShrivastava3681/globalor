@@ -287,7 +287,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
   const totalAmount = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
   const totalPaid = paidInvoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
-  const overdueCount = invoices.filter((i: any) => i.status === "overdue").length;
+  const openCount = invoices.filter((i: any) => i.status !== "paid" && i.status !== "rejected").length;
   const { canWrite } = useAuth();
   const canEdit = canWrite("invoices");
 
@@ -424,7 +424,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
             <StatsCard label="Total invoices" value={String(invoices.length)} />
             <StatsCard label="Closed" value={String(closedCount)} accent={closedCount > 0 ? "text-success" : ""} />
-            <StatsCard label="Overdue" value={String(overdueCount)} accent={overdueCount > 0 ? "text-destructive" : ""} />
+            <StatsCard label="Open" value={String(openCount)} accent={openCount > 0 ? "text-warning" : ""} />
             <StatsCard label="Outstanding" value={fmtMoney(outstanding)} accent={outstanding > 0 ? "text-warning" : "text-success"} />
             <StatsCard label="Total invoiced" value={fmtMoney(totalAmount)} />
             <StatsCard label="Total paid" value={fmtMoney(totalPaid)} />

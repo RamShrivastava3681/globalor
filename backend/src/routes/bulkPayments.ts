@@ -4,6 +4,7 @@ import {
   getItem,
   putItem,
   updateItem,
+  deleteItem,
   scanTable,
   TABLES,
 } from "../db/client.js";
@@ -70,6 +71,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
 
     // ── 1. Determine available amount ──
     let availableAmount = parsed.amount;
+    let consumedOldPayments: PaymentRecord[] = [];
 
     // If use_balance, scan previous payment records for this debtor with remaining > 0
     if (parsed.use_balance) {
@@ -78,6 +80,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         expressionAttributeNames: { "#remaining": "remaining" },
         expressionAttributeValues: { ":did": parsed.debtor_id, ":zero": 0 },
       });
+      consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
       availableAmount += totalRemaining;
     }
@@ -229,6 +232,8 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
       invoices_closed: closed.length,
+      closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
+      partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
       credit_note_ids: settledCredits,
       mode: parsed.mode,
       created_at: now,
@@ -236,7 +241,16 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     };
     await putItem(TABLES.PAYMENTS, paymentRecord as any);
 
-    // ── 6. Activity alert ──
+    // ── 6. Consume old remaining balances ──
+    // Zero out the remaining on all old payment records that were consumed so they don't double-count
+    for (const oldPay of consumedOldPayments) {
+      await updateItem(TABLES.PAYMENTS, { id: oldPay.id }, {
+        remaining: 0,
+        updated_at: now,
+      });
+    }
+
+    // ── 7. Activity alert ──
     const totalPaid = closed.reduce((s, c) => s + c.amount, 0);
     const totalPartiallyPaid = partiallyPaid.reduce((s, p) => s + p.amount_paid, 0);
     if (closed.length > 0 || partiallyPaid.length > 0) {
@@ -327,6 +341,153 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     });
   } catch (err) {
     console.error("Get payment history error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/bulk-payments/reverse/:paymentId ──
+// Reverses a payment record: reopens the invoices that were closed, unresolves credit notes, and deletes the payment record.
+router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices", "funding-queue"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { paymentId } = req.params;
+    const now = nowISO();
+
+    // ── 1. Fetch the payment record ──
+    const payment = await getItem(TABLES.PAYMENTS, { id: paymentId }) as PaymentRecord | undefined;
+    if (!payment) {
+      res.status(404).json({ error: "Payment record not found" });
+      return;
+    }
+
+    const reversedInvoices: string[] = [];
+    const reversalErrors: Array<{ id: string; error: string }> = [];
+    const restoredCreditNotes: string[] = [];
+    const creditNoteErrors: Array<{ id: string; error: string }> = [];
+
+    // ── 2. Reverse closed invoices ──
+    for (const ci of (payment.closed_invoices ?? [])) {
+      try {
+        const inv = await getItem(TABLES.INVOICES, { id: ci.id }) as Invoice | undefined;
+        if (!inv) {
+          reversalErrors.push({ id: ci.id, error: "Invoice not found" });
+          continue;
+        }
+
+        // Subtract the paid amount from amount_received
+        const prevReceived = inv.amount_received ?? 0;
+        const newReceived = Math.max(0, prevReceived - ci.amount);
+
+        if (newReceived <= 0) {
+          // Fully reverse — set back to open status
+          // Determine status: if due_date is in the past, set to "overdue", otherwise "approved"
+          const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
+          await updateItem(TABLES.INVOICES, { id: inv.id }, {
+            status: isOverdue ? "overdue" : "approved",
+            amount_received: null,
+            paid_date: null,
+            receipt_date: null,
+            late_days: null,
+            updated_at: now,
+          });
+        } else {
+          // Only partially reversed (shouldn't happen in full reverse, but handle gracefully)
+          await updateItem(TABLES.INVOICES, { id: inv.id }, {
+            amount_received: newReceived,
+            updated_at: now,
+          });
+        }
+
+        reversedInvoices.push(ci.id);
+      } catch (err) {
+        console.error(`Error reversing invoice ${ci.id}:`, err);
+        reversalErrors.push({ id: ci.id, error: "Failed to reverse invoice" });
+      }
+    }
+
+    // ── 3. Reverse partial payments ──
+    for (const pi of (payment.partial_invoices ?? [])) {
+      try {
+        const inv = await getItem(TABLES.INVOICES, { id: pi.id }) as Invoice | undefined;
+        if (!inv) {
+          reversalErrors.push({ id: pi.id, error: "Invoice not found" });
+          continue;
+        }
+
+        const prevReceived = inv.amount_received ?? 0;
+        const newReceived = Math.max(0, prevReceived - pi.amount_paid);
+
+        if (newReceived <= 0) {
+          const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
+          await updateItem(TABLES.INVOICES, { id: inv.id }, {
+            status: isOverdue ? "overdue" : "approved",
+            amount_received: null,
+            paid_date: null,
+            receipt_date: null,
+            late_days: null,
+            updated_at: now,
+          });
+        } else {
+          await updateItem(TABLES.INVOICES, { id: inv.id }, {
+            amount_received: newReceived,
+            updated_at: now,
+          });
+        }
+
+        reversedInvoices.push(pi.id);
+      } catch (err) {
+        console.error(`Error reversing partial payment for invoice ${pi.id}:`, err);
+        reversalErrors.push({ id: pi.id, error: "Failed to reverse partial payment" });
+      }
+    }
+
+    // ── 4. Restore credit notes back to "approved" ──
+    for (const noteId of (payment.credit_note_ids ?? [])) {
+      try {
+        const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+        if (!note) {
+          creditNoteErrors.push({ id: noteId, error: "Credit note not found" });
+          continue;
+        }
+
+        await updateItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }, {
+          status: "approved",
+          settled_at: null,
+          settled_by: null,
+          updated_at: now,
+        });
+
+        restoredCreditNotes.push(noteId);
+      } catch (err) {
+        console.error(`Error restoring credit note ${noteId}:`, err);
+        creditNoteErrors.push({ id: noteId, error: "Failed to restore credit note" });
+      }
+    }
+
+    // ── 5. Delete the payment record ──
+    await deleteItem(TABLES.PAYMENTS, { id: paymentId });
+
+    // ── 6. Activity alert ──
+    if (reversedInvoices.length > 0) {
+      createActivityAlert({
+        client_id: req.user!.id,
+        debtor_id: payment.debtor_id,
+        type: "payment_received",
+        severity: "warning",
+        message: `Bulk payment of ${fmtMoneyShort(payment.amount)} reversed — ${reversedInvoices.length} invoice(s) reopened, ${restoredCreditNotes.length} credit note(s) restored.`,
+        created_by: req.user!.id,
+      });
+    }
+
+    res.json({
+      success: true,
+      payment_id: paymentId,
+      reversed_invoices: reversedInvoices,
+      reversal_errors: reversalErrors,
+      restored_credit_notes: restoredCreditNotes,
+      credit_note_errors: creditNoteErrors,
+    });
+  } catch (err) {
+    console.error("Reverse payment error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
