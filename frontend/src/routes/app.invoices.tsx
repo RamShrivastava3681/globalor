@@ -116,6 +116,11 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Paginated data from server — sorting and filtering are server-side
+  const invoiceData = invoicesQ.data?.data ?? [];
+  const totalInvoices = invoicesQ.data?.total ?? 0;
+  const totalPages = invoicesQ.data?.totalPages ?? 1;
+
   const canSendNoa = canWrite("invoices") || canWrite("checker-desk");
 
   // Bulk actions
@@ -158,11 +163,6 @@ function InvoicesPage() {
     navigator.clipboard?.writeText(link).catch(() => {});
     toast.success("NOA link copied");
   };
-
-  // Paginated data from server — sorting and filtering are server-side
-  const invoiceData = invoicesQ.data?.data ?? [];
-  const totalInvoices = invoicesQ.data?.total ?? 0;
-  const totalPages = invoicesQ.data?.totalPages ?? 1;
 
   // Auto-open detail modal: fetch the specific invoice by id since we may not have it loaded
   useEffect(() => {

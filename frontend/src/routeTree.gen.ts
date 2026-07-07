@@ -27,9 +27,9 @@ import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 import { Route as AppCheckerRouteImport } from './routes/app.checker'
+import { Route as AppBulkPaymentsRouteImport } from './routes/app.bulk-payments'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
-import { Route as AppBulkPaymentsRouteImport } from './routes/app.bulk-payments'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
 
 const AuthRoute = AuthRouteImport.update({
@@ -122,6 +122,11 @@ const AppCheckerRoute = AppCheckerRouteImport.update({
   path: '/checker',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBulkPaymentsRoute = AppBulkPaymentsRouteImport.update({
+  id: '/bulk-payments',
+  path: '/bulk-payments',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAlertsRoute = AppAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
@@ -135,11 +140,6 @@ const AppAdvancesRoute = AppAdvancesRouteImport.update({
 const AppAdminRoute = AppAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppBulkPaymentsRoute = AppBulkPaymentsRouteImport.update({
-  id: '/bulk-payments',
-  path: '/bulk-payments',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -426,6 +426,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCheckerRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/bulk-payments': {
+      id: '/app/bulk-payments'
+      path: '/bulk-payments'
+      fullPath: '/app/bulk-payments'
+      preLoaderRoute: typeof AppBulkPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/alerts': {
       id: '/app/alerts'
       path: '/alerts'
@@ -438,13 +445,6 @@ declare module '@tanstack/react-router' {
       path: '/advances'
       fullPath: '/app/advances'
       preLoaderRoute: typeof AppAdvancesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/app/bulk-payments': {
-      id: '/app/bulk-payments'
-      path: '/bulk-payments'
-      fullPath: '/app/bulk-payments'
-      preLoaderRoute: typeof AppBulkPaymentsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/admin': {
