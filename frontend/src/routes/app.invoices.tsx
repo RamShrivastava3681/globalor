@@ -35,7 +35,8 @@ function InvoicesPage() {
   const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list", page, limit, sortField, sortOrder, searchQuery, filter, issueDateFrom, issueDateTo],
@@ -116,6 +117,42 @@ function InvoicesPage() {
   });
 
   const canSendNoa = canWrite("invoices") || canWrite("checker-desk");
+
+  // Bulk actions
+  const allSelected = invoiceData.length > 0 && invoiceData.every((i: any) => selectedIds.has(i.id));
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(invoiceData.map((i: any) => i.id)));
+    }
+  };
+
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await api.post("/invoices/bulk-delete", { ids });
+    },
+    onSuccess: () => {
+      toast.success(`${selectedIds.size} invoice${selectedIds.size !== 1 ? "s" : ""} removed`);
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const handleBulkDelete = () => {
+    const count = selectedIds.size;
+    if (!count) return;
+    if (!confirm(`Remove ${count} selected invoice${count !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+    bulkRemove.mutate([...selectedIds]);
+  };
   const copyNoa = (i: any) => {
     const link = `${window.location.origin}/noa/${i.noa_token}`;
     navigator.clipboard?.writeText(link).catch(() => {});
@@ -151,10 +188,10 @@ function InvoicesPage() {
 
   // All filtering is now server-side — the data is already filtered before pagination
 
-  // Reset to page 1 when search, filter, or date range changes
+  // Reset to page 1 when search, filter, date range, or page size changes
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filter, issueDateFrom, issueDateTo]);
+  }, [searchQuery, filter, issueDateFrom, issueDateTo, limit]);
 
   return (
     <div>
@@ -261,10 +298,42 @@ function InvoicesPage() {
           ) : invoiceData.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center justify-between border-b border-primary/20 bg-primary/5 px-5 py-2.5">
+                  <span className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{selectedIds.size}</span> selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedIds(new Set())}
+                      className="rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Clear selection
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      disabled={bulkRemove.isPending}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-2.5 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    >
+                      {bulkRemove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      Delete selected
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="-mx-5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-left">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-border accent-primary"
+                      />
+                    </th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
@@ -289,7 +358,15 @@ function InvoicesPage() {
                       ? (i.late_days != null ? Number(i.late_days) : 0)
                       : Math.max(0, dpd);
                     return (
-                      <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <tr key={i.id} className={`border-b border-border/60 hover:bg-muted/30 ${selectedIds.has(i.id) ? "bg-primary/5" : ""}`}>
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(i.id)}
+                            onChange={() => toggleSelect(i.id)}
+                            className="h-4 w-4 rounded border-border accent-primary"
+                          />
+                        </td>
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={i.id}>#{i.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{i.invoice_number}</div>
@@ -366,14 +443,30 @@ function InvoicesPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Card>
 
         {/* Pagination controls */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between pt-4">
-            <div className="text-xs text-muted-foreground">
-              {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-muted-foreground">
+                {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Show</label>
+                <select
+                  value={limit}
+                  onChange={(e) => setLimit(Number(e.target.value))}
+                  className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  {[20, 50, 100, 200, 500].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-muted-foreground">per page</span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
