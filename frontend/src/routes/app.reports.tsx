@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { FileText, FileSpreadsheet, Loader2, Filter } from "lucide-react";
+import { FileText, FileSpreadsheet, Loader2, Filter, Columns } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -70,6 +70,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "fee_rate", label: "Fee Rate", render: (r: any) => `${r.fee_rate ?? 0}%` },
         { key: "issue_date", label: "Issue Date", render: (r: any) => fmtDate(r.issue_date) },
         { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
+        { key: "contractual_terms", label: "Contractual Payment Terms", render: (r: any) => r.has_contractual_due_date ? "Yes" : "N/A" },
         { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
         { key: "paid_date", label: "Paid Date", render: (r: any) => fmtDate(r.paid_date) },
         { key: "amount_received", label: "Amount Received", render: (r: any) => r.amount_received ? fmtMoney(r.amount_received) : "—" },
@@ -92,6 +93,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "issue_date", label: "Issue Date", render: (r: any) => fmtDate(r.issue_date) },
         { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
+        { key: "contractual_terms", label: "Contractual Payment Terms", render: (r: any) => r.has_contractual_due_date ? "Yes" : "N/A" },
         { key: "paid_date", label: "Paid Date", render: (r: any) => fmtDate(r.paid_date) },
         { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "—" },
@@ -118,6 +120,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "expected_date", label: "Expected Date", render: (r: any) => fmtDate(r.expected_date) },
         { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
         { key: "proforma_status", label: "Proforma Status", render: (r: any) => r.proforma_status ?? "" },
+        { key: "contractual_terms", label: "Contractual Payment Terms", render: (r: any) => r.has_contractual_due_date ? "Yes" : "N/A" },
         { key: "proforma_funded_amount", label: "Funded Amount", render: (r: any) => r.proforma_funded_amount ? fmtMoney(r.proforma_funded_amount) : "—" },
         { key: "proforma_funded_at", label: "Funded At", render: (r: any) => fmtDate(r.proforma_funded_at) },
         { key: "proforma_funding_reference", label: "Funding Ref", render: (r: any) => r.proforma_funding_reference ?? "—" },
@@ -195,6 +198,14 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
   }
 }
 
+// ── Column picker helpers ──
+
+function initColumnVisibility(columns: { key: string; label: string }[]): Record<string, boolean> {
+  const vis: Record<string, boolean> = {};
+  columns.forEach((c) => (vis[c.key] = true));
+  return vis;
+}
+
 // ── Report Component ──
 
 function ReportsPage() {
@@ -207,6 +218,35 @@ function ReportsPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const limit = 50;
+
+  // Column visibility state
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+
+  const columns = getColumns(tab);
+
+  // Initialize/reset column visibility when tab changes
+  useEffect(() => {
+    setVisibleColumns(initColumnVisibility(columns));
+    setColumnMenuOpen(false);
+  }, [tab]);
+
+  // Close column menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setColumnMenuOpen(false);
+      }
+    }
+    if (columnMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [columnMenuOpen]);
+
+  // Derive visible columns list
+  const visibleColumnsList = columns.filter((c) => visibleColumns[c.key] !== false);
 
   // Tabs that support server-side pagination
   const PAGINATED_TABS: ReportTab[] = ["sales-invoices", "purchase-invoices", "aging"];
@@ -317,13 +357,13 @@ function ReportsPage() {
         toast.error("No data to export");
         return;
       }
-      const columns = getColumns(tab);
+      const cols = visibleColumnsList.length > 0 ? visibleColumnsList : columns;
       const wsData = [
-        columns.map((c) => c.label),
-        ...allData.map((row: any) => columns.map((c) => c.render(row))),
+        cols.map((c) => c.label),
+        ...allData.map((row: any) => cols.map((c) => c.render(row))),
       ];
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws["!cols"] = columns.map(() => ({ wch: 20 }));
+      ws["!cols"] = cols.map(() => ({ wch: 20 }));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, TABS.find((t) => t.id === tab)?.label ?? tab);
       XLSX.writeFile(wb, `${tab}-report.xlsx`);
@@ -341,7 +381,7 @@ function ReportsPage() {
         toast.error("No data to export");
         return;
       }
-      const columns = getColumns(tab);
+      const cols = visibleColumnsList.length > 0 ? visibleColumnsList : columns;
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
       // Header
@@ -363,8 +403,8 @@ function ReportsPage() {
 
       autoTable.call(doc, {
         startY: 40,
-        head: [columns.map((c) => c.label)],
-        body: allData.map((row: any) => columns.map((c) => c.render(row))),
+        head: [cols.map((c) => c.label)],
+        body: allData.map((row: any) => cols.map((c) => c.render(row))),
         styles: {
           fontSize: 7,
           cellPadding: 1.5,
@@ -405,7 +445,8 @@ function ReportsPage() {
   };
 
   const currentTab = TABS.find((t) => t.id === tab)!;
-  const columns = getColumns(tab);
+  const visibleCount = Object.values(visibleColumns).filter(Boolean).length;
+  const totalCount = columns.length;
   const statuses = STATUS_FILTERS[tab];
 
   return (
@@ -473,6 +514,70 @@ function ReportsPage() {
             ))}
           </div>
         )}
+
+        {/* Column visibility picker */}
+        <div className="relative" ref={columnMenuRef}>
+          <button
+            onClick={() => setColumnMenuOpen((o) => !o)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+          >
+            <Columns className="h-3 w-3" />
+            Columns ({visibleCount}/{totalCount})
+          </button>
+          {columnMenuOpen && (
+            <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-card shadow-lg">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Toggle columns</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      const all: Record<string, boolean> = {};
+                      columns.forEach((c) => (all[c.key] = true));
+                      setVisibleColumns(all);
+                    }}
+                    className="text-[10px] uppercase tracking-widest text-primary hover:text-primary/80 px-1.5 py-0.5"
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => {
+                      const none: Record<string, boolean> = {};
+                      columns.forEach((c) => (none[c.key] = false));
+                      setVisibleColumns(none);
+                    }}
+                    className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground px-1.5 py-0.5"
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto p-1">
+                {columns.map((col) => {
+                  const checked = visibleColumns[col.key] !== false;
+                  return (
+                    <label
+                      key={col.key}
+                      className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs hover:bg-accent cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setVisibleColumns((prev) => ({ ...prev, [col.key]: !checked }))
+                        }
+                        className="rounded border-border text-primary focus:ring-primary/30 h-3.5 w-3.5"
+                      />
+                      <span className={checked ? "text-foreground" : "text-muted-foreground"}>
+                        {col.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="ml-auto">
           <input
             type="text"
@@ -502,7 +607,7 @@ function ReportsPage() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
-                      {columns.map((col) => (
+                      {visibleColumnsList.map((col) => (
                         <th key={col.key} className="px-4 py-3 text-left font-medium uppercase tracking-widest text-muted-foreground whitespace-nowrap">
                           {col.label}
                         </th>
@@ -512,7 +617,7 @@ function ReportsPage() {
                   <tbody>
                     {filtered.map((row, i) => (
                       <tr key={row.id ?? i} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
-                        {columns.map((col) => (
+                        {visibleColumnsList.map((col) => (
                           <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">
                             <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" ? "num font-medium" : ""}>
                               {col.render(row)}

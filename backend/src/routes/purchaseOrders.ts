@@ -8,7 +8,6 @@ import {
   scanTable,
   queryByIndex,
   batchPutItems,
-  batchDeleteItems,
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
@@ -86,6 +85,7 @@ const createSchema = z.object({
   amount: z.number().positive(),
   currency: z.string().optional().default("USD"),
   notes: z.string().nullable().optional(),
+  has_contractual_due_date: z.boolean().optional().default(false),
   documents: z.array(z.any()).optional().default([]),
 });
 
@@ -120,6 +120,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
       proforma_funding_reference: null,
       notes: parsed.notes || null,
       documents: parsed.documents as DocMeta[],
+      has_contractual_due_date: parsed.has_contractual_due_date || false,
       created_at: now,
       updated_at: now,
     };
@@ -213,6 +214,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
           proforma_funding_reference: null,
           notes: null,
           documents: [],
+          has_contractual_due_date: false,
           created_at: now,
           updated_at: now,
         };
@@ -251,36 +253,6 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
       return;
     }
     console.error("Batch create proformas error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ── POST /api/purchase-orders/delete-all ──
-router.post("/delete-all", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
-  try {
-    const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
-    const toDelete = orders;
-
-    if (toDelete.length === 0) {
-      res.json({ deleted: 0 });
-      return;
-    }
-
-    // Delete in batches of 25 (DynamoDB limit)
-    const chunkSize = 25;
-    let deleted = 0;
-    for (let i = 0; i < toDelete.length; i += chunkSize) {
-      const chunk = toDelete.slice(i, i + chunkSize);
-      await batchDeleteItems(
-        TABLES.PURCHASE_ORDERS,
-        chunk.map((o) => ({ id: o.id }))
-      );
-      deleted += chunk.length;
-    }
-
-    res.json({ deleted });
-  } catch (err) {
-    console.error("Delete all purchase orders error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

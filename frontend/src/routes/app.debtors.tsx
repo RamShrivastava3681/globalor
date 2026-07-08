@@ -368,13 +368,6 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
     ? Math.round(paymentDays.reduce((a, b) => a + b, 0) / paymentDays.length)
     : null;
 
-  // Average overdue days: for paid invoices, days between due_date and paid_date
-  const overdueDaysList = paidInvoices
-    .map((i: any) => i.due_date && i.paid_date ? daysBetween(i.due_date, i.paid_date) : null)
-    .filter((d: number | null): d is number => d !== null && d >= 0);
-  const avgOverdueDays = overdueDaysList.length > 0
-    ? Math.round(overdueDaysList.reduce((a, b) => a + b, 0) / overdueDaysList.length)
-    : null;
 
   // Median, max, min payment days
   const sortedPaymentDays = [...paymentDays].sort((a, b) => a - b);
@@ -386,9 +379,8 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
   const maxPaymentDays = paymentDays.length > 0 ? Math.max(...paymentDays) : null;
   const minPaymentDays = paymentDays.length > 0 ? Math.min(...paymentDays) : null;
 
-  // Outstanding, remaining credit, closed count
+  // Outstanding, closed count
   const outstanding = totalAmount - totalPaid;
-  const remaining = Math.max(0, Number(debtor.credit_limit) - outstanding);
   const closedCount = paidInvoices.length;
 
   return (
@@ -432,8 +424,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
             <StatsCard label="Median days" value={medianPaymentDays != null ? `${medianPaymentDays}d` : "—"} />
             <StatsCard label="Max days" value={maxPaymentDays != null ? `${maxPaymentDays}d` : "—"} accent={maxPaymentDays != null && maxPaymentDays > 90 ? "text-destructive" : ""} />
             <StatsCard label="Min days" value={minPaymentDays != null ? `${minPaymentDays}d` : "—"} accent={minPaymentDays != null && minPaymentDays > 0 ? "text-success" : ""} />
-            <StatsCard label="Avg overdue days" value={avgOverdueDays != null ? `${avgOverdueDays}d` : "—"} accent={avgOverdueDays != null && avgOverdueDays > 0 ? "text-destructive" : ""} />
-            <StatsCard label="Remaining" value={fmtMoney(remaining)} accent={remaining > 0 ? "text-success" : "text-muted-foreground"} />
+
           </div>
 
           {/* Invoices table */}
@@ -513,7 +504,6 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                       <th className="px-4 py-2 text-left font-normal">Due</th>
                       <th className="px-4 py-2 text-left font-normal">Paid</th>
                       <th className="px-4 py-2 text-right font-normal">Payment days</th>
-                      <th className="px-4 py-2 text-right font-normal">Overdue days</th>
                       <th className="px-4 py-2 text-left font-normal">Status</th>
                     </tr>
                   </thead>
@@ -522,9 +512,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                       const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
                         ? daysBetween(inv.issue_date, inv.paid_date)
                         : null;
-                      const rowOverdueDays = inv.status === "paid" && inv.due_date && inv.paid_date
-                        ? Math.max(0, daysBetween(inv.due_date, inv.paid_date))
-                        : null;
+
                       const isSelected = selectedIds.has(inv.id);
                       return (
                         <tr key={inv.id} className={`border-b border-border/60 transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/30"}`}>
@@ -550,9 +538,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                           <td className={`px-4 py-2.5 text-right num ${paymentDays != null && paymentDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {paymentDays != null ? `${paymentDays}d` : "—"}
                           </td>
-                          <td className={`px-4 py-2.5 text-right num ${rowOverdueDays != null && rowOverdueDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                            {rowOverdueDays != null ? `${rowOverdueDays}d` : "—"}
-                          </td>
+
                           <td className="px-4 py-2.5"><StatusPill status={inv.status} /></td>
                         </tr>
                       );

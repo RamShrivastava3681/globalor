@@ -270,6 +270,7 @@ function PurchasesPage() {
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-left font-normal">Due Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -303,6 +304,13 @@ function PurchasesPage() {
                         <td className="px-5 py-3 text-sm">{fmtDate(p.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            p.has_contractual_due_date ? "border-success/50 text-success" : "border-border text-muted-foreground"
+                          }`}>
+                            {p.has_contractual_due_date ? "Yes" : "N/A"}
+                          </span>
+                        </td>
                         <td className="px-5 py-3 text-sm">{p.status === "paid" ? fmtDate(p.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                         <td className="px-5 py-3"><StatusPill status={p.status} /></td>
@@ -445,6 +453,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
     payment_terms_days: String(editing?.payment_terms_days ?? "30"),
+    has_contractual_due_date: editing?.has_contractual_due_date ?? false,
     bl_date: editing?.bl_date ?? "",
     due_date_source: editing?.due_date_source ?? "invoice",
     notes: editing?.notes ?? "",
@@ -638,6 +647,12 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
                 )}
               </div>
             </L>
+            <L label="Contractual payment terms">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                <input type="checkbox" checked={form.has_contractual_due_date} onChange={(e) => setForm({ ...form, has_contractual_due_date: e.target.checked })} />
+                Has contractual payment terms
+              </label>
+            </L>
           </div>
 
           <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
@@ -766,6 +781,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
+              <Detail label="Contractual payment terms" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
               <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
               <Detail label="Advance paid date" value={invoice.advance_paid_date ? fmtDate(invoice.advance_paid_date) : "—"} />

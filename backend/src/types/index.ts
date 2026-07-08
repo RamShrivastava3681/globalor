@@ -177,6 +177,7 @@ export interface PurchaseInvoice {
   payment_terms_days: number;
   bl_date: string | null;
   due_date_source: "invoice" | "bl";
+  has_contractual_due_date?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -206,6 +207,7 @@ export interface PurchaseOrder {
   proforma_funding_reference: string | null;
   notes: string | null;
   documents: DocMeta[];
+  has_contractual_due_date?: boolean;
   created_at: string;
   updated_at: string;
 }

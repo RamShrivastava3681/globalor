@@ -343,7 +343,7 @@ function InvoicesPage() {
                     <th className="px-5 py-2 text-right font-normal">Received</th>
                     <th className="px-5 py-2 text-right font-normal">Short payment</th>
                     <th className="px-5 py-2 text-left font-normal">Due Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Contractual Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -799,10 +799,10 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                 )}
               </div>
             </Field>
-            <Field label="Contractual due date">
+            <Field label="Contractual payment terms">
               <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
                 <input type="checkbox" checked={form.has_contractual_due_date} onChange={(e) => setForm({ ...form, has_contractual_due_date: e.target.checked })} />
-                Has contractual due date
+                Has contractual payment terms
               </label>
               <p className="mt-1 text-[10px] text-muted-foreground">
                 When checked, displays "Yes" in the invoices list. Does not affect late days or due date calculations.
@@ -958,7 +958,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="Due date" value={fmtDate(invoice.due_date)} />
-              <Detail label="Contractual due date" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
+              <Detail label="Contractual payment terms" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
               <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
@@ -1297,7 +1297,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
             <div className="border-t border-border pt-4">
               <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={hasContractualDueDate} onChange={(e) => setHasContractualDueDate(e.target.checked)} />
-                <span className="uppercase tracking-widest text-muted-foreground">Has contractual due date</span>
+                <span className="uppercase tracking-widest text-muted-foreground">Has contractual payment terms</span>
               </label>
               <p className="mt-1 text-[10px] text-muted-foreground">
                 When checked, displays "Yes" in the invoices list for all imported invoices. Does not affect late days or due date calculations.

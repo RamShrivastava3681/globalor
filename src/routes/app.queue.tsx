@@ -38,6 +38,7 @@ type Row = {
   balance: number;
   due_date: string | null;
   issue_date: string | null;
+  has_contractual_due_date?: boolean;
   status: string;
   party: string;
   client?: string;
@@ -177,6 +178,7 @@ function QueuePage() {
         balance: net, // net amount is the balance receivable
         due_date: i.due_date, issue_date: i.issue_date,
         status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
+        has_contractual_due_date: i.has_contractual_due_date,
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -188,6 +190,7 @@ function QueuePage() {
         balance: net, // net amount is the balance to pay
         due_date: p.due_date, issue_date: p.issue_date,
         status: p.status, party: p.vendor?.name ?? "—", client: p.client?.company_name || p.client?.contact_name || "—",
+        has_contractual_due_date: p.has_contractual_due_date,
       };
     }),
     ...((proformasQ.data ?? []) as Array<Record<string, any>>).map((p): Row => ({
@@ -206,6 +209,7 @@ function QueuePage() {
       side: p.side,
       proforma_number: p.proforma_number,
       currency: p.currency,
+      has_contractual_due_date: p.has_contractual_due_date,
     })),
   ]
     .filter((r) => side === "all" || r.kind === side || (side === "sale" && r.kind === "proforma" && r.side === "sales") || (side === "purchase" && r.kind === "proforma" && r.side === "purchase"))
@@ -277,6 +281,7 @@ function QueuePage() {
                     <th className="px-5 py-2 text-right font-normal">Advance applied</th>
                     <th className="px-5 py-2 text-right font-normal">Balance</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="sticky right-0 hidden bg-card px-5 py-2 text-right font-normal md:table-cell">Action</th>
@@ -305,12 +310,19 @@ function QueuePage() {
                         <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
                         <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.balance)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            r.has_contractual_due_date ? "border-success/50 text-success" : "border-border text-muted-foreground"
+                          }`}>
+                            {r.has_contractual_due_date ? "Yes" : "N/A"}
+                          </span>
+                        </td>
                         <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                         <td className="px-5 py-3"><StatusPill status={r.status} /></td>
                         <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">{action}</td>
                       </tr>
                       <tr className="border-b border-border/60 md:hidden">
-                        <td colSpan={11} className="px-5 pb-4 pt-0 text-left">
+                        <td colSpan={12} className="px-5 pb-4 pt-0 text-left">
                           <div className="flex justify-start">{action}</div>
                         </td>
                       </tr>

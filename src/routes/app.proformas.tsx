@@ -131,21 +131,6 @@ function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
-
-  const deleteAll = useMutation({
-    mutationFn: async () => {
-      const r = await api.post<{ deleted: number }>("/purchase-orders/delete-all");
-      return r;
-    },
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success(r.deleted > 0 ? `${r.deleted} proformas deleted` : "No deletable proformas found");
-      setDeleteAllOpen(false);
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
   return (
     <div>
       <PageHeader
@@ -160,9 +145,6 @@ function ProformasPage() {
               </button>
               <button onClick={() => setOpen("purchase")} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm">
                 <Plus className="h-4 w-4" /> Purchase proforma
-              </button>
-              <button onClick={() => setDeleteAllOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10">
-                <Trash2 className="h-4 w-4" /> Delete all
               </button>
             </div>
           ) : (
@@ -221,6 +203,7 @@ function ProformasPage() {
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-left font-normal">Side</th>
                     <th className="px-5 py-2 text-right font-normal">Advance amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
@@ -242,6 +225,13 @@ function ProformasPage() {
                         <td className="px-5 py-3">{cp ?? "—"}</td>
                         <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            p.has_contractual_due_date ? "border-success/50 text-success" : "border-border text-muted-foreground"
+                          }`}>
+                            {p.has_contractual_due_date ? "Yes" : "N/A"}
+                          </span>
+                        </td>
                         <td className="px-5 py-3">
                           <StatusPill status={p.status} pStatus={p.proforma_status} />
                         </td>
@@ -288,32 +278,6 @@ function ProformasPage() {
           </ol>
         </Card>
       </div>
-
-      <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Delete all proformas?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete <strong>all proformas</strong> regardless of status.
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteAllOpen(false)}>Go back</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteAll.mutate()}
-              disabled={deleteAll.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleteAll.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Yes, delete all
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
@@ -373,6 +337,7 @@ function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () =
     notes: proforma.notes ?? "",
     proforma_number: proforma.proforma_number ?? "",
     proforma_date: proforma.proforma_date ?? new Date().toISOString().slice(0, 10),
+    has_contractual_due_date: proforma.has_contractual_due_date ?? false,
   });
 
   const save = useMutation({
@@ -385,6 +350,7 @@ function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () =
         notes: form.notes || null,
         proforma_number: form.proforma_number.trim(),
         proforma_date: form.proforma_date,
+        has_contractual_due_date: form.has_contractual_due_date,
       });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Proforma updated"); onClose(); },
@@ -397,6 +363,12 @@ function EditProformaModal({ proforma, onClose }: { proforma: any; onClose: () =
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} /></L>
         <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         <L label={`Advance amount * (${proforma.currency || "USD"})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+        <L label="Contractual payment terms">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+            <input type="checkbox" checked={form.has_contractual_due_date} onChange={(e) => setForm({ ...form, has_contractual_due_date: e.target.checked })} />
+            Has contractual payment terms
+          </label>
+        </L>
         <L label="Notes"><textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
         <Actions onClose={onClose} pending={save.isPending} label="Save changes" />
       </form>
@@ -419,6 +391,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
   const [form, setForm] = useState({
     po_number: "", proforma_number: "", proforma_date: new Date().toISOString().slice(0, 10),
     party_id: "", amount: "", currency: "USD", notes: "",
+    has_contractual_due_date: false,
   });
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [partySearch, setPartySearch] = useState("");
@@ -457,6 +430,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
         amount: amt,
         currency: form.currency,
         notes: form.notes || null,
+        has_contractual_due_date: form.has_contractual_due_date,
         documents: docs,
       });
     },
@@ -505,6 +479,12 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
           <L label={`Advance amount * (${form.currency})`}><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
           <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         </div>
+        <L label="Contractual payment terms">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+            <input type="checkbox" checked={form.has_contractual_due_date} onChange={(e) => setForm({ ...form, has_contractual_due_date: e.target.checked })} />
+            Has contractual payment terms
+          </label>
+        </L>
         <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
         <DocumentUploader userId={""} scope="purchase_orders" docs={docs} onChange={setDocs}
           hint="Attach the proforma invoice, supplier quote, or other supporting paperwork." />
@@ -592,6 +572,7 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
               <Detail label="Last updated" value={fmtDate(proforma.updated_at)} />
               <Detail label="Status" value={proforma.status} />
               <Detail label="Proforma status" value={proforma.proforma_status?.replace("_", " ")} />
+              <Detail label="Contractual payment terms" value={proforma.has_contractual_due_date ? "Yes" : "N/A"} />
             </div>
             {proforma.proforma_review_comments && (
               <div className="mt-3 rounded-md border border-border bg-background/60 p-3">
