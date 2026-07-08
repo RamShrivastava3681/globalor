@@ -24,16 +24,19 @@ function Dashboard() {
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchase_invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const expensesQ = useQuery({
     queryKey: ["expenses", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/expenses")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const alertsQ = useQuery({
@@ -42,16 +45,19 @@ function Dashboard() {
       const data = await api.get<any[]>("/alerts") ?? [];
       return data.slice(0, 8);
     },
+    refetchInterval: 30_000,
   });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors"],
     queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const proformasQ = useQuery({
     queryKey: ["proformas"],
     queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [],
+    refetchInterval: 30_000,
   });
 
   const invoices = invoicesQ.data ?? [];
@@ -62,6 +68,7 @@ function Dashboard() {
   const advancesQ = useQuery({
     queryKey: ["advances"],
     queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
+    refetchInterval: 30_000,
   });
   const advances = advancesQ.data ?? [];
 
