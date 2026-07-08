@@ -121,12 +121,75 @@
 }
 
 .dark {
-  --background: #0F172A;
-  --foreground: #F8FAFC;
+  --bg-main: #0B1121;
+  --bg-secondary: #1E293B;
+  --bg-card: #1E293B;
+  --bg-sidebar: #0F172A;
+
+  --background: #0B1121;
+  --foreground: #F1F5F9;
+
+  --card: #1E293B;
+  --card-foreground: #F1F5F9;
+
+  --popover: #1E293B;
+  --popover-foreground: #F1F5F9;
+
+  --primary: #00B8FF;
+  --primary-hover: #38CDFF;
+  --primary-dark: #0099D9;
+  --primary-foreground: #0F172A;
+
+  --secondary: rgba(0, 184, 255, 0.12);
+  --secondary-foreground: #F1F5F9;
+
+  --muted: #1E293B;
+  --muted-foreground: #94A3B8;
+
+  --accent: #1E293B;
+  --accent-foreground: #F1F5F9;
+
+  --destructive: #EF4444;
+  --destructive-foreground: #F8FAFC;
+
+  --warning: #F59E0B;
+  --warning-foreground: #0F172A;
+
+  --success: #22C55E;
+  --success-foreground: #0F172A;
+
+  --info: #38CDFF;
+  --info-foreground: #0F172A;
+
+  --border: #1E293B;
+  --input: #334155;
+  --ring: #00B8FF;
+
+  --sidebar: #0F172A;
+  --sidebar-foreground: #94A3B8;
+  --sidebar-primary: #00B8FF;
+  --sidebar-primary-foreground: #0F172A;
+  --sidebar-accent: rgba(0, 184, 255, 0.08);
+  --sidebar-accent-foreground: #F1F5F9;
+  --sidebar-border: #1E293B;
+  --sidebar-ring: #00B8FF;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-card-hover: 0 4px 20px rgba(0, 0, 0, 0.4), 0 8px 16px rgba(0, 0, 0, 0.3);
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    * {
+      transition-property: background-color, color, border-color;
+      transition-duration: 0.3s;
+      transition-timing-function: ease;
+    }
+  }
   html, body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -255,5 +318,16 @@
   .divider-subtle {
     height: 1px;
     background: linear-gradient(to right, transparent, #E2E8F0, transparent);
+  }
+
+  /* Theme toggle rotate animation */
+  @keyframes theme-rotate {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.25); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  .animate-theme-rotate {
+    animation: theme-rotate 0.5s ease-out;
   }
 }

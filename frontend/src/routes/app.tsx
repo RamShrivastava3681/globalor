@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft, Sun, Moon
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -15,6 +15,26 @@ function AppLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [themeToggleKey, setThemeToggleKey] = useState(0);
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("theme");
+      if (stored) return stored === "dark";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      root.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [isDark]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -36,10 +56,10 @@ function AppLayout() {
 
   if (loading || !user) {
     return (
-      <div className="grid min-h-screen place-items-center bg-[#F8FAFC]">
+      <div className="grid min-h-screen place-items-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#00B8FF] border-t-transparent" />
-          <div className="text-sm text-[#64748B]">Opening portal…</div>
+          <div className="text-sm text-muted-foreground">Opening portal…</div>
         </div>
       </div>
     );
@@ -94,13 +114,13 @@ function AppLayout() {
 
   const sidebarContent = (
     <>
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-[#E2E8F0]">
+      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#00B8FF] to-[#0099D9] shadow-sm">
           <span className="text-sm font-bold text-white">G</span>
         </div>
         <div>
-          <div className="text-sm font-bold text-[#0F172A]">Globalor</div>
-          <div className="text-[10px] text-[#64748B] tracking-wide">Trade Finance OS</div>
+          <div className="text-sm font-bold text-sidebar-accent-foreground">Globalor</div>
+          <div className="text-[10px] text-sidebar-foreground tracking-wide">Trade Finance OS</div>
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 px-3 py-4 overflow-y-auto">
@@ -114,12 +134,12 @@ function AppLayout() {
               onClick={() => setMobileSidebarOpen(false)}
               className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                 active
-                  ? "bg-[#F0F9FF] text-[#0F172A] shadow-sm"
-                  : "text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#0F172A]"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               }`}
             >
               <Icon className={`h-4 w-4 shrink-0 transition-colors ${
-                active ? "text-[#00B8FF]" : "text-[#94A3B8] group-hover:text-[#64748B]"
+                active ? "text-sidebar-primary" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground"
               }`} />
               <span>{n.label}</span>
               {active && (
@@ -129,20 +149,20 @@ function AppLayout() {
           );
         })}
       </nav>
-      <div className="border-t border-[#E2E8F0] p-4">
-        <div className="rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] p-3">
+      <div className="border-t border-sidebar-border p-4">
+        <div className="rounded-xl bg-sidebar-accent/50 border border-sidebar-border p-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#E2E8F0] text-sm font-medium text-[#64748B]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-foreground/20 text-sm font-medium text-sidebar-foreground">
               {user?.email?.charAt(0).toUpperCase() || "U"}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-[#0F172A] truncate">{user?.email}</div>
-              <div className="text-[10px] text-[#64748B]">
+              <div className="text-xs font-medium text-sidebar-accent-foreground truncate">{user?.email}</div>
+              <div className="text-[10px] text-sidebar-foreground">
                 {isAdmin ? "Admin" : isTreasury ? "Treasury" : isChecker ? "Checker" : "User"}
               </div>
             </div>
           </div>
-          <button onClick={signOut} className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs text-[#64748B] hover:bg-[#FEF2F2] hover:text-[#DC2626] hover:border-[#FECACA] transition-colors">
+          <button onClick={signOut} className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-sidebar-border bg-sidebar px-3 py-1.5 text-xs text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors">
             <LogOut className="h-3 w-3" />
             Sign out
           </button>
@@ -153,37 +173,49 @@ function AppLayout() {
 
   return (
     <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-    <div className="flex h-screen w-full overflow-hidden bg-[#F8FAFC]">
-      <SheetContent side="left" className="w-72 p-0 bg-white border-r border-[#E2E8F0]">
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      <SheetContent side="left" className="w-72 p-0 bg-sidebar border-r border-sidebar-border">
         {sidebarContent}
       </SheetContent>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden w-64 flex-col border-r border-[#E2E8F0] bg-white md:flex shadow-sm">
+      <aside className="hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex shadow-sm">
         {sidebarContent}
       </aside>
 
       <main className="flex-1 min-w-0 flex flex-col">
         {/* Top Header Bar */}
-        <header className="h-16 flex-none flex items-center justify-between border-b border-[#E2E8F0] bg-white px-4 md:px-6 sticky top-0 z-30">
+        <header className="h-16 flex-none flex items-center justify-between border-b border-border bg-card px-4 md:px-6 sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <SheetTrigger asChild className="md:hidden">
               <button
-                className="p-2 text-[#64748B] hover:bg-[#F1F5F9] transition-colors rounded-lg"
+                className="p-2 text-muted-foreground hover:bg-accent transition-colors rounded-lg"
                 aria-label="Open navigation menu"
               >
                 <Menu className="h-5 w-5" />
               </button>
             </SheetTrigger>
-            <div className="hidden md:flex items-center gap-2 text-sm text-[#64748B]">
+            <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
               <PageIcon className="h-4 w-4 text-[#00B8FF]" />
-              <span className="font-medium text-[#0F172A]">{pageTitle}</span>
+              <span className="font-medium text-foreground">{pageTitle}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button className="relative rounded-lg p-2 text-[#64748B] hover:bg-[#F1F5F9] transition-colors">
+            <button
+              onClick={() => {
+                setIsDark(!isDark);
+                setThemeToggleKey((k) => k + 1);
+              }}
+              className="rounded-lg p-2 text-muted-foreground hover:bg-accent transition-colors"
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              <span key={themeToggleKey} className="inline-block animate-theme-rotate">
+                {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </span>
+            </button>
+            <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent transition-colors">
               <BellRing className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[#00B8FF] ring-2 ring-white" />
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-[#00B8FF] ring-2 ring-background" />
             </button>
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#00B8FF] to-[#0099D9] text-sm font-medium text-white shadow-sm">
               {user?.email?.charAt(0).toUpperCase() || "U"}
