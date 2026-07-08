@@ -263,14 +263,14 @@ function PurchasesPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">UID</th>
-                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
+                    <th className="px-5 py-2 text-left font-normal">Client</th>
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">PO</th>
-                    <th className="px-5 py-2 text-left font-normal">Issue</th>
+                    <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-left font-normal">Paid</th>
+                    <th className="px-5 py-2 text-left font-normal">Due Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">Linked sales</th>
@@ -290,7 +290,7 @@ function PurchasesPage() {
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>}
+                        <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>
                         <td className="px-5 py-3">{p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
                           {p.po_number ? (

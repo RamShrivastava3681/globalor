@@ -187,7 +187,7 @@ function QueuePage() {
         po_number: p.po_number ?? null, advance,
         balance: net, // net amount is the balance to pay
         due_date: p.due_date, issue_date: p.issue_date,
-        status: p.status, party: p.vendor?.name ?? "—", client: "—",
+        status: p.status, party: p.vendor?.name ?? "—", client: p.client?.company_name || p.client?.contact_name || "—",
       };
     }),
     ...((proformasQ.data ?? []) as Array<Record<string, any>>).map((p): Row => ({
@@ -202,7 +202,7 @@ function QueuePage() {
       issue_date: p.proforma_date ?? p.issue_date,
       status: p.proforma_status,
       party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
-      client: "—",
+      client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
       currency: p.currency,
@@ -271,7 +271,7 @@ function QueuePage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Client</th>
                     <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance applied</th>
@@ -299,7 +299,7 @@ function QueuePage() {
                           <div>{r.invoice_number}</div>
                           {r.po_number && <div className="text-[10px] text-muted-foreground">PO {r.po_number}</div>}
                         </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>}
+                        <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
                         <td className="px-5 py-3">{r.party}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                         <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
@@ -310,7 +310,7 @@ function QueuePage() {
                         <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">{action}</td>
                       </tr>
                       <tr className="border-b border-border/60 md:hidden">
-                        <td colSpan={isAdmin ? 11 : 10} className="px-5 pb-4 pt-0 text-left">
+                        <td colSpan={11} className="px-5 pb-4 pt-0 text-left">
                           <div className="flex justify-start">{action}</div>
                         </td>
                       </tr>

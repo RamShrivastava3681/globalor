@@ -335,16 +335,16 @@ function InvoicesPage() {
                       />
                     </th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
-                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                    <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
                     {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Debtor</th>
-                    <th className="px-5 py-2 text-left font-normal">Issue</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-right font-normal">Recv'd</th>
-                    <th className="px-5 py-2 text-right font-normal">Short pay</th>
-                    <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-left font-normal">Contractual</th>
-                    <th className="px-5 py-2 text-left font-normal">Paid</th>
+                    <th className="px-5 py-2 text-left font-normal">Issue date</th>
+                    <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Received</th>
+                    <th className="px-5 py-2 text-right font-normal">Short payment</th>
+                    <th className="px-5 py-2 text-left font-normal">Due Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Contractual Date</th>
+                    <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">NOA</th>

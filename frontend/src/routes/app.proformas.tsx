@@ -212,6 +212,21 @@ function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+
+  const deleteAll = useMutation({
+    mutationFn: async () => {
+      const r = await api.post<{ deleted: number }>("/purchase-orders/delete-all");
+      return r;
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success(r.deleted > 0 ? `${r.deleted} proformas deleted` : "No deletable proformas found");
+      setDeleteAllOpen(false);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   return (
     <div>
       <PageHeader
@@ -229,6 +244,9 @@ function ProformasPage() {
               </button>
               <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
                 <Upload className="h-4 w-4" /> Mass import
+              </button>
+              <button onClick={() => setDeleteAllOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10">
+                <Trash2 className="h-4 w-4" /> Delete all
               </button>
             </div>
           ) : (
@@ -355,7 +373,7 @@ function ProformasPage() {
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Proforma</th>
                     <th className="px-5 py-2 text-left font-normal">PO #</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Client</th>
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-left font-normal">Side</th>
                     <th className="px-5 py-2 text-right font-normal">Advance amount</th>
@@ -377,7 +395,7 @@ function ProformasPage() {
                           )}
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>}
+                        <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>
                         <td className="px-5 py-3">{cp ?? "—"}</td>
                         <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
@@ -424,6 +442,32 @@ function ProformasPage() {
           </ol>
         </Card>
       </div>
+
+      <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete all deletable proformas?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all proformas with <strong>pending review</strong> or <strong>rejected</strong> status.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteAllOpen(false)}>Go back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteAll.mutate()}
+              disabled={deleteAll.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteAll.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Yes, delete all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>

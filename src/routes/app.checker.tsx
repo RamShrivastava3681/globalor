@@ -155,7 +155,7 @@ function CheckerPage() {
         kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount: net + adv, // reconstruct gross
         po_number: p.po_number, advance: adv, net,
         issue_date: p.issue_date, due_date: p.due_date,
-        party: p.vendor?.name ?? "—", client: "—", client_id: p.client_id,
+        party: p.vendor?.name ?? "—", client: p.client?.company_name || p.client?.contact_name || "—", client_id: p.client_id,
       };
     }),
     ...((proformasQ.data ?? []) as Array<Record<string, any>>).map((p): Row => ({
@@ -169,7 +169,7 @@ function CheckerPage() {
       issue_date: p.proforma_date ?? p.issue_date,
       due_date: null,
       party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
-      client: "—",
+      client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
       proforma_review_comments: p.proforma_review_comments,
@@ -242,7 +242,7 @@ function CheckerPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Client</th>
                     <th className="px-5 py-2 text-left font-normal">Party</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
@@ -262,7 +262,7 @@ function CheckerPage() {
                         }`}>{r.kind === "sale" ? "Sale (AR)" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : "Purchase (AP)"}</span>
                       </td>
                       <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
-                      {isAdmin && <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>}
+                      <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
                       <td className="px-5 py-3">{r.party}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}{r.po_number && <div className="text-[10px] font-mono text-muted-foreground">PO {r.po_number}</div>}</td>
                       <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>

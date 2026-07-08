@@ -197,4 +197,47 @@ export async function queryByIndex<T = Record<string, unknown>>(
   return (result.Items ?? []) as T[];
 }
 
+/**
+ * Delete multiple items from a DynamoDB table using BatchWriteCommand.
+ * DynamoDB allows up to 25 delete requests per batch.
+ */
+export async function batchDeleteItems(
+  tableName: string,
+  keys: Record<string, unknown>[],
+  maxRetries = 3,
+): Promise<void> {
+  const chunkSize = 25;
+
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const chunk = keys.slice(i, i + chunkSize);
+    let retries = 0;
+    let pendingKeys = chunk;
+
+    while (pendingKeys.length > 0 && retries <= maxRetries) {
+      const params: BatchWriteCommandInput = {
+        RequestItems: {
+          [tableName]: pendingKeys.map((key) => ({
+            DeleteRequest: { Key: key },
+          })),
+        },
+      };
+
+      const result = await docClient.send(new BatchWriteCommand(params));
+
+      const unprocessed = result.UnprocessedItems?.[tableName];
+      if (unprocessed && unprocessed.length > 0) {
+        pendingKeys = unprocessed
+          .map((u) => u.DeleteRequest?.Key)
+          .filter((k): k is Record<string, unknown> => k != null);
+        retries++;
+        if (retries <= maxRetries) {
+          await new Promise((r) => setTimeout(r, 100 * Math.pow(2, retries)));
+        }
+      } else {
+        pendingKeys = [];
+      }
+    }
+  }
+}
+
 export { docClient, DynamoDBClient };

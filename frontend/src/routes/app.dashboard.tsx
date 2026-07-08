@@ -83,7 +83,7 @@ function Dashboard() {
     .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
     .reduce((s: number, i: any) => s + Number(i.amount), 0);
   const overdueCount = invoices.filter((i: any) => i.status === "overdue" || (i.due_date && i.status !== "paid" && daysBetween(i.due_date) > 0)).length;
-  const collectionRate = invoices.length ? Math.round((invoices.filter((i: any) => i.status === "paid").length / invoices.length) * 100) : 0;
+  const collectedAmount = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
   const totalShortPayment = paidInvoices.reduce((s: number, i: any) => s + Number(i.short_payment ?? 0), 0);
   const lateInvoices = paidInvoices.filter((i: any) => Number(i.late_days ?? 0) > 0);
@@ -97,6 +97,7 @@ function Dashboard() {
   const gross = salesTotal - purchaseTotal;
   const net = gross - expenseTotal;
   const marginPct = salesTotal > 0 ? (gross / salesTotal) * 100 : 0;
+  const collectionRate = salesTotal > 0 ? +((collectedAmount / salesTotal) * 100).toFixed(2) : 0;
 
   const aging = invoices.reduce(
     (acc: any, i: any) => {
@@ -138,15 +139,14 @@ function Dashboard() {
       <div className="space-y-8 p-6 md:p-10">
         {!isTreasury && (
           <div className="grid gap-4 md:grid-cols-4">
-            <Stat label="Sales (gross)" value={fmtMoney(salesTotal)} delta={`${invoices.length} invoices`} />
-            <Stat label="Cost of goods (purchases)" value={fmtMoney(purchaseTotal)} delta={`${purchases.length} supplier invoices`} />
-            <Stat label="Gross income" value={fmtMoney(gross)} delta={`${marginPct.toFixed(1)}% margin`} tone={gross >= 0 ? "good" : "bad"} />
-            <Stat label="Net income" value={fmtMoney(net)} delta={`After ${fmtMoney(expenseTotal)} expenses`} tone={net >= 0 ? "good" : "bad"} />
+            <Stat label="Sales (gross)" value={fmtMoney(Math.round(salesTotal))} delta={`${invoices.length} invoices`} />
+            <Stat label="Cost of goods (purchases)" value={fmtMoney(Math.round(purchaseTotal))} delta={`${purchases.length} supplier invoices`} />
+            <Stat label="Gross income" value={fmtMoney(Math.round(gross))} delta={`${marginPct.toFixed(1)}% margin`} tone={gross >= 0 ? "good" : "bad"} />
+            <Stat label="Net income" value={fmtMoney(Math.round(net))} delta={`After ${fmtMoney(expenseTotal)} expenses`} tone={net >= 0 ? "good" : "bad"} />
           </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <Stat label="Outstanding (AR)" value={fmtMoney(totalOutstanding)} delta={`${invoices.length} invoices`} />
+        <div className="grid gap-4 md:grid-cols-4">            <Stat label="Outstanding (AR)" value={fmtMoney(Math.round(totalOutstanding))} delta={`${invoices.length} invoices`} />
           <Stat label="Overdue" value={String(overdueCount)} delta={overdueCount > 0 ? "Action required" : "All clean"} tone={overdueCount ? "bad" : "good"} />
           <Stat label="Collection rate" value={`${collectionRate}%`} delta="Lifetime" tone={collectionRate >= 90 ? "good" : "warn"} />
         </div>
@@ -191,11 +191,11 @@ function Dashboard() {
             <div className="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center">
               <div>
                 <div className="text-xs" style={{ color: "oklch(0.88 0.18 118)" }}>Gross income</div>
-                <div className="text-[10px] text-muted-foreground">{fmtMoney(gross)}</div>
+                <div className="text-[10px] text-muted-foreground">{fmtMoney(Math.round(gross))}</div>
               </div>
               <div>
                 <div className="text-xs" style={{ color: "oklch(0.78 0.14 200)" }}>Net income</div>
-                <div className="text-[10px] text-muted-foreground">{fmtMoney(net)}</div>
+                <div className="text-[10px] text-muted-foreground">{fmtMoney(Math.round(net))}</div>
               </div>
               <div>
                 <div className="text-xs" style={{ color: "oklch(0.65 0.22 30)" }}>Expenses</div>
