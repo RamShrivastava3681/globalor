@@ -71,13 +71,18 @@ function Dashboard() {
   const totalOutstanding = invoices
     .filter((i: any) => i.status !== "paid" && i.status !== "rejected")
     .reduce((s: number, i: any) => s + Number(i.amount), 0);
-  const overdueCount = invoices.filter((i: any) => i.status === "overdue" || (i.due_date && i.status !== "paid" && daysBetween(i.due_date) > 0)).length;
   const collectedAmount = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
   const totalShortPayment = paidInvoices.reduce((s: number, i: any) => s + Number(i.short_payment ?? 0), 0);
-  const lateInvoices = paidInvoices.filter((i: any) => Number(i.late_days ?? 0) > 0);
-  const avgLateDays = lateInvoices.length
-    ? Math.round(lateInvoices.reduce((s: number, i: any) => s + Number(i.late_days), 0) / lateInvoices.length)
+
+  const paidSalesInvoices = invoices.filter((i: any) => i.status === "paid" && i.issue_date && i.paid_date);
+  const avgSalesPayDays = paidSalesInvoices.length > 0
+    ? Math.round(paidSalesInvoices.reduce((s: number, i: any) => s + daysBetween(i.issue_date, i.paid_date), 0) / paidSalesInvoices.length)
+    : 0;
+
+  const paidPurchaseInvoices = purchases.filter((p: any) => p.status === "paid" && p.issue_date && p.paid_date);
+  const avgPurchasePayDays = paidPurchaseInvoices.length > 0
+    ? Math.round(paidPurchaseInvoices.reduce((s: number, p: any) => s + daysBetween(p.issue_date, p.paid_date), 0) / paidPurchaseInvoices.length)
     : 0;
 
   const salesTotal = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
@@ -114,6 +119,16 @@ function Dashboard() {
       net: Math.round(v.sales - v.purchases - v.expenses),
     };
   });
+
+  const yearMap = new Map<string, number>();
+  invoices.forEach((i: any) => {
+    if (!i.issue_date) return;
+    const year = i.issue_date.slice(0, 4);
+    yearMap.set(year, (yearMap.get(year) ?? 0) + Number(i.amount));
+  });
+  const salesByYear = [...yearMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([year, amount]) => ({ year: `Sales ${year}`, amount }));
 
   const aging = invoices.reduce(
     (acc: any, i: any) => {
@@ -163,14 +178,13 @@ function Dashboard() {
         )}
 
         <div className="grid gap-4 md:grid-cols-4">            <Stat label="Outstanding (AR)" value={fmtMoney(Math.round(totalOutstanding))} delta={`${invoices.length} invoices`} />
-          <Stat label="Overdue" value={String(overdueCount)} delta={overdueCount > 0 ? "Action required" : "All clean"} tone={overdueCount ? "bad" : "good"} />
           <Stat label="Collection rate" value={`${collectionRate}%`} delta="Lifetime" tone={collectionRate >= 90 ? "good" : "warn"} />
+          <Stat label="Short payments" value={fmtMoney(totalShortPayment)} delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`} tone={totalShortPayment > 0 ? "bad" : "good"} />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <Stat label="Short payments" value={fmtMoney(totalShortPayment)} delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`} tone={totalShortPayment > 0 ? "bad" : "good"} />
-          <Stat label="Avg late days" value={String(avgLateDays)} delta={`${lateInvoices.length} late settlements`} tone={avgLateDays > 0 ? "warn" : "good"} />
-          <Stat label="On-time settlements" value={String(paidInvoices.length - lateInvoices.length)} delta={`of ${paidInvoices.length} closed`} tone="good" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Stat label="Avg sales invoices pay days" value={String(avgSalesPayDays)} delta={`${paidSalesInvoices.length} settled invoices`} tone={avgSalesPayDays > 0 ? "warn" : "good"} />
+          <Stat label="Avg purchase invoices pay days" value={String(avgPurchasePayDays)} delta={`${paidPurchaseInvoices.length} settled invoices`} tone={avgPurchasePayDays > 0 ? "warn" : "good"} />
         </div>
 
         {!isTreasury && (
@@ -276,6 +290,24 @@ function Dashboard() {
             )}
           </Card>
         </div>
+
+        <Card title="Sales invoices by year" action={<span className="text-xs text-muted-foreground">All time</span>}>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={salesByYear.length > 0 ? salesByYear : [{ year: "No data", amount: 0 }]}>
+                <CartesianGrid stroke="oklch(0.30 0.014 250)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="year" stroke="oklch(0.68 0.018 250)" fontSize={11} />
+                <YAxis stroke="oklch(0.68 0.018 250)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: "oklch(0.22 0.014 250)", border: "1px solid oklch(0.30 0.014 250)", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number) => fmtMoney(v)}
+                  cursor={{ fill: "oklch(0.30 0.014 250)" }}
+                />
+                <Bar dataKey="amount" name="Sales" fill="oklch(0.88 0.18 118)" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
 
         <Card title="Recent invoices" action={<Link to="/app/invoices" className="text-xs text-primary">View all →</Link>}>
           {invoices.length === 0 ? (

@@ -448,10 +448,10 @@ function ProformasPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Delete all deletable proformas?
+              Delete all proformas?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete all proformas with <strong>pending review</strong> or <strong>rejected</strong> status.
+              This will permanently delete <strong>all proformas</strong> regardless of status.
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

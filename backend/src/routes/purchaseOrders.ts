@@ -259,10 +259,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
 router.post("/delete-all", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
-    const deletableStatuses = new Set(["pending_review", "rejected"]);
-    const toDelete = orders.filter(
-      (o) => deletableStatuses.has(o.proforma_status) || o.status === "cancelled"
-    );
+    const toDelete = orders;
 
     if (toDelete.length === 0) {
       res.json({ deleted: 0 });
