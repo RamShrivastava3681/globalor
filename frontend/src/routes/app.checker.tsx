@@ -383,8 +383,8 @@ function CheckerPage() {
         </div>
 
         {approveAllOpen && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setApproveAllOpen(false)}>
-            <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={() => setApproveAllOpen(false)}>
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
               <h3 className="mb-2 font-display text-lg">Approve all {rows.length} item{rows.length !== 1 ? "s" : ""}?</h3>
               <p className="mb-4 text-sm text-muted-foreground">
                 This will approve every item currently shown in the filtered list. Purchase invoices will be marked as approved, while all others will be approved immediately. This action cannot be undone.{" "}

@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api-client";
-import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { FileText, FileSpreadsheet, Loader2, Filter, Columns } from "lucide-react";
+import { PageHeader, Card, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/app/reports")({
   component: ReportsPage,
@@ -28,7 +31,6 @@ const TABS: { id: ReportTab; label: string }[] = [
 ];
 
 // ── Status filter options ──
-// "open" = pending/approved/advanced/overdue, "closed" = paid/rejected for invoice types
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "proformas": ["all", "open", "closed", "proforma", "invoiced", "cancelled"],
   "sales-invoices": ["all", "open", "closed"],
@@ -76,6 +78,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "amount_received", label: "Amount Received", render: (r: any) => r.amount_received ? fmtMoney(r.amount_received) : "—" },
         { key: "short_payment", label: "Short Payment", render: (r: any) => r.short_payment ? fmtMoney(r.short_payment) : "—" },
         { key: "late_days", label: "Late Days", render: (r: any) => r.late_days?.toString() ?? "—" },
+        { key: "pay_days", label: "Pay Days", render: (r: any) => (r.status === "paid" && r.issue_date && r.paid_date) ? `${daysBetween(r.issue_date, r.paid_date)}d` : "—" },
         { key: "noa_status", label: "NOA Status", render: (r: any) => r.noa_status ?? "" },
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
@@ -206,6 +209,19 @@ function initColumnVisibility(columns: { key: string; label: string }[]): Record
   return vis;
 }
 
+// ── Date helpers ──
+
+function formatDateForInput(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function toISODateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // ── Report Component ──
 
 function ReportsPage() {
@@ -218,6 +234,12 @@ function ReportsPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const limit = 50;
+
+  // Date range state
+  const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
+  const [toDate, setToDate] = useState<Date | undefined>(undefined);
+  const [fromOpen, setFromOpen] = useState(false);
+  const [toOpen, setToOpen] = useState(false);
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
@@ -252,6 +274,8 @@ function ReportsPage() {
   const PAGINATED_TABS: ReportTab[] = ["sales-invoices", "purchase-invoices", "aging"];
   const isPaginated = PAGINATED_TABS.includes(tab);
 
+  const hasDateFilter = !!fromDate || !!toDate;
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -262,6 +286,8 @@ function ReportsPage() {
         if (searchQuery) params.set("search", searchQuery);
         if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
       }
+      if (fromDate) params.set("from", toISODateString(fromDate));
+      if (toDate) params.set("to", toISODateString(toDate));
       const qs = params.toString();
       const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
       const result = await api.get<any>(url);
@@ -284,16 +310,16 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated, searchQuery, statusFilter]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Reset page when tab or filters change
+  // Reset page when tab, filters, or dates change
   useEffect(() => {
     setPage(1);
-  }, [tab, statusFilter, searchQuery]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate]);
 
   // For paginated tabs, the server handles search + status filtering.
   // For non-paginated tabs, we apply client-side filtering.
@@ -320,10 +346,11 @@ function ReportsPage() {
 
   // ── Fetch all data for export (bypasses pagination) ──
   const fetchExportData = useCallback(async () => {
-    // The backend returns full array when no page/limit params are sent
     const params = new URLSearchParams();
     if (searchQuery) params.set("search", searchQuery);
     if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+    if (fromDate) params.set("from", toISODateString(fromDate));
+    if (toDate) params.set("to", toISODateString(toDate));
     const qs = params.toString();
     const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
     const result = await api.get<any>(url);
@@ -347,7 +374,7 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [tab, statusFilter, searchQuery]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate]);
 
   // ── Excel Export (fetches all data) ──
   const exportExcel = async () => {
@@ -481,7 +508,7 @@ function ReportsPage() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); }}
+              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setFromDate(undefined); setToDate(undefined); }}
               className={`whitespace-nowrap px-4 py-3 text-xs font-medium uppercase tracking-widest transition-colors border-b-2 ${
                 tab === t.id
                   ? "border-primary text-primary"
@@ -496,7 +523,7 @@ function ReportsPage() {
 
       {/* Filters bar */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3 md:px-10">
-        <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+        <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         {statuses.length > 1 && (
           <div className="flex flex-wrap gap-1">
             {statuses.map((s) => (
@@ -514,6 +541,72 @@ function ReportsPage() {
             ))}
           </div>
         )}
+
+        {/* Date range filter */}
+        <div className="flex items-center gap-1.5">
+          <Popover open={fromOpen} onOpenChange={setFromOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                  fromDate
+                    ? "border-primary text-primary"
+                    : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                )}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                {fromDate ? formatDateForInput(fromDate) : "From"}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={fromDate}
+                onSelect={(date) => {
+                  setFromDate(date);
+                  setFromOpen(false);
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+          <span className="text-[10px] text-muted-foreground">—</span>
+          <Popover open={toOpen} onOpenChange={setToOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                  toDate
+                    ? "border-primary text-primary"
+                    : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                )}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                {toDate ? formatDateForInput(toDate) : "To"}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={toDate}
+                onSelect={(date) => {
+                  setToDate(date);
+                  setToOpen(false);
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+          {hasDateFilter && (
+            <button
+              onClick={() => { setFromDate(undefined); setToDate(undefined); }}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+              title="Clear date filter"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
 
         {/* Column visibility picker */}
         <div className="relative" ref={columnMenuRef}>

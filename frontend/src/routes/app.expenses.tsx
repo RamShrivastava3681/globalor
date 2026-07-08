@@ -214,8 +214,8 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
       : null;
   const docs: DocMeta[] = Array.isArray(expense.documents) ? expense.documents : [];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h3 className="font-display text-lg">Expense detail</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
@@ -297,8 +297,8 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h3 className="font-display text-lg">Log expense</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>

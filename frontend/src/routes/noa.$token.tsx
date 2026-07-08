@@ -66,7 +66,7 @@ function NoaPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6 shadow-vault">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-xl">
         <p className="text-sm text-muted-foreground">
           {inv.client_company || "Your supplier"} has assigned the following invoice to a factoring facility.
           Please digitally verify the invoice details and confirm that payment, when due, will be remitted to the assignee.

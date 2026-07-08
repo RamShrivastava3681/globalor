@@ -569,8 +569,8 @@ function FundProformaModal({ row, onClose, onSubmit }: { row: Row; onClose: () =
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [ref, setRef] = useState("");
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-4 font-display text-lg">{row.side === "sales" ? "Mark advance received" : "Mark advance paid"} · {row.invoice_number}</h3>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit({ amount: Number(amt), reference: ref, advance_date: date }); }} className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
@@ -726,8 +726,8 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
             {step === "upload" ? "Upload receipts" : step === "preview" ? "Preview matched receipts" : "Import complete"}
@@ -890,8 +890,8 @@ function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => v
   const short = Math.max(0, +(row.balance - Number(amt || 0)).toFixed(2));
   const late = diffDaysUTC(row.due_date, date);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-4 font-display text-lg">Close sales invoice {row.invoice_number}</h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
@@ -938,8 +938,8 @@ function PayPurchaseModal({ row, onClose, onSubmit }: { row: Row; onClose: () =>
   const [note, setNote] = useState("");
   const short = Math.max(0, +(row.balance - Number(amountPaid || 0)).toFixed(2));
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-4 font-display text-lg"><DollarSign className="mr-1.5 inline h-4 w-4 text-success" />{row.balance <= 0 ? "Mark settled" : "Pay balance"} · {row.invoice_number}</h3>
         <div className="space-y-4 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
@@ -1124,8 +1124,8 @@ function MassImportPurchaseReceiptsModal({ purchasesData, onClose, onDone }: { p
   }, [rows, piByNumber]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
             {step === "form" ? "Mass import AP receipts" : step === "preview" ? "Preview receipts" : "Import complete"}
