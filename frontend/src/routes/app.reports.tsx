@@ -230,15 +230,41 @@ function toISODateString(d: Date): string {
 
 // ── P&L Period presets ──
 
-type PeriodPreset = "this-month" | "prev-month" | "this-quarter" | "this-fy" | "prev-fy" | "custom";
+type PeriodPreset = "this-month" | "prev-month" | "this-quarter" | "custom";
 
 const PERIOD_PRESETS: { id: PeriodPreset; label: string }[] = [
   { id: "this-month", label: "This Month" },
   { id: "prev-month", label: "Previous Month" },
   { id: "this-quarter", label: "This Quarter" },
-  { id: "this-fy", label: "This Financial Year" },
-  { id: "prev-fy", label: "Previous Financial Year" },
-  { id: "custom", label: "Custom Range" },
+];
+
+// ── Financial year / quarter / month options ──
+
+const YEAR_OPTIONS = (() => {
+  const cy = new Date().getFullYear();
+  return Array.from({ length: 8 }, (_, i) => cy - 6 + i);
+})();
+
+const QUARTER_OPTIONS = [
+  { value: 1, label: "Q1" },
+  { value: 2, label: "Q2" },
+  { value: 3, label: "Q3" },
+  { value: 4, label: "Q4" },
+];
+
+const MONTH_OPTIONS = [
+  { value: 1, label: "Jan" },
+  { value: 2, label: "Feb" },
+  { value: 3, label: "Mar" },
+  { value: 4, label: "Apr" },
+  { value: 5, label: "May" },
+  { value: 6, label: "Jun" },
+  { value: 7, label: "Jul" },
+  { value: 8, label: "Aug" },
+  { value: 9, label: "Sep" },
+  { value: 10, label: "Oct" },
+  { value: 11, label: "Nov" },
+  { value: 12, label: "Dec" },
 ];
 
 function getPeriodDates(preset: PeriodPreset): { from: Date; to: Date } | null {
@@ -255,11 +281,6 @@ function getPeriodDates(preset: PeriodPreset): { from: Date; to: Date } | null {
       const q = Math.floor(m / 3);
       return { from: new Date(y, q * 3, 1), to: new Date(y, q * 3 + 3, 0) };
     }
-    case "this-fy":
-      // Calendar year (Jan–Dec), modify if FY starts in a different month
-      return { from: new Date(y, 0, 1), to: new Date(y, 11, 31) };
-    case "prev-fy":
-      return { from: new Date(y - 1, 0, 1), to: new Date(y - 1, 11, 31) };
     case "custom":
       return null; // User will pick manually
   }
@@ -340,6 +361,11 @@ function ReportsPage() {
   const isPnL = tab === "profit-loss";
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("this-month");
   const [pnlData, setPnlData] = useState<PnLReport | null>(null);
+
+  // Financial year / quarter / month dropdown state
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedQuarter, setSelectedQuarter] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
@@ -441,10 +467,39 @@ function ReportsPage() {
     fetchData();
   }, [fetchData]);
 
+  // When year / quarter / month dropdowns change, compute dates and switch to custom
+  useEffect(() => {
+    if (selectedYear || selectedQuarter || selectedMonth) {
+      const targetYear = selectedYear ?? new Date().getFullYear();
+      let from: Date, to: Date;
+      if (selectedMonth) {
+        from = new Date(targetYear, selectedMonth - 1, 1);
+        to = new Date(targetYear, selectedMonth, 0);
+      } else if (selectedQuarter) {
+        const qStart = (selectedQuarter - 1) * 3;
+        from = new Date(targetYear, qStart, 1);
+        to = new Date(targetYear, qStart + 3, 0);
+      } else {
+        from = new Date(targetYear, 0, 1);
+        to = new Date(targetYear, 11, 31);
+      }
+      setFromDate(from);
+      setToDate(to);
+      setPeriodPreset("custom");
+    }
+  }, [selectedYear, selectedQuarter, selectedMonth]);
+
   // Reset page when tab, filters, or dates change
   useEffect(() => {
     setPage(1);
   }, [tab, statusFilter, searchQuery, fromDate, toDate]);
+
+  // Reset year/quarter/month dropdowns when tab changes
+  useEffect(() => {
+    setSelectedYear(null);
+    setSelectedQuarter(null);
+    setSelectedMonth(null);
+  }, [tab]);
 
   // For paginated tabs, the server handles search + status filtering.
   // For non-paginated tabs, we apply client-side filtering.
@@ -827,19 +882,21 @@ function ReportsPage() {
         <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 
         {isPnL ? (
-          /* ── P&L Period presets ── */
-          <div className="flex flex-wrap gap-1">
+          /* ── P&L Period presets + Year/Quarter/Month dropdowns ── */
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Quick presets */}
             {PERIOD_PRESETS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => {
                   setPeriodPreset(p.id);
-                  if (p.id !== "custom") {
-                    const dates = getPeriodDates(p.id);
-                    if (dates) {
-                      setFromDate(dates.from);
-                      setToDate(dates.to);
-                    }
+                  setSelectedYear(null);
+                  setSelectedQuarter(null);
+                  setSelectedMonth(null);
+                  const dates = getPeriodDates(p.id);
+                  if (dates) {
+                    setFromDate(dates.from);
+                    setToDate(dates.to);
                   }
                 }}
                 className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-widest transition-colors ${
@@ -851,6 +908,48 @@ function ReportsPage() {
                 {p.label}
               </button>
             ))}
+
+            {/* Year dropdown */}
+            <select
+              value={selectedYear ?? ""}
+              onChange={(e) => setSelectedYear(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-[11px] focus:outline-none focus:border-primary cursor-pointer"
+            >
+              <option value="">Year</option>
+              {YEAR_OPTIONS.map((y) => (
+                <option key={y} value={y}>
+                  FY {y}
+                </option>
+              ))}
+            </select>
+
+            {/* Quarter dropdown */}
+            <select
+              value={selectedQuarter ?? ""}
+              onChange={(e) => setSelectedQuarter(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-[11px] focus:outline-none focus:border-primary cursor-pointer"
+            >
+              <option value="">Quarter</option>
+              {QUARTER_OPTIONS.map((q) => (
+                <option key={q.value} value={q.value}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Month dropdown */}
+            <select
+              value={selectedMonth ?? ""}
+              onChange={(e) => setSelectedMonth(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-md border border-border bg-background px-2 py-1.5 text-[11px] focus:outline-none focus:border-primary cursor-pointer"
+            >
+              <option value="">Month</option>
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </div>
         ) : (
           <>
@@ -934,7 +1033,14 @@ function ReportsPage() {
             </Popover>
             {hasDateFilter && (
               <button
-                onClick={() => { setFromDate(undefined); setToDate(undefined); }}
+                onClick={() => {
+                  setFromDate(undefined);
+                  setToDate(undefined);
+                  setSelectedYear(null);
+                  setSelectedQuarter(null);
+                  setSelectedMonth(null);
+                  setPeriodPreset("this-month");
+                }}
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
                 title="Clear date filter"
               >
