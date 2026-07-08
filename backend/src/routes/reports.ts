@@ -286,7 +286,7 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
 router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
     const debtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    res.json(debtors.sort((a, b) => a.name.localeCompare(b.name)));
+    res.json(debtors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
   } catch (err) {
     console.error("Reports debtors error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -297,7 +297,7 @@ router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => 
 router.get("/suppliers", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
     const suppliers = await scanTable<Supplier>(TABLES.SUPPLIERS);
-    res.json(suppliers.sort((a, b) => a.company_name.localeCompare(b.company_name)));
+    res.json(suppliers.sort((a, b) => (a.company_name ?? '').localeCompare(b.company_name ?? '')));
   } catch (err) {
     console.error("Reports suppliers error:", err);
     res.status(500).json({ error: "Internal server error" });
