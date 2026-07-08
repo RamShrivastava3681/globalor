@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Stat, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Activity, Paperclip, X, Link2, TrendingUp, TrendingDown, DollarSign, Receipt, Users, AlertTriangle } from "lucide-react";
+import { Activity, Paperclip, X, Link2, TrendingUp, FileText, FileSignature, Wallet, Receipt } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import {
@@ -16,26 +16,12 @@ export const Route = createFileRoute("/app/dashboard")({
   component: Dashboard,
 });
 
-// Light theme chart colors
-const CHART_COLORS = {
-  primary: "#00B8FF",
-  success: "#16A34A",
-  warning: "#F59E0B",
-  destructive: "#DC2626",
-  info: "#3B82F6",
-  purple: "#8B5CF6",
-  gridLine: "#E2E8F0",
-  axisText: "#94A3B8",
-  tooltipBg: "#FFFFFF",
-  tooltipBorder: "#E2E8F0",
-};
-
-const chartTooltipStyle = {
-  background: "#FFFFFF",
-  border: "1px solid #E2E8F0",
+const chartTooltipStyle: React.CSSProperties = {
+  background: "var(--color-card)",
+  border: "1px solid var(--color-border)",
   borderRadius: 12,
   fontSize: 12,
-  boxShadow: "0 4px 20px rgba(15,23,42,0.08)",
+  boxShadow: "var(--shadow-card)",
   padding: "8px 12px",
 };
 
@@ -184,7 +170,7 @@ function Dashboard() {
               : "Sales, purchases, and income from your trading book."
         }
         actions={
-          <Link to={isTreasury ? "/app/queue" : "/app/invoices"} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-[#00B8FF] to-[#0099D9] px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:shadow-md hover:from-[#0099D9] hover:to-[#0077B6] transition-all">
+          <Link to={isTreasury ? "/app/queue" : "/app/invoices"} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-primary to-[#0099D9] px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:shadow-md hover:from-[#0099D9] hover:to-[#0077B6] transition-all">
             {isTreasury ? "Open funding queue" : isAdmin ? "Open invoice queue" : "New sales invoice"}
           </Link>
         }
@@ -214,7 +200,7 @@ function Dashboard() {
 
         {/* Income trend chart */}
         {!isTreasury && (
-          <Card title="Gross vs net income" action={<span className="inline-flex items-center gap-1 text-xs text-[#64748B]"><TrendingUp className="h-3.5 w-3.5" />Last 6 months</span>}>
+          <Card title="Gross vs net income" action={<span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" />Last 6 months</span>}>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={incomeTrend}>
@@ -228,9 +214,9 @@ function Dashboard() {
                       <stop offset="100%" stopColor="#00B8FF" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="month" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94A3B8" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
+                  <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="month" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => fmtMoney(v)} />
                   <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                   <Area type="monotone" dataKey="gross" name="Gross" stroke="#16A34A" strokeWidth={2.5} fill="url(#grossGrad)" dot={false} activeDot={{ r: 5, fill: "#16A34A", stroke: "#FFFFFF", strokeWidth: 2 }} />
@@ -256,13 +242,13 @@ function Dashboard() {
                 return (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
-                      <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" vertical={false} />
-                      <XAxis dataKey="name" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#94A3B8" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
+                      <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />
+                      <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                      <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
                       <Tooltip
                         contentStyle={chartTooltipStyle}
                         formatter={(v: number, name: string) => [fmtMoney(v), name]}
-                        cursor={{ fill: "#F1F5F9" }}
+                        cursor={{ fill: "var(--color-muted)" }}
                       />
                       <Bar dataKey="amount" name="Outstanding" radius={[6, 6, 0, 0]} barSize={40}>
                         {chartData.map((entry, idx) => (
@@ -275,7 +261,7 @@ function Dashboard() {
               })()}
             </div>
             {/* Summary stats below chart */}
-            <div className="mt-4 grid grid-cols-5 gap-2 border-t border-[#E2E8F0] pt-4">
+            <div className="mt-4 grid grid-cols-5 gap-2 border-t border-border pt-4">
               {(() => {
                 const total = Object.values(aging).reduce((a: number, x: number) => a + x, 0) || 1;
                 return [
@@ -287,28 +273,28 @@ function Dashboard() {
                 ].map((b) => (
                   <div key={b.label} className="text-center">
                     <div className={`text-xs font-semibold ${b.cls}`}>{b.label}</div>
-                    <div className="mt-1 text-xs text-[#64748B]">{fmtMoney(b.val)}</div>
-                    <div className="text-[11px] text-[#94A3B8]">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(b.val)}</div>
+                    <div className="text-[11px] text-muted-foreground/70">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
                   </div>
                 ));
               })()}
             </div>
           </Card>
 
-          <Card title="Alerts" action={<Link to="/app/alerts" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
+          <Card title="Alerts" action={<Link to="/app/alerts" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">View all →</Link>}>
             {(alertsQ.data ?? []).length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-sm text-[#64748B]"><Activity className="mb-3 h-6 w-6 text-[#CBD5E1]" />No alerts</div>
+              <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><Activity className="mb-3 h-6 w-6 text-border" />No alerts</div>
             ) : (
               <ul className="space-y-2">
                 {(alertsQ.data ?? []).map((a: any) => (
-                  <li key={a.id} className="rounded-lg border border-[#E2E8F0] bg-white p-3 hover:shadow-sm transition-shadow">
+                  <li key={a.id} className="rounded-lg border border-border bg-card p-3 hover:shadow-sm transition-shadow">
                     <div className="flex items-start gap-3">
                       <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
-                        a.severity === "critical" ? "bg-[#DC2626]" : a.severity === "warning" ? "bg-[#F59E0B]" : "bg-[#00B8FF]"
+                        a.severity === "critical" ? "bg-destructive" : a.severity === "warning" ? "bg-warning" : "bg-primary"
                       }`} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-[#0F172A]">{a.message}</div>
-                        <div className="mt-0.5 text-[11px] uppercase tracking-wider text-[#64748B]">{fmtDate(a.created_at)} · {a.type}</div>
+                        <div className="text-sm text-foreground">{a.message}</div>
+                        <div className="mt-0.5 text-[11px] uppercase tracking-wider text-muted-foreground">{fmtDate(a.created_at)} · {a.type}</div>
                       </div>
                     </div>
                   </li>
@@ -319,17 +305,17 @@ function Dashboard() {
         </div>
 
         {/* Sales by year */}
-        <Card title="Sales by year" action={<span className="inline-flex items-center gap-1 text-xs text-[#64748B]"><TrendingUp className="h-3.5 w-3.5" />All time</span>}>
+        <Card title="Sales by year" action={<span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><TrendingUp className="h-3.5 w-3.5" />All time</span>}>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={salesByYear.length > 0 ? salesByYear : [{ year: "No data", amount: 0 }]}>
-                <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" vertical={false} />
-                <XAxis dataKey="year" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
+                <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />
+                <XAxis dataKey="year" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   formatter={(v: number) => fmtMoney(v)}
-                  cursor={{ fill: "#F1F5F9" }}
+                  cursor={{ fill: "var(--color-muted)" }}
                 />
                 <Bar dataKey="amount" name="Sales" fill="#00B8FF" radius={[6, 6, 0, 0]} barSize={40} />
               </BarChart>
@@ -338,32 +324,32 @@ function Dashboard() {
         </Card>
 
         {/* Recent invoices */}
-        <Card title="Recent invoices" action={<Link to="/app/invoices" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
+        <Card title="Recent invoices" action={<Link to="/app/invoices" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">View all →</Link>}>
           {invoices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-sm text-[#64748B]"><FileText className="mb-3 h-6 w-6 text-[#CBD5E1]" />No invoices yet.</div>
+            <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><FileText className="mb-3 h-6 w-6 text-border" />No invoices yet.</div>
           ) : (
             <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Invoice</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Debtor</th>
-                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Amount</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Due</th>
-                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Short pay</th>
-                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Late days</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Status</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Invoice</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Debtor</th>
+                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Amount</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Due</th>
+                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Short pay</th>
+                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Late days</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.slice(0, 6).map((i: any) => (
-                    <tr key={i.id} className="border-b border-[#E2E8F0]/60 hover:bg-[#F8FAFC] transition-colors">
-                      <td className="px-5 py-3 font-mono text-xs text-[#0F172A]">{i.invoice_number}</td>
-                      <td className="px-5 py-3 text-[#475569]">{i.debtor?.name ?? "—"}</td>
+                    <tr key={i.id} className="border-b border-border/60 hover:bg-muted transition-colors">
+                      <td className="px-5 py-3 font-mono text-xs text-foreground">{i.invoice_number}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{i.debtor?.name ?? "—"}</td>
                       <td className="px-5 py-3 text-right num font-medium">{fmtMoney(i.amount)}</td>
-                      <td className="px-5 py-3 text-[#64748B]">{fmtDate(i.due_date)}</td>
-                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-[#DC2626]" : "text-[#64748B]"}`}>{i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}</td>
-                      <td className={`px-5 py-3 text-right num ${Number(i.late_days) > 0 ? "text-[#F59E0B]" : "text-[#64748B]"}`}>{i.late_days != null ? i.late_days : "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(i.due_date)}</td>
+                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}</td>
+                      <td className={`px-5 py-3 text-right num ${Number(i.late_days) > 0 ? "text-warning" : "text-muted-foreground"}`}>{i.late_days != null ? i.late_days : "—"}</td>
                       <td className="px-5 py-3"><StatusPill status={i.status} /></td>
                     </tr>
                   ))}
@@ -374,29 +360,29 @@ function Dashboard() {
         </Card>
 
         {/* Recent proformas */}
-        <Card title="Recent proformas" action={<Link to="/app/proformas" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
+        <Card title="Recent proformas" action={<Link to="/app/proformas" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">View all →</Link>}>
           {proformas.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-sm text-[#64748B]"><FileSignature className="mb-3 h-6 w-6 text-[#CBD5E1]" />No proformas yet.</div>
+            <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><FileSignature className="mb-3 h-6 w-6 text-border" />No proformas yet.</div>
           ) : (
             <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Proforma</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">PO #</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Counterparty</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Side</th>
-                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Amount</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Status</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Proforma</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">PO #</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Counterparty</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Side</th>
+                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Amount</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {proformas.slice(0, 6).map((p: any) => (
-                    <tr key={p.id} className="border-b border-[#E2E8F0]/60 hover:bg-[#F8FAFC] transition-colors">
+                    <tr key={p.id} className="border-b border-border/60 hover:bg-muted transition-colors">
                       <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? p.po_number}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-[#64748B]">{p.po_number}</td>
-                      <td className="px-5 py-3 text-[#475569]">{p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—"}</td>
-                      <td className="px-5 py-3 text-[11px] uppercase tracking-wider text-[#64748B]">{p.side}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{p.po_number}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground">{p.side}</td>
                       <td className="px-5 py-3 text-right num font-medium">{fmtMoney(p.amount)}</td>
                       <td className="px-5 py-3"><StatusPill status={p.proforma_status || p.status} /></td>
                     </tr>
@@ -416,26 +402,26 @@ function Dashboard() {
                 {(["sales", "purchase"] as const).map((s) => (
                   <button key={s} onClick={() => setAdvanceTab(s)}
                     className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-all ${
-                      advanceTab === s ? "border-[#00B8FF] bg-[#F0F9FF] text-[#00B8FF]" : "border-[#E2E8F0] text-[#64748B] hover:text-[#0F172A] hover:border-[#CBD5E1]"
+                      advanceTab === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground hover:border-input"
                     }`}>{s === "sales" ? "Received from buyer" : "Given to supplier"}</button>
                 ))}
               </div>
             </div>
           }
-          action={<Link to="/app/advances" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}
+          action={<Link to="/app/advances" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">View all →</Link>}
         >
           {advances.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-sm text-[#64748B]"><Wallet className="mb-3 h-6 w-6 text-[#CBD5E1]" />No advances yet.</div>
+            <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><Wallet className="mb-3 h-6 w-6 text-border" />No advances yet.</div>
           ) : (
             <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Date</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Linked to</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Party</th>
-                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Amount</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Status</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Date</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Linked to</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Party</th>
+                    <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Amount</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -447,24 +433,24 @@ function Dashboard() {
                         ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
                         : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
                       return (
-                        <tr key={a.id} className="border-b border-[#E2E8F0]/60 hover:bg-[#F8FAFC] transition-colors">
-                          <td className="px-5 py-3 text-[#64748B]">{fmtDate(a.advance_date)}</td>
+                        <tr key={a.id} className="border-b border-border/60 hover:bg-muted transition-colors">
+                          <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
                           <td className="px-5 py-3">
                             {a.order ? (
-                              <span className="inline-flex items-center gap-1 text-xs text-[#00B8FF]">PO {a.order.po_number}</span>
+                              <span className="inline-flex items-center gap-1 text-xs text-primary">PO {a.order.po_number}</span>
                             ) : a.invoice || a.purchase ? (
-                              <span className="inline-flex items-center gap-1 text-xs text-[#00B8FF]">{(a.invoice?.invoice_number || a.purchase?.invoice_number)}</span>
-                            ) : <span className="text-[#64748B]">—</span>}
+                              <span className="inline-flex items-center gap-1 text-xs text-primary">{(a.invoice?.invoice_number || a.purchase?.invoice_number)}</span>
+                            ) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-5 py-3 text-[#475569]">{cp ?? "—"}</td>
-                          <td className="px-5 py-3 text-right num text-[#00B8FF] font-medium">{fmtMoney(a.amount)}</td>
+                          <td className="px-5 py-3 text-muted-foreground">{cp ?? "—"}</td>
+                          <td className="px-5 py-3 text-right num text-primary font-medium">{fmtMoney(a.amount)}</td>
                           <td className="px-5 py-3"><StatusPill status={a.status} /></td>
                         </tr>
                       );
                     })}
                   {advances.filter((a: any) => a.side === advanceTab).length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-xs text-[#64748B]">No {advanceTab === "sales" ? "advances received from buyers" : "advances given to suppliers"} yet.</td>
+                      <td colSpan={5} className="py-6 text-center text-xs text-muted-foreground">No {advanceTab === "sales" ? "advances received from buyers" : "advances given to suppliers"} yet.</td>
                     </tr>
                   )}
                 </tbody>
@@ -475,21 +461,21 @@ function Dashboard() {
 
         {/* Recent expenses */}
         {!isTreasury && (
-          <Card title="Recent expenses" action={<Link to="/app/expenses" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
+          <Card title="Recent expenses" action={<Link to="/app/expenses" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">View all →</Link>}>
             {expenses.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-sm text-[#64748B]"><Receipt className="mb-3 h-6 w-6 text-[#CBD5E1]" />No expenses logged.</div>
+              <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><Receipt className="mb-3 h-6 w-6 text-border" />No expenses logged.</div>
             ) : (
               <div className="-mx-6 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Date</th>
-                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Category</th>
-                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Linked transaction</th>
-                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Description</th>
-                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Docs</th>
-                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]">Amount</th>
-                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-[#64748B] bg-[#F8FAFC]" />
+                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Date</th>
+                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Category</th>
+                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Linked transaction</th>
+                      <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Description</th>
+                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Docs</th>
+                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Amount</th>
+                      <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted" />
                     </tr>
                   </thead>
                   <tbody>
@@ -501,28 +487,28 @@ function Dashboard() {
                           : null;
                       const docCount = Array.isArray(e.documents) ? e.documents.length : 0;
                       return (
-                        <tr key={e.id} className="border-b border-[#E2E8F0]/60 hover:bg-[#F8FAFC] transition-colors">
+                        <tr key={e.id} className="border-b border-border/60 hover:bg-muted transition-colors">
                           <td className="px-5 py-3">{fmtDate(e.expense_date)}</td>
-                          <td className="px-5 py-3 capitalize text-[#475569]">{e.category}</td>
+                          <td className="px-5 py-3 capitalize text-muted-foreground">{e.category}</td>
                           <td className="px-5 py-3">
                             {link ? (
-                              <span className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-2 py-0.5 text-xs shadow-sm">
-                                <Link2 className="h-3 w-3 text-[#00B8FF]" />
-                                <span className="text-[#64748B]">{link.kind}</span>
-                                <span className="font-mono text-[#0F172A]">{link.num}</span>
+                              <span className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-0.5 text-xs shadow-sm">
+                                <Link2 className="h-3 w-3 text-primary" />
+                                <span className="text-muted-foreground">{link.kind}</span>
+                                <span className="font-mono text-foreground">{link.num}</span>
                               </span>
-                            ) : <span className="text-xs text-[#64748B]">Unlinked</span>}
+                            ) : <span className="text-xs text-muted-foreground">Unlinked</span>}
                           </td>
-                          <td className="px-5 py-3 text-[#64748B]">{e.description ?? "—"}</td>
+                          <td className="px-5 py-3 text-muted-foreground">{e.description ?? "—"}</td>
                           <td className="px-5 py-3 text-right">
                             {docCount > 0 ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-[#64748B]"><Paperclip className="h-3 w-3" />{docCount}</span>
-                            ) : <span className="text-[11px] text-[#64748B]">—</span>}
+                              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Paperclip className="h-3 w-3" />{docCount}</span>
+                            ) : <span className="text-[11px] text-muted-foreground">—</span>}
                           </td>
                           <td className="px-5 py-3 text-right num font-medium">{fmtMoney(e.amount)}</td>
                           <td className="px-5 py-3 text-right">
                             <button onClick={() => setViewingExpense(e)}
-                              className="rounded-lg border border-[#E2E8F0] px-2.5 py-1 text-[11px] font-medium text-[#64748B] hover:border-[#00B8FF] hover:text-[#00B8FF] transition-colors">Details</button>
+                              className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors">Details</button>
                           </td>
                         </tr>
                       );
@@ -536,19 +522,19 @@ function Dashboard() {
 
         {/* Debtor concentration */}
         {isAdmin && (debtorsQ.data ?? []).length > 0 && (
-          <Card title="Debtor concentration" action={<Link to="/app/debtors" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">Manage →</Link>}>
+          <Card title="Debtor concentration" action={<Link to="/app/debtors" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">Manage →</Link>}>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={(debtorsQ.data ?? []).slice(0, 8).map((d: any) => {
                   const exposure = invoices.filter((i: any) => i.debtor_id === d.id && i.status !== "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
                   return { name: d.name.slice(0, 14), exposure, limit: Number(d.credit_limit) };
                 })}>
-                  <CartesianGrid stroke="#E2E8F0" strokeDasharray="4 4" vertical={false} />
-                  <XAxis dataKey="name" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94A3B8" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => fmtMoney(v)} cursor={{ fill: "#F1F5F9" }} />
-                  <Bar dataKey="exposure" name="Exposure" fill="#00B8FF" radius={[4, 4, 0, 0]} barSize={32} />
-                  <Bar dataKey="limit" name="Credit limit" fill="#E2E8F0" radius={[4, 4, 0, 0]} barSize={32} />
+                  <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => fmtMoney(v)} cursor={{ fill: "var(--color-muted)" }} />
+                  <Bar dataKey="exposure" name="Exposure" fill="var(--color-primary)" radius={[4, 4, 0, 0]} barSize={32} />
+                  <Bar dataKey="limit" name="Credit limit" fill="var(--color-muted)" radius={[4, 4, 0, 0]} barSize={32} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -571,11 +557,11 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
       : null;
   const docs: DocMeta[] = Array.isArray(expense.documents) ? expense.documents : [];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-[#E2E8F0] bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-[#E2E8F0] px-5 py-3">
-          <h3 className="font-display text-lg font-semibold text-[#0F172A]">Expense detail</h3>
-          <button onClick={onClose} className="text-[#64748B] hover:text-[#0F172A] transition-colors"><X className="h-4 w-4" /></button>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg font-semibold text-foreground">Expense detail</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3">
@@ -583,26 +569,26 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
             <Field label="Category" value={String(expense.category)} />
             <Field label="Amount" value={fmtMoney(expense.amount)} />
             <div>
-              <div className="text-[11px] uppercase tracking-wider font-medium text-[#64748B]">Linked transaction</div>
+              <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Linked transaction</div>
               <div className="mt-0.5">
                 {link ? (
-                  <Link to={link.to} className="inline-flex items-center gap-1 text-[#00B8FF] hover:underline">
+                  <Link to={link.to} className="inline-flex items-center gap-1 text-primary hover:underline">
                     <Link2 className="h-3 w-3" />
-                    <span className="text-[#64748B]">{link.kind}</span>
+                    <span className="text-muted-foreground">{link.kind}</span>
                     <span className="font-mono">{link.num}</span>
                   </Link>
-                ) : <span className="text-[#64748B]">Unlinked</span>}
+                ) : <span className="text-muted-foreground">Unlinked</span>}
               </div>
             </div>
           </div>
           {expense.description && (
             <div>
-              <div className="mb-1 text-[11px] uppercase tracking-wider font-medium text-[#64748B]">Description</div>
-              <p className="text-[#475569]">{expense.description}</p>
+              <div className="mb-1 text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Description</div>
+              <p className="text-muted-foreground">{expense.description}</p>
             </div>
           )}
           <div>
-            <div className="mb-2 text-[11px] uppercase tracking-wider font-medium text-[#64748B]">Attachments</div>
+            <div className="mb-2 text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Attachments</div>
             <DocumentList docs={docs} />
           </div>
         </div>
@@ -614,11 +600,9 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wider font-medium text-[#64748B]">{label}</div>
-      <div className="mt-0.5 text-[#0F172A]">{value}</div>
+      <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-foreground">{value}</div>
     </div>
   );
 }
 
-// Import for type
-import { FileText, FileSignature, Wallet, type LucideIcon } from "lucide-react";

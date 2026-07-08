@@ -5,9 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   GLOBALOR — Premium light enterprise fintech dashboard
+   GLOBALOR — Premium light & dark enterprise fintech dashboard
    Aesthetic: Clean, modern, executive-grade financial platform
-   Inspired by Stripe Dashboard, Linear, Ramp, Brex, Mercury
+   Inspired by Stripe Dashboard, Linear, Vercel, Ramp, Brex, Mercury
    ============================================================ */
 
 @theme inline {
@@ -55,6 +55,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-glow-primary: var(--glow-primary);
+  --color-glow-success: var(--glow-success);
+  --color-glow-warning: var(--glow-warning);
+  --color-glow-destructive: var(--glow-destructive);
+
+  --shadow-card: var(--shadow-card-value);
+  --shadow-card-hover: var(--shadow-card-hover-value);
+  --shadow-glow: var(--shadow-glow-value);
+  --shadow-glow-lg: var(--shadow-glow-lg-value);
 }
 
 :root {
@@ -115,67 +125,220 @@
   --sidebar-border: #E2E8F0;
   --sidebar-ring: #00B8FF;
 
-  /* Card shadow */
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-card-hover: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
+  /* Glows (used in dark mode, set to neutral in light) */
+  --glow-primary: transparent;
+  --glow-success: transparent;
+  --glow-warning: transparent;
+  --glow-destructive: transparent;
+
+  /* Shadows */
+  --shadow-card-value: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover-value: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
+  --shadow-glow-value: none;
+  --shadow-glow-lg-value: none;
 }
 
+/* ============================================================
+   PREMIUM DARK MODE — Fintech-grade, deep, immersive
+   Blue-tinted charcoal palette with colored glow effects
+   ============================================================ */
 .dark {
-  --background: #0F172A;
-  --foreground: #F8FAFC;
+  /* Surface hierarchy — deep navy base with blue undertones */
+  --bg-main: #070B14;
+  --bg-secondary: #0E1628;
+  --bg-card: #111B30;
+  --bg-sidebar: #090E1A;
+
+  --background: #070B14;
+  --foreground: #E8EDF5;
+
+  /* Card surfaces — elevated with subtle blue tint */
+  --card: #111B30;
+  --card-foreground: #E8EDF5;
+
+  --popover: #162240;
+  --popover-foreground: #E8EDF5;
+
+  /* Brand — brighter, more vibrant in dark mode */
+  --primary: #38BDF8;
+  --primary-hover: #7DD3FC;
+  --primary-dark: #0EA5E9;
+  --primary-foreground: #0C1929;
+
+  --secondary: rgba(56, 189, 248, 0.1);
+  --secondary-foreground: #E8EDF5;
+
+  /* Muted surfaces — subtle layer between bg and card */
+  --muted: #162240;
+  --muted-foreground: #8899B4;
+
+  --accent: #1A2A45;
+  --accent-foreground: #E8EDF5;
+
+  /* Semantic — slightly desaturated for dark mode legibility */
+  --destructive: #F87171;
+  --destructive-foreground: #0C1929;
+
+  --warning: #FBBF24;
+  --warning-foreground: #0C1929;
+
+  --success: #4ADE80;
+  --success-foreground: #0C1929;
+
+  --info: #38BDF8;
+  --info-foreground: #0C1929;
+
+  /* Borders — blue-tinted for depth, not flat gray */
+  --border: #1E3050;
+  --input: #253A5E;
+  --ring: #38BDF8;
+
+  /* Sidebar — darkest surface for visual separation */
+  --sidebar: #090E1A;
+  --sidebar-foreground: #8899B4;
+  --sidebar-primary: #38BDF8;
+  --sidebar-primary-foreground: #0C1929;
+  --sidebar-accent: rgba(56, 189, 248, 0.08);
+  --sidebar-accent-foreground: #E8EDF5;
+  --sidebar-border: #1E3050;
+  --sidebar-ring: #38BDF8;
+
+  /* Colored glow variables — used in hover/active states */
+  --glow-primary: 0 0 24px rgba(56, 189, 248, 0.15);
+  --glow-success: 0 0 24px rgba(74, 222, 128, 0.12);
+  --glow-warning: 0 0 24px rgba(251, 191, 36, 0.12);
+  --glow-destructive: 0 0 24px rgba(248, 113, 113, 0.12);
+
+  /* Premium dark shadows — inset highlight + colored glow */
+  --shadow-card-value:
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 1px 4px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-card-hover-value:
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    0 8px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-glow-value:
+    0 0 20px rgba(56, 189, 248, 0.12);
+  --shadow-glow-lg-value:
+    0 0 40px rgba(56, 189, 248, 0.1),
+    0 0 80px rgba(56, 189, 248, 0.05);
 }
 
+/* ============================================================
+   BASE LAYER
+   ============================================================ */
 @layer base {
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    * {
+      transition-property: background-color, color, border-color, box-shadow, transform;
+      transition-duration: 0.3s;
+      transition-timing-function: ease;
+    }
+  }
+
   html, body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
   }
+
   body {
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
+
   .num, .font-mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
-  /* Global Table Styling */
+  /* --- Global Table Styling --- */
   table {
     @apply w-full text-sm text-left;
     border-collapse: separate;
     border-spacing: 0;
   }
+
   th {
     @apply sticky top-0 z-10 px-4 py-3 text-xs uppercase tracking-widest text-muted-foreground font-medium border-b border-border;
-    background-color: #F8FAFC;
+    background-color: var(--color-muted);
   }
+
   td {
     @apply px-4 py-3 border-b border-border/60 text-foreground transition-colors;
   }
+
   tr {
     @apply transition-colors;
   }
+
   tr:hover td {
-    background-color: #F8FAFC;
+    background-color: var(--color-muted);
   }
+
   tr:nth-child(even) td {
-    background-color: #FAFBFC;
+    background-color: color-mix(in srgb, var(--color-muted) 50%, transparent);
   }
+
   tr:nth-child(even):hover td {
-    background-color: #F1F5F9;
+    background-color: var(--color-muted);
+  }
+
+  /* --- Dark mode: table row hover with subtle blue tint --- */
+  .dark tr:hover td {
+    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
+  }
+
+  .dark tr:nth-child(even):hover td {
+    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
+  }
+
+  /* --- Scrollbar styling for dark mode --- */
+  .dark ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: #1E3050;
+    border-radius: 3px;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #253A5E;
   }
 }
 
+/* ============================================================
+   UTILITY LAYER
+   ============================================================ */
 @layer utilities {
+  /* --- Background gradient overlay for dark mode --- */
   .bg-vault {
     background: linear-gradient(135deg, rgba(0, 184, 255, 0.04) 0%, transparent 100%);
+  }
+
+  .dark .bg-vault {
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(56, 189, 248, 0.06) 0%, transparent 100%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(56, 189, 248, 0.03) 0%, transparent 100%),
+      linear-gradient(180deg, transparent 0%, transparent 100%);
   }
 
   .border-hairline { border: 1px solid var(--color-border); }
@@ -185,33 +348,55 @@
     font-size: clamp(1.25rem, 4cqi, 2.25rem);
     line-height: 1.15;
   }
+
   .text-balance { text-wrap: balance; }
 
-  /* Enterprise Card */
+  /* --- Enterprise Card --- */
   .bg-enterprise-card {
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--shadow-card-value);
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   }
+
   .bg-enterprise-card:hover {
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--shadow-card-hover-value);
   }
 
-  /* Legacy glass card - mapped to enterprise card */
+  /* Dark: hover glow on cards */
+  .dark .bg-enterprise-card:hover {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 20%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
+  }
+
+  /* --- Glass Card (modal/overlay surfaces) --- */
   .bg-glass-card {
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--shadow-card-value);
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   }
+
   .bg-glass-card:hover {
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--shadow-card-hover-value);
   }
 
-  /* Buttons */
+  /* Dark mode glass — subtle transparency + backdrop blur */
+  .dark .bg-glass-card {
+    background: color-mix(in srgb, var(--color-card) 96%, transparent);
+    backdrop-filter: blur(12px);
+    border-color: color-mix(in srgb, var(--color-border), transparent 30%);
+  }
+
+  .dark .bg-glass-card:hover {
+    background: color-mix(in srgb, var(--color-card) 98%, transparent);
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 15%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
+  }
+
+  /* --- Primary Button --- */
   .btn-primary {
     background: linear-gradient(135deg, #00B8FF, #0099D9);
     color: white;
@@ -219,42 +404,172 @@
     border-radius: 12px;
     transition: transform 0.15s ease, box-shadow 0.2s ease;
   }
+
   .btn-primary:hover {
     transform: translateY(-1px);
     box-shadow: 0 8px 20px rgba(0, 184, 255, 0.25);
   }
+
   .btn-primary:active {
     transform: translateY(0);
   }
 
+  /* Dark mode: primary button with blue glow */
+  .dark .btn-primary {
+    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
+  }
+
+  .dark .btn-primary:hover {
+    box-shadow: 0 8px 24px rgba(56, 189, 248, 0.3), 0 0 40px rgba(56, 189, 248, 0.1);
+  }
+
+  /* --- Secondary Button --- */
   .btn-secondary {
     background: transparent;
-    color: #0F172A;
-    border: 1px solid #E2E8F0;
+    color: var(--color-foreground);
+    border: 1px solid var(--color-border);
     border-radius: 12px;
     transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   }
+
   .btn-secondary:hover {
     transform: translateY(-1px);
-    background: #F8FAFC;
-    border-color: #CBD5E1;
+    background: var(--color-muted);
+    border-color: var(--color-input);
   }
 
-  /* Skeleton loading */
+  /* Dark mode: secondary button with subtle glow */
+  .dark .btn-secondary:hover {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 30%);
+    box-shadow: var(--shadow-glow-value);
+  }
+
+  /* --- Skeleton Loading --- */
   .skeleton {
-    background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+    background: linear-gradient(90deg, var(--color-muted) 25%, var(--color-border) 50%, var(--color-muted) 75%);
     background-size: 200% 100%;
     animation: skeleton-pulse 1.5s ease-in-out infinite;
     border-radius: 6px;
   }
+
   @keyframes skeleton-pulse {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
 
-  /* Subtle divider */
+  /* Dark mode skeleton */
+  .dark .skeleton {
+    background: linear-gradient(90deg, #162240 25%, #1E3050 50%, #162240 75%);
+    background-size: 200% 100%;
+  }
+
+  /* --- Subtle Divider --- */
   .divider-subtle {
     height: 1px;
-    background: linear-gradient(to right, transparent, #E2E8F0, transparent);
+    background: linear-gradient(to right, transparent, var(--color-border), transparent);
+  }
+
+  .dark .divider-subtle {
+    background: linear-gradient(to right, transparent, #1E3050, transparent);
+  }
+
+  /* --- Theme Toggle Animation --- */
+  @keyframes theme-rotate {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.25); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  .animate-theme-rotate {
+    animation: theme-rotate 0.5s ease-out;
+  }
+
+  /* --- Premium Dark Mode Glow Utilities --- */
+
+  /* Glow border — adds a colored glow ring on focus/active */
+  .glow-border-primary {
+    box-shadow: var(--shadow-glow-value);
+  }
+
+  .glow-border-success {
+    box-shadow: var(--glow-success);
+  }
+
+  .glow-border-warning {
+    box-shadow: var(--glow-warning);
+  }
+
+  /* Glow card — card with subtle colored glow */
+  .dark .glow-card {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 15%);
+    box-shadow: var(--shadow-card-value), var(--shadow-glow-value);
+  }
+
+  .dark .glow-card:hover {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 30%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-lg-value);
+  }
+
+  /* Card with primary-colored top border accent */
+  .dark .card-accent-top {
+    border-top: 2px solid var(--color-primary);
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
+  }
+
+  .dark .card-accent-top-success {
+    border-top: 2px solid var(--color-success);
+  }
+
+  .dark .card-accent-top-warning {
+    border-top: 2px solid var(--color-warning);
+  }
+
+  .dark .card-accent-top-destructive {
+    border-top: 2px solid var(--color-destructive);
+  }
+
+  /* Subtle stat card glow on hover */
+  .dark .stat-card-glow {
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  }
+
+  .dark .stat-card-glow:hover {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 25%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
+  }
+
+  /* Dark mode gradient backgrounds for semantic stats */
+  .dark .bg-stat-positive {
+    background: linear-gradient(135deg, rgba(74, 222, 128, 0.06) 0%, transparent 100%);
+  }
+
+  .dark .bg-stat-negative {
+    background: linear-gradient(135deg, rgba(248, 113, 113, 0.06) 0%, transparent 100%);
+  }
+
+  .dark .bg-stat-warning {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.06) 0%, transparent 100%);
+  }
+
+  .dark .bg-stat-info {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.06) 0%, transparent 100%);
+  }
+
+  /* Alert item styling for dark mode */
+  .dark .alert-item {
+    border-left: 3px solid var(--color-border);
+  }
+
+  .dark .alert-item-critical {
+    border-left-color: var(--color-destructive);
+  }
+
+  .dark .alert-item-warning {
+    border-left-color: var(--color-warning);
+  }
+
+  .dark .alert-item-info {
+    border-left-color: var(--color-primary);
   }
 }
