@@ -17,9 +17,10 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses";
+type ReportTab = "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss";
 
 const TABS: { id: ReportTab; label: string }[] = [
+  { id: "profit-loss", label: "Profit & Loss" },
   { id: "proformas", label: "Proforma invoices" },
   { id: "sales-invoices", label: "Sales invoices" },
   { id: "purchase-invoices", label: "Purchase invoices" },
@@ -32,6 +33,7 @@ const TABS: { id: ReportTab; label: string }[] = [
 
 // ── Status filter options ──
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
+  "profit-loss": ["all"],
   "proformas": ["all", "open", "closed", "proforma", "invoiced", "cancelled"],
   "sales-invoices": ["all", "open", "closed"],
   "purchase-invoices": ["all", "open", "closed"],
@@ -44,11 +46,13 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
 
 // ── Tab-specific open/closed statuses ──
 function getOpenStatuses(tab: ReportTab): string[] {
+  if (tab === "profit-loss") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["pending", "approved", "advanced", "overdue", "disputed"];
   return ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
 }
 
 function getClosedStatuses(tab: ReportTab): string[] {
+  if (tab === "profit-loss") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["funded", "paid"];
   return ["paid", "rejected", "cancelled", "disputed"];
 }
@@ -196,6 +200,8 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "invoice_link", label: "Linked Invoice", render: (r: any) => r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? "—" },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
       ];
+    case "profit-loss":
+      return [];
     default:
       return common;
   }
@@ -222,6 +228,95 @@ function toISODateString(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// ── P&L Period presets ──
+
+type PeriodPreset = "this-month" | "prev-month" | "this-quarter" | "this-fy" | "prev-fy" | "custom";
+
+const PERIOD_PRESETS: { id: PeriodPreset; label: string }[] = [
+  { id: "this-month", label: "This Month" },
+  { id: "prev-month", label: "Previous Month" },
+  { id: "this-quarter", label: "This Quarter" },
+  { id: "this-fy", label: "This Financial Year" },
+  { id: "prev-fy", label: "Previous Financial Year" },
+  { id: "custom", label: "Custom Range" },
+];
+
+function getPeriodDates(preset: PeriodPreset): { from: Date; to: Date } | null {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0-indexed
+
+  switch (preset) {
+    case "this-month":
+      return { from: new Date(y, m, 1), to: new Date(y, m + 1, 0) };
+    case "prev-month":
+      return { from: new Date(y, m - 1, 1), to: new Date(y, m, 0) };
+    case "this-quarter": {
+      const q = Math.floor(m / 3);
+      return { from: new Date(y, q * 3, 1), to: new Date(y, q * 3 + 3, 0) };
+    }
+    case "this-fy":
+      // Calendar year (Jan–Dec), modify if FY starts in a different month
+      return { from: new Date(y, 0, 1), to: new Date(y, 11, 31) };
+    case "prev-fy":
+      return { from: new Date(y - 1, 0, 1), to: new Date(y - 1, 11, 31) };
+    case "custom":
+      return null; // User will pick manually
+  }
+}
+
+// ── P&L report type ──
+
+interface PnLReport {
+  from: string;
+  to: string;
+  grossSales: number;
+  otherSalesIncome: number;
+  salesReturns: number;
+  totalTurnover: number;
+  grossPurchases: number;
+  logisticsAndProcurement: number;
+  principalCost: number;
+  referralFees: number;
+  customsDuties: number;
+  freightCharges: number;
+  otherDirectCosts: number;
+  totalCostOfSales: number;
+  grossProfit: number;
+  adminCostByCategory: Record<string, number>;
+  totalAdminCosts: number;
+  operatingProfit: number;
+  profitBeforeTax: number;
+  taxByCategory: Record<string, number>;
+  totalTaxation: number;
+  profitAfterTax: number;
+}
+
+// ── Admin cost category label mapping ──
+const ADMIN_CAT_LABELS: Record<string, string> = {
+  "accounting-and-bookkeeping": "Accounting and Bookkeeping",
+  "administration-expenses": "Administration Expenses",
+  "bank-charges": "Bank Charges",
+  "bank-revaluations": "Bank Revaluations",
+  "business-administration-support": "Business Administration Support",
+  "consultancy-fees": "Consultancy Fees",
+  "employee-gross-salary": "Employee Gross Salary",
+  "employer-pension-contributions": "Employer Pension Contributions",
+  "fx-realised-gains-and-losses": "FX Realised Gains and Losses",
+  "insurances-other": "Insurance",
+  "it-expenses": "IT Expenses",
+  "it-platform-and-support": "IT Platform and Support",
+  "legal-and-compliance-support": "Legal and Compliance Support",
+  "legal-fees": "Legal Fees",
+  "other-general-expenses": "Other General Expenses",
+  "professional-fees": "Professional Fees",
+  "professional-subscription": "Professional Subscriptions",
+  "realised-currency-gains": "Realised Currency Gains",
+  "referral-fee-admin-expense": "Referral Fee - Admin Expense",
+  "rent-expenses": "Rent Expenses",
+  "travelling-stay-and-food": "Travel, Stay and Food",
+};
+
 // ── Report Component ──
 
 function ReportsPage() {
@@ -240,6 +335,11 @@ function ReportsPage() {
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [fromOpen, setFromOpen] = useState(false);
   const [toOpen, setToOpen] = useState(false);
+
+  // P&L state
+  const isPnL = tab === "profit-loss";
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("this-month");
+  const [pnlData, setPnlData] = useState<PnLReport | null>(null);
 
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
@@ -279,38 +379,63 @@ function ReportsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (isPaginated) {
-        params.set("page", String(page));
-        params.set("limit", String(limit));
-        if (searchQuery) params.set("search", searchQuery);
-        if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
-      }
-      if (fromDate) params.set("from", toISODateString(fromDate));
-      if (toDate) params.set("to", toISODateString(toDate));
-      const qs = params.toString();
-      const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
-      const result = await api.get<any>(url);
-
-      if (isPaginated && result?.data) {
-        setData(result.data ?? []);
-        setTotalItems(result.total ?? 0);
-        setTotalPages(result.totalPages ?? 1);
+      if (isPnL) {
+        // Fetch P&L report
+        let fromStr: string | undefined;
+        let toStr: string | undefined;
+        if (periodPreset === "custom") {
+          if (fromDate) fromStr = toISODateString(fromDate);
+          if (toDate) toStr = toISODateString(toDate);
+        } else {
+          const dates = getPeriodDates(periodPreset);
+          if (dates) {
+            fromStr = toISODateString(dates.from);
+            toStr = toISODateString(dates.to);
+          }
+        }
+        const params = new URLSearchParams();
+        if (fromStr) params.set("from", fromStr);
+        if (toStr) params.set("to", toStr);
+        const qs = params.toString();
+        const url = qs ? `/reports/profit-loss?${qs}` : `/reports/profit-loss`;
+        const result = await api.get<PnLReport>(url);
+        setPnlData(result);
       } else {
-        setData(Array.isArray(result) ? result : (result ?? []));
-        const arr = Array.isArray(result) ? result : (result ?? []);
-        setTotalItems(arr.length);
-        setTotalPages(1);
+        const params = new URLSearchParams();
+        if (isPaginated) {
+          params.set("page", String(page));
+          params.set("limit", String(limit));
+          if (searchQuery) params.set("search", searchQuery);
+          if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+        }
+        if (fromDate) params.set("from", toISODateString(fromDate));
+        if (toDate) params.set("to", toISODateString(toDate));
+        const qs = params.toString();
+        const url = qs ? `/reports/${tab}?${qs}` : `/reports/${tab}`;
+        const result = await api.get<any>(url);
+
+        if (isPaginated && result?.data) {
+          setData(result.data ?? []);
+          setTotalItems(result.total ?? 0);
+          setTotalPages(result.totalPages ?? 1);
+        } else {
+          setData(Array.isArray(result) ? result : (result ?? []));
+          const arr = Array.isArray(result) ? result : (result ?? []);
+          setTotalItems(arr.length);
+          setTotalPages(1);
+        }
       }
     } catch (err) {
       toast.error("Failed to load report data");
-      setData([]);
-      setTotalItems(0);
-      setTotalPages(1);
+      if (!isPnL) {
+        setData([]);
+        setTotalItems(0);
+        setTotalPages(1);
+      }
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL]);
 
   useEffect(() => {
     fetchData();
@@ -376,9 +501,108 @@ function ReportsPage() {
     });
   }, [tab, statusFilter, searchQuery, fromDate, toDate]);
 
-  // ── Excel Export (fetches all data) ──
+  // ── P&L export helpers ──
+  const buildPnlRows = useCallback(() => {
+    if (!pnlData) return [];
+    const d = pnlData;
+    const adminEntries = Object.entries(d.adminCostByCategory).sort(([a], [b]) => a.localeCompare(b));
+    const taxEntries = Object.entries(d.taxByCategory).sort(([a], [b]) => a.localeCompare(b));
+
+    const rows: Array<{ label: string; value: string; depth: number; bold?: boolean; doubleLine?: boolean; accent?: boolean }> = [];
+
+    const push = (label: string, value: number, opts?: { depth?: number; bold?: boolean; doubleLine?: boolean; accent?: boolean }) => {
+      rows.push({
+        label,
+        value: fmtPnlMoney(value),
+        depth: opts?.depth ?? 0,
+        bold: opts?.bold,
+        doubleLine: opts?.doubleLine,
+        accent: opts?.accent,
+      });
+    };
+
+    // Turnover
+    push("TURNOVER", 0, { accent: true });
+    push("Gross Sales", d.grossSales, { depth: 1 });
+    push("Other Sales Income", d.otherSalesIncome, { depth: 1 });
+    push("Sales Returns / Adjustments", -d.salesReturns, { depth: 1 });
+    push("Total Turnover", d.totalTurnover, { bold: true, doubleLine: true });
+
+    // Cost of Sales
+    push("COST OF SALES", 0, { accent: true });
+    push("Gross Purchases", d.grossPurchases, { depth: 1 });
+    push("Logistics & Procurement Cost", d.logisticsAndProcurement, { depth: 1 });
+    push("Principal Cost", d.principalCost, { depth: 1 });
+    push("Referral Fees", d.referralFees, { depth: 1 });
+    push("Customs / Duties", d.customsDuties, { depth: 1 });
+    push("Freight Charges", d.freightCharges, { depth: 1 });
+    push("Other Direct Costs", d.otherDirectCosts, { depth: 1 });
+    push("Total Cost of Sales", d.totalCostOfSales, { bold: true, doubleLine: true });
+
+    // Gross Profit
+    push("Gross Profit", d.grossProfit, { bold: true, doubleLine: true });
+
+    // Administrative Costs
+    push("ADMINISTRATIVE COSTS", 0, { accent: true });
+    if (adminEntries.length === 0) {
+      push("No administrative expenses recorded", 0, { depth: 1 });
+    } else {
+      for (const [cat, amount] of adminEntries) {
+        push(ADMIN_CAT_LABELS[cat] ?? cat, amount, { depth: 1 });
+      }
+    }
+    push("Total Administrative Costs", d.totalAdminCosts, { bold: true, doubleLine: true });
+
+    // Operating Profit
+    push("Operating Profit", d.operatingProfit, { bold: true, doubleLine: true });
+
+    // Profit Before Tax
+    push("Profit on Ordinary Activities Before Taxation", d.profitBeforeTax, { bold: true, doubleLine: true });
+
+    // Taxation
+    push("TAXATION", 0, { accent: true });
+    if (taxEntries.length === 0) {
+      push("No tax entries recorded", 0, { depth: 1 });
+    } else {
+      for (const [cat, amount] of taxEntries) {
+        push(cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), amount, { depth: 1 });
+      }
+    }
+    push("Total Taxation", d.totalTaxation, { bold: true, doubleLine: true });
+
+    // Profit After Tax
+    push("Profit After Taxation", d.profitAfterTax, { bold: true, doubleLine: true });
+
+    return rows;
+  }, [pnlData]);
+
+  // ── Excel Export (handles both tabular and P&L) ──
   const exportExcel = async () => {
     try {
+      if (isPnL) {
+        if (!pnlData) { toast.error("No data to export"); return; }
+        const rows = buildPnlRows();
+        const wsData = [
+          ["Profit & Loss Statement"],
+          [`Period: ${fmtDate(pnlData.from)} \u2014 ${fmtDate(pnlData.to)}`],
+          [],
+          ["Line Item", "Amount (USD)"],
+          ...rows.map((r) => [r.label, r.value]),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        ws["!cols"] = [{ wch: 55 }, { wch: 20 }];
+        // Bold the header row
+        for (let c = 0; c < 2; c++) {
+          const addr = XLSX.utils.encode_cell({ r: 3, c });
+          if (ws[addr]) ws[addr].s = { font: { bold: true } };
+        }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Profit & Loss");
+        XLSX.writeFile(wb, "profit-and-loss.xlsx");
+        toast.success("P&L statement exported to Excel");
+        return;
+      }
+
       const allData = await fetchExportData();
       if (allData.length === 0) {
         toast.error("No data to export");
@@ -394,15 +618,92 @@ function ReportsPage() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, TABS.find((t) => t.id === tab)?.label ?? tab);
       XLSX.writeFile(wb, `${tab}-report.xlsx`);
-      toast.success(`Excel file downloaded · ${allData.length} records`);
+      toast.success(`Excel file downloaded \u00b7 ${allData.length} records`);
     } catch (err) {
       toast.error("Failed to export Excel");
     }
   };
 
-  // ── High-quality PDF Export (fetches all data) ──
+  // ── High-quality PDF Export (handles both tabular and P&L) ──
   const exportPdf = async () => {
     try {
+      if (isPnL) {
+        if (!pnlData) { toast.error("No data to export"); return; }
+        const rows = buildPnlRows();
+        const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+        // Title
+        doc.setFontSize(18);
+        doc.setFont("helvetica", "bold");
+        doc.text("Profit & Loss Statement", 14, 20);
+
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Period: ${fmtDate(pnlData.from)} \u2014 ${fmtDate(pnlData.to)}`, 14, 28);
+        doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 34);
+
+        const autoTable = (doc as any).autoTable;
+        if (typeof autoTable !== "function") {
+          toast.error("PDF export plugin not available");
+          return;
+        }
+
+        const body = rows.map((r) => {
+          const labelStr = r.depth > 0 ? "    ".repeat(r.depth) + r.label : r.label;
+          return [labelStr, r.value];
+        });
+
+        autoTable.call(doc, {
+          startY: 40,
+          head: [],
+          body,
+          styles: {
+            fontSize: 8,
+            cellPadding: 2,
+            lineColor: [220, 220, 220],
+            lineWidth: 0.05,
+            textColor: [30, 30, 30],
+          },
+          columnStyles: {
+            0: { cellWidth: 130, halign: "left" },
+            1: { cellWidth: 40, halign: "right" },
+          },
+          theme: "plain",
+          margin: { top: 40, bottom: 20 },
+          didParseCell: (data: any) => {
+            if (data.section === "body") {
+              const row = rows[data.row.index];
+              if (row) {
+                if (row.accent) {
+                  data.cell.styles.fillColor = [240, 242, 255];
+                  data.cell.styles.fontStyle = "bold";
+                  data.cell.styles.fontSize = 9;
+                } else if (row.doubleLine) {
+                  data.cell.styles.fontStyle = "bold";
+                } else if (row.bold) {
+                  data.cell.styles.fontStyle = "bold";
+                }
+              }
+            }
+          },
+          didDrawPage: (tableData: any) => {
+            const pageCount = (doc as any).internal.getNumberOfPages();
+            doc.setFontSize(7);
+            doc.setTextColor(150);
+            doc.text(
+              `Page ${tableData.pageNumber} of ${pageCount}`,
+              doc.internal.pageSize.width / 2,
+              doc.internal.pageSize.height - 10,
+              { align: "center" },
+            );
+          },
+        });
+
+        doc.save("profit-and-loss.pdf");
+        toast.success("P&L statement exported to PDF");
+        return;
+      }
+
       const allData = await fetchExportData();
       if (allData.length === 0) {
         toast.error("No data to export");
@@ -464,7 +765,7 @@ function ReportsPage() {
       });
 
       doc.save(`${tab}-report.pdf`);
-      toast.success(`PDF file downloaded · ${allData.length} records`);
+      toast.success(`PDF file downloaded \u00b7 ${allData.length} records`);
     } catch (err) {
       console.error("PDF export error:", err);
       toast.error("Failed to export PDF");
@@ -486,14 +787,14 @@ function ReportsPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={exportExcel}
-              disabled={filtered.length === 0}
+              disabled={isPnL ? !pnlData : filtered.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
             >
               <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
             </button>
             <button
               onClick={exportPdf}
-              disabled={filtered.length === 0}
+              disabled={isPnL ? !pnlData : filtered.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               <FileText className="h-3.5 w-3.5" /> PDF
@@ -524,162 +825,202 @@ function ReportsPage() {
       {/* Filters bar */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3 md:px-10">
         <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        {statuses.length > 1 && (
+
+        {isPnL ? (
+          /* ── P&L Period presets ── */
           <div className="flex flex-wrap gap-1">
-            {statuses.map((s) => (
+            {PERIOD_PRESETS.map((p) => (
               <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
+                key={p.id}
+                onClick={() => {
+                  setPeriodPreset(p.id);
+                  if (p.id !== "custom") {
+                    const dates = getPeriodDates(p.id);
+                    if (dates) {
+                      setFromDate(dates.from);
+                      setToDate(dates.to);
+                    }
+                  }
+                }}
                 className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-widest transition-colors ${
-                  statusFilter === s
+                  periodPreset === p.id
                     ? "bg-primary text-primary-foreground"
                     : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
                 }`}
               >
-                {s}
+                {p.label}
               </button>
             ))}
           </div>
+        ) : (
+          <>
+            {statuses.length > 1 && (
+              <div className="flex flex-wrap gap-1">
+                {statuses.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-widest transition-colors ${
+                      statusFilter === s
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {/* Date range filter */}
-        <div className="flex items-center gap-1.5">
-          <Popover open={fromOpen} onOpenChange={setFromOpen}>
-            <PopoverTrigger asChild>
+        {/* Date range filter (shown for P&L custom and other tabs) */}
+        {(isPnL && periodPreset === "custom") || !isPnL ? (
+          <div className="flex items-center gap-1.5">
+            <Popover open={fromOpen} onOpenChange={setFromOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                    fromDate
+                      ? "border-primary text-primary"
+                      : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  )}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {fromDate ? formatDateForInput(fromDate) : "From"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={fromDate}
+                  onSelect={(date) => {
+                    setFromDate(date);
+                    if (date) setPeriodPreset("custom");
+                    setFromOpen(false);
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            <span className="text-[10px] text-muted-foreground">—</span>
+            <Popover open={toOpen} onOpenChange={setToOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
+                    toDate
+                      ? "border-primary text-primary"
+                      : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  )}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {toDate ? formatDateForInput(toDate) : "To"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={toDate}
+                  onSelect={(date) => {
+                    setToDate(date);
+                    if (date) setPeriodPreset("custom");
+                    setToOpen(false);
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            {hasDateFilter && (
               <button
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
-                  fromDate
-                    ? "border-primary text-primary"
-                    : "border-border text-muted-foreground hover:border-primary hover:text-primary"
-                )}
+                onClick={() => { setFromDate(undefined); setToDate(undefined); }}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                title="Clear date filter"
               >
-                <CalendarDays className="h-3.5 w-3.5" />
-                {fromDate ? formatDateForInput(fromDate) : "From"}
+                <X className="h-3 w-3" />
               </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={fromDate}
-                onSelect={(date) => {
-                  setFromDate(date);
-                  setFromOpen(false);
-                }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-          <span className="text-[10px] text-muted-foreground">—</span>
-          <Popover open={toOpen} onOpenChange={setToOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors",
-                  toDate
-                    ? "border-primary text-primary"
-                    : "border-border text-muted-foreground hover:border-primary hover:text-primary"
-                )}
-              >
-                <CalendarDays className="h-3.5 w-3.5" />
-                {toDate ? formatDateForInput(toDate) : "To"}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={toDate}
-                onSelect={(date) => {
-                  setToDate(date);
-                  setToOpen(false);
-                }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-          {hasDateFilter && (
-            <button
-              onClick={() => { setFromDate(undefined); setToDate(undefined); }}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-              title="Clear date filter"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        ) : null}
 
-        {/* Column visibility picker */}
-        <div className="relative" ref={columnMenuRef}>
-          <button
-            onClick={() => setColumnMenuOpen((o) => !o)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-          >
-            <Columns className="h-3 w-3" />
-            Columns ({visibleCount}/{totalCount})
-          </button>
-          {columnMenuOpen && (
-            <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-card shadow-lg">
-              <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Toggle columns</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      const all: Record<string, boolean> = {};
-                      columns.forEach((c) => (all[c.key] = true));
-                      setVisibleColumns(all);
-                    }}
-                    className="text-[10px] uppercase tracking-widest text-primary hover:text-primary/80 px-1.5 py-0.5"
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => {
-                      const none: Record<string, boolean> = {};
-                      columns.forEach((c) => (none[c.key] = false));
-                      setVisibleColumns(none);
-                    }}
-                    className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground px-1.5 py-0.5"
-                  >
-                    None
-                  </button>
+        {/* Column visibility picker — hidden for P&L */}
+        {!isPnL && (
+          <div className="relative" ref={columnMenuRef}>
+            <button
+              onClick={() => setColumnMenuOpen((o) => !o)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+            >
+              <Columns className="h-3 w-3" />
+              Columns ({visibleCount}/{totalCount})
+            </button>
+            {columnMenuOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-card shadow-lg">
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Toggle columns</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        const all: Record<string, boolean> = {};
+                        columns.forEach((c) => (all[c.key] = true));
+                        setVisibleColumns(all);
+                      }}
+                      className="text-[10px] uppercase tracking-widest text-primary hover:text-primary/80 px-1.5 py-0.5"
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => {
+                        const none: Record<string, boolean> = {};
+                        columns.forEach((c) => (none[c.key] = false));
+                        setVisibleColumns(none);
+                      }}
+                      className="text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground px-1.5 py-0.5"
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {columns.map((col) => {
+                    const checked = visibleColumns[col.key] !== false;
+                    return (
+                      <label
+                        key={col.key}
+                        className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs hover:bg-accent cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setVisibleColumns((prev) => ({ ...prev, [col.key]: !checked }))
+                          }
+                          className="rounded border-border text-primary focus:ring-primary/30 h-3.5 w-3.5"
+                        />
+                        <span className={checked ? "text-foreground" : "text-muted-foreground"}>
+                          {col.label}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="max-h-72 overflow-y-auto p-1">
-                {columns.map((col) => {
-                  const checked = visibleColumns[col.key] !== false;
-                  return (
-                    <label
-                      key={col.key}
-                      className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs hover:bg-accent cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() =>
-                          setVisibleColumns((prev) => ({ ...prev, [col.key]: !checked }))
-                        }
-                        className="rounded border-border text-primary focus:ring-primary/30 h-3.5 w-3.5"
-                      />
-                      <span className={checked ? "text-foreground" : "text-muted-foreground"}>
-                        {col.label}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
-        <div className="ml-auto">
-          <input
-            type="text"
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs w-48 focus:outline-none focus:border-primary"
-          />
-        </div>
+        {/* Search — hidden for P&L */}
+        {!isPnL && (
+          <div className="ml-auto">
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs w-48 focus:outline-none focus:border-primary"
+            />
+          </div>
+        )}
       </div>
 
       {/* Data */}
@@ -688,6 +1029,15 @@ function ReportsPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : isPnL ? (
+          pnlData ? (
+            <PnLStatement data={pnlData} />
+          ) : (
+            <div className="flex flex-col items-center py-20 text-muted-foreground">
+              <FileText className="h-10 w-10 mb-3 opacity-30" />
+              <p className="text-sm">No data available</p>
+            </div>
+          )
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center py-20 text-muted-foreground">
             <FileText className="h-10 w-10 mb-3 opacity-30" />
@@ -779,5 +1129,126 @@ function ReportsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── P&L Statement Component ──
+
+/** Format money for P&L (negative values in parentheses) */
+function fmtPnlMoney(val: number): string {
+  const abs = Math.abs(val);
+  const formatted = new Intl.NumberFormat("en-US", {
+    style: "decimal",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(abs);
+  return val < 0 ? `(${formatted})` : `${formatted}`;
+}
+
+/** A single row in the P&L statement */
+function PnlRow({ label, value, isTotal = false, isSubtotal = false, indent = false }: { label: string; value: number; isTotal?: boolean; isSubtotal?: boolean; indent?: boolean }) {
+  const cls = isTotal
+    ? "border-t-2 border-b-2 border-foreground/20 font-bold text-foreground"
+    : isSubtotal
+      ? "border-t border-foreground/10 font-semibold text-foreground"
+      : indent
+        ? "text-muted-foreground"
+        : "text-foreground";
+  return (
+    <tr className={cls}>
+      <td className={`px-4 py-2.5 text-sm ${indent ? "pl-8" : ""}`}>{label}</td>
+      <td className={`px-4 py-2.5 text-sm text-right num font-mono ${isTotal || isSubtotal ? "font-semibold" : ""}`}>
+        {fmtPnlMoney(value)}
+      </td>
+    </tr>
+  );
+}
+
+function PnLStatement({ data }: { data: PnLReport }) {
+  const { from, to } = data;
+  const adminEntries = Object.entries(data.adminCostByCategory).sort(([a], [b]) => a.localeCompare(b));
+  const taxEntries = Object.entries(data.taxByCategory).sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <Card title={`Profit & Loss Statement`}>
+      <div className="px-2 py-1">
+        <div className="mb-4 text-xs text-muted-foreground">
+          Period: {fmtDate(from)} — {fmtDate(to)}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <tbody>
+              {/* ── TURNOVER ── */}
+              <tr className="border-b border-border/40">
+                <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-primary" colSpan={2}>
+                  Turnover
+                </td>
+              </tr>
+              <PnlRow label="Gross Sales" value={data.grossSales} indent />
+              <PnlRow label="Other Sales Income" value={data.otherSalesIncome} indent />
+              <PnlRow label="Sales Returns / Adjustments" value={-data.salesReturns} indent />
+              <PnlRow label="Total Turnover" value={data.totalTurnover} isTotal />
+
+              {/* ── COST OF SALES ── */}
+              <tr className="border-b border-border/40">
+                <td className="px-4 py-3 pt-6 text-xs font-bold uppercase tracking-wider text-primary" colSpan={2}>
+                  Cost of Sales
+                </td>
+              </tr>
+              <PnlRow label="Gross Purchases" value={data.grossPurchases} indent />
+              <PnlRow label="Logistics &amp; Procurement Cost" value={data.logisticsAndProcurement} indent />
+              <PnlRow label="Principal Cost" value={data.principalCost} indent />
+              <PnlRow label="Referral Fees" value={data.referralFees} indent />
+              <PnlRow label="Customs / Duties" value={data.customsDuties} indent />
+              <PnlRow label="Freight Charges" value={data.freightCharges} indent />
+              <PnlRow label="Other Direct Costs" value={data.otherDirectCosts} indent />
+              <PnlRow label="Total Cost of Sales" value={data.totalCostOfSales} isTotal />
+
+              {/* ── GROSS PROFIT ── */}
+              <PnlRow label="Gross Profit" value={data.grossProfit} isTotal />
+
+              {/* ── ADMINISTRATIVE COSTS ── */}
+              <tr className="border-b border-border/40">
+                <td className="px-4 py-3 pt-6 text-xs font-bold uppercase tracking-wider text-primary" colSpan={2}>
+                  Administrative Costs
+                </td>
+              </tr>
+              {adminEntries.length === 0 ? (
+                <PnlRow label="No administrative expenses recorded" value={0} indent />
+              ) : (
+                adminEntries.map(([cat, amount]) => (
+                  <PnlRow key={cat} label={ADMIN_CAT_LABELS[cat] ?? cat} value={amount} indent />
+                ))
+              )}
+              <PnlRow label="Total Administrative Costs" value={data.totalAdminCosts} isTotal />
+
+              {/* ── OPERATING PROFIT ── */}
+              <PnlRow label="Operating Profit" value={data.operatingProfit} isTotal />
+
+              {/* ── PROFIT BEFORE TAX ── */}
+              <PnlRow label="Profit on Ordinary Activities Before Taxation" value={data.profitBeforeTax} isTotal />
+
+              {/* ── TAXATION ── */}
+              <tr className="border-b border-border/40">
+                <td className="px-4 py-3 pt-6 text-xs font-bold uppercase tracking-wider text-primary" colSpan={2}>
+                  Taxation
+                </td>
+              </tr>
+              {taxEntries.length === 0 ? (
+                <PnlRow label="No tax entries recorded" value={0} indent />
+              ) : (
+                taxEntries.map(([cat, amount]) => (
+                  <PnlRow key={cat} label={cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} value={amount} indent />
+                ))
+              )}
+              <PnlRow label="Total Taxation" value={data.totalTaxation} isTotal />
+
+              {/* ── PROFIT AFTER TAX ── */}
+              <PnlRow label="Profit After Taxation" value={data.profitAfterTax} isTotal />
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Card>
   );
 }

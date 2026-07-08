@@ -3,7 +3,7 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
-  PurchaseOrder, Advance, Expense, Supplier,
+  PurchaseOrder, Advance, Expense, Supplier, CreditDebitNote,
 } from "../types/index.js";
 
 const router = Router();
@@ -396,6 +396,198 @@ router.get("/expenses", requireAuth, async (_req: AuthRequest, res: Response) =>
     res.json(enriched);
   } catch (err) {
     console.error("Reports expenses error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── P&L category mapping helpers ──
+
+/** Categories that belong to Cost of Sales */
+const COST_OF_SALES_CATEGORIES = new Set([
+  "logistics-and-procurement-cost",
+  "principal-cost",
+  "referral-fees",
+]);
+
+/** Categories that belong to Taxation */
+const TAX_CATEGORIES = new Set([
+  "corporation-tax",
+  "deferred-tax",
+  "other-taxes",
+]);
+
+/**
+ * Compute aggregate amounts for each P&L section from the raw data
+ * within the given date range.
+ */
+function computePnL(data: {
+  invoices: Invoice[];
+  purchaseInvoices: PurchaseInvoice[];
+  expenses: Expense[];
+  creditDebitNotes: CreditDebitNote[];
+  advances: Advance[];
+}, fromDate: string, toDate: string) {
+  const isInRange = (dateStr: string | null | undefined) => {
+    if (!dateStr) return false;
+    const d = dateStr.slice(0, 10);
+    return d >= fromDate && d <= toDate;
+  };
+
+  const { invoices, purchaseInvoices, expenses, creditDebitNotes, advances } = data;
+
+  // ── Turnover ──
+  const grossSales = invoices
+    .filter((inv) => isInRange(inv.issue_date))
+    .reduce((sum, inv) => sum + Number(inv.amount), 0);
+
+  const otherSalesIncome = 0;
+
+  const salesReturns = creditDebitNotes
+    .filter((n) => n.type === "credit" && n.linked_invoice_type === "sales" && isInRange(n.date))
+    .reduce((sum, n) => sum + Number(n.amount), 0);
+
+  const totalTurnover = grossSales + otherSalesIncome - salesReturns;
+
+  // ── Cost of Sales ──
+  const grossPurchases = purchaseInvoices
+    .filter((pi) => isInRange(pi.issue_date))
+    .reduce((sum, pi) => sum + Number(pi.amount), 0);
+
+  const costOfSalesExpenses = expenses.filter((e) => COST_OF_SALES_CATEGORIES.has(e.category) && isInRange(e.expense_date));
+
+  const logisticsAndProcurement = costOfSalesExpenses
+    .filter((e) => e.category === "logistics-and-procurement-cost")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const principalCostFromExpenses = costOfSalesExpenses
+    .filter((e) => e.category === "principal-cost")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  // Principal cost: sum of advances in range + any "principal-cost" expense entries
+  const advancesTotal = advances
+    .filter((a) => isInRange(a.advance_date))
+    .reduce((sum, a) => sum + Number(a.amount), 0);
+  const principalCost = advancesTotal + principalCostFromExpenses;
+
+  const referralFees = costOfSalesExpenses
+    .filter((e) => e.category === "referral-fees")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const customsDuties = 0;
+  const freightCharges = 0;
+  const otherDirectCosts = 0;
+
+  const totalCostOfSales =
+    grossPurchases +
+    logisticsAndProcurement +
+    principalCost +
+    referralFees +
+    customsDuties +
+    freightCharges +
+    otherDirectCosts;
+
+  // ── Gross Profit ──
+  const grossProfit = totalTurnover - totalCostOfSales;
+
+  // ── Administrative Costs ──
+  const adminExpenses = expenses.filter(
+    (e) =>
+      !COST_OF_SALES_CATEGORIES.has(e.category) &&
+      !TAX_CATEGORIES.has(e.category) &&
+      isInRange(e.expense_date),
+  );
+
+  const adminCostByCategory = new Map<string, number>();
+  for (const e of adminExpenses) {
+    const current = adminCostByCategory.get(e.category) ?? 0;
+    adminCostByCategory.set(e.category, current + Number(e.amount));
+  }
+
+  const totalAdminCosts = Array.from(adminCostByCategory.values()).reduce((a, b) => a + b, 0);
+
+  // ── Operating Profit ──
+  const operatingProfit = grossProfit - totalAdminCosts;
+
+  // ── Profit Before Taxation ──
+  const profitBeforeTax = operatingProfit;
+
+  // ── Taxation ──
+  const taxExpenses = expenses.filter((e) => TAX_CATEGORIES.has(e.category) && isInRange(e.expense_date));
+
+  const taxByCategory = new Map<string, number>();
+  for (const e of taxExpenses) {
+    const current = taxByCategory.get(e.category) ?? 0;
+    taxByCategory.set(e.category, current + Number(e.amount));
+  }
+
+  const totalTaxation = Array.from(taxByCategory.values()).reduce((a, b) => a + b, 0);
+
+  // ── Profit After Taxation ──
+  const profitAfterTax = profitBeforeTax - totalTaxation;
+
+  return {
+    // Turnover
+    grossSales,
+    otherSalesIncome,
+    salesReturns,
+    totalTurnover,
+
+    // Cost of Sales
+    grossPurchases,
+    logisticsAndProcurement,
+    principalCost,
+    referralFees,
+    customsDuties,
+    freightCharges,
+    otherDirectCosts,
+    totalCostOfSales,
+
+    // Gross Profit
+    grossProfit,
+
+    // Administrative Costs
+    adminCostByCategory: Object.fromEntries(adminCostByCategory),
+    totalAdminCosts,
+
+    // Operating Profit
+    operatingProfit,
+
+    // Profit Before Tax
+    profitBeforeTax,
+
+    // Taxation
+    taxByCategory: Object.fromEntries(taxByCategory),
+    totalTaxation,
+
+    // Profit After Tax
+    profitAfterTax,
+  };
+}
+
+// ── GET /api/reports/profit-loss ──
+router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const from = (req.query.from as string) || "1970-01-01";
+    const to = (req.query.to as string) || "2099-12-31";
+
+    // Blind scan — DynamoDB doesn't support date-range queries natively
+    const [invoices, purchaseInvoices, expenses, creditDebitNotes, advances] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES),
+      scanTable<Expense>(TABLES.EXPENSES),
+      scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES),
+      scanTable<Advance>(TABLES.ADVANCES),
+    ]);
+
+    const report = computePnL({ invoices, purchaseInvoices, expenses, creditDebitNotes, advances }, from, to);
+
+    res.json({
+      from,
+      to,
+      ...report,
+    });
+  } catch (err) {
+    console.error("Reports profit-loss error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
