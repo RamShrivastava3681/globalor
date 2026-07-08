@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { Plus, Trash2, X, Loader2, Link2, Paperclip, Search } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
@@ -13,12 +14,30 @@ export const Route = createFileRoute("/app/expenses")({
 });
 
 const CATS = [
-  { id: "logistics", label: "Logistics" },
-  { id: "insurance", label: "Insurance" },
-  { id: "interest", label: "Interest" },
-  { id: "commission", label: "Commission" },
-  { id: "administrative", label: "Administrative" },
-  { id: "other", label: "Other" },
+  { id: "accounting-and-bookkeeping", label: "Accounting and Bookkeeping" },
+  { id: "administration-expenses", label: "Administration Expenses" },
+  { id: "bank-charges", label: "Bank charges" },
+  { id: "bank-revaluations", label: "Bank Revaluations" },
+  { id: "business-administration-support", label: "Business Administration Support" },
+  { id: "consultancy-fees", label: "Consultancy Fees" },
+  { id: "employee-gross-salary", label: "Employee Gross Salary" },
+  { id: "employer-pension-contributions", label: "Employer Pension contributions" },
+  { id: "fx-realised-gains-and-losses", label: "FX realised gains and losses" },
+  { id: "insurances-other", label: "Insurances - other" },
+  { id: "it-expenses", label: "IT Expenses" },
+  { id: "it-platform-and-support", label: "IT platform and support" },
+  { id: "legal-and-compliance-support", label: "Legal and compliance support" },
+  { id: "legal-fees", label: "Legal fees" },
+  { id: "other-general-expenses", label: "Other General Expenses" },
+  { id: "professional-fees", label: "Professional Fees" },
+  { id: "professional-subscription", label: "Professional Subscription" },
+  { id: "realised-currency-gains", label: "Realised Currency Gains" },
+  { id: "referral-fee-admin-expense", label: "Referral Fee - Admin Expense" },
+  { id: "rent-expenses", label: "Rent Expenses" },
+  { id: "travelling-stay-and-food", label: "Travelling stay and food" },
+  { id: "logistics-and-procurement-cost", label: "Logistics & Procurement Cost" },
+  { id: "principal-cost", label: "Principal Cost" },
+  { id: "referral-fees", label: "Referral fees" },
 ];
 
 function catLabel(id: string) {
@@ -90,12 +109,12 @@ function ExpensesPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <Card title="Total expenses">
-            <div className="num num-lg">{fmtMoney(total)}</div>
+            <div className="num num-lg"><AnimatedMoney value={total} /></div>
             <div className="mt-1 text-xs text-muted-foreground">{rows.length} entries</div>
           </Card>
           {byCat.map((c) => (
             <Card key={c.id} title={c.label}>
-              <div className="num num-lg">{fmtMoney(c.total)}</div>
+              <div className="num num-lg"><AnimatedMoney value={c.total} /></div>
             </Card>
           ))}
         </div>
@@ -254,7 +273,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    category: "logistics",
+    category: "accounting-and-bookkeeping",
     description: "",
     amount: "",
     expense_date: new Date().toISOString().slice(0, 10),

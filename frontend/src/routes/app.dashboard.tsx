@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Stat, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { Activity, Paperclip, X, Link2, TrendingUp, FileText, FileSignature, Wallet, Receipt } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
@@ -164,22 +165,22 @@ function Dashboard() {
       <div className="space-y-6 p-4 md:p-6">
         {!isTreasury && (
           <div className="grid gap-4 md:grid-cols-4">
-            <Stat label="Sales (gross)" value={fmtMoney(Math.round(salesTotal))} delta={`${invoices.length} invoices`} />
-            <Stat label="Cost of goods" value={fmtMoney(Math.round(purchaseTotal))} delta={`${purchases.length} supplier invoices`} />
-            <Stat label="Gross income" value={fmtMoney(Math.round(gross))} delta={`${marginPct.toFixed(1)}% margin`} tone={gross >= 0 ? "good" : "bad"} />
-            <Stat label="Net income" value={fmtMoney(Math.round(net))} delta={`After ${fmtMoney(expenseTotal)} expenses`} tone={net >= 0 ? "good" : "bad"} />
+            <Stat label="Sales (gross)" value={fmtMoney(Math.round(salesTotal))} animate numValue={Math.round(salesTotal)} delta={`${invoices.length} invoices`} />
+            <Stat label="Cost of goods" value={fmtMoney(Math.round(purchaseTotal))} animate numValue={Math.round(purchaseTotal)} delta={`${purchases.length} supplier invoices`} />
+            <Stat label="Gross income" value={fmtMoney(Math.round(gross))} animate numValue={Math.round(gross)} delta={`${marginPct.toFixed(1)}% margin`} tone={gross >= 0 ? "good" : "bad"} />
+            <Stat label="Net income" value={fmtMoney(Math.round(net))} animate numValue={Math.round(net)} delta={`After ${fmtMoney(expenseTotal)} expenses`} tone={net >= 0 ? "good" : "bad"} />
           </div>
         )}
 
         <div className="grid gap-4 md:grid-cols-4">
-          <Stat label="Outstanding (AR)" value={fmtMoney(Math.round(totalOutstanding))} delta={`${invoices.filter(i => i.status !== "paid" && i.status !== "rejected").length} invoices`} />
+          <Stat label="Outstanding (AR)" value={fmtMoney(Math.round(totalOutstanding))} animate numValue={Math.round(totalOutstanding)} delta={`${invoices.filter(i => i.status !== "paid" && i.status !== "rejected").length} invoices`} />
           <Stat label="Collection rate" value={`${collectionRate}%`} delta="Lifetime" tone={collectionRate >= 90 ? "good" : "warn"} />
-          <Stat label="Short payments" value={fmtMoney(totalShortPayment)} delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`} tone={totalShortPayment > 0 ? "bad" : "good"} />
+          <Stat label="Short payments" value={fmtMoney(totalShortPayment)} animate numValue={totalShortPayment} delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`} tone={totalShortPayment > 0 ? "bad" : "good"} />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Stat label="Avg sales pay days" value={String(avgSalesPayDays)} delta={`${paidSalesInvoices.length} settled invoices`} tone={avgSalesPayDays > 0 ? "warn" : "good"} />
-          <Stat label="Avg purchases pay days" value={String(avgPurchasePayDays)} delta={`${paidPurchaseInvoices.length} settled invoices`} tone={avgPurchasePayDays > 0 ? "warn" : "good"} />
+          <Stat label="Avg sales pay days" value={String(avgSalesPayDays)} animate numValue={avgSalesPayDays} format="number" delta={`${paidSalesInvoices.length} settled invoices`} tone={avgSalesPayDays > 0 ? "warn" : "good"} />
+          <Stat label="Avg purchases pay days" value={String(avgPurchasePayDays)} animate numValue={avgPurchasePayDays} format="number" delta={`${paidPurchaseInvoices.length} settled invoices`} tone={avgPurchasePayDays > 0 ? "warn" : "good"} />
         </div>
 
         {!isTreasury && (
@@ -216,15 +217,15 @@ function Dashboard() {
             <div className="mt-2 grid grid-cols-3 gap-2 border-t border-[#E2E8F0] pt-3 text-center">
               <div>
                 <div className="text-xs font-medium text-[#16A34A]">Gross income</div>
-                <div className="text-xs text-[#64748B]">{fmtMoney(Math.round(gross))}</div>
+                <div className="text-xs text-[#64748B]"><AnimatedMoney value={Math.round(gross)} /></div>
               </div>
               <div>
                 <div className="text-xs font-medium text-[#00B8FF]">Net income</div>
-                <div className="text-xs text-[#64748B]">{fmtMoney(Math.round(net))}</div>
+                <div className="text-xs text-[#64748B]"><AnimatedMoney value={Math.round(net)} /></div>
               </div>
               <div>
                 <div className="text-xs font-medium text-[#F59E0B]">Expenses</div>
-                <div className="text-xs text-[#64748B]">{fmtMoney(expenseTotal)}</div>
+                <div className="text-xs text-[#64748B]"><AnimatedMoney value={expenseTotal} /></div>
               </div>
             </div>
           </Card>
@@ -274,7 +275,7 @@ function Dashboard() {
                 ].map((b) => (
                   <div key={b.label} className="text-center">
                     <div className={`text-xs font-semibold ${b.cls}`}>{b.label}</div>
-                    <div className="mt-1 text-xs text-[#64748B]">{fmtMoney(b.val)}</div>
+                    <div className="mt-1 text-xs text-[#64748B]"><AnimatedMoney value={b.val} /></div>
                     <div className="text-[11px] text-[#94A3B8]">{total > 0 ? `${((b.val / total) * 100).toFixed(1)}%` : "—"}</div>
                   </div>
                 ));
@@ -417,14 +418,14 @@ function Dashboard() {
                     <span className="text-[10px] uppercase tracking-widest text-[#64748B]">Received from buyers</span>
                     <span className="text-[10px] text-[#64748B]">{advances.filter((a: any) => a.side === "sales").length} advances</span>
                   </div>
-                  <div className="mt-1 font-display text-lg text-[#16A34A]">{fmtMoney(salesAdvancesTotal)}</div>
+                  <div className="mt-1 font-display text-lg text-[#16A34A]"><AnimatedMoney value={salesAdvancesTotal} /></div>
                 </div>
                 <div className={`rounded-lg border p-3 transition ${advanceTab === "purchase" ? "border-[#00B8FF]/40 bg-[#F0F9FF]" : "border-[#E2E8F0]"}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] uppercase tracking-widest text-[#64748B]">Given to suppliers</span>
                     <span className="text-[10px] text-[#64748B]">{advances.filter((a: any) => a.side === "purchase").length} advances</span>
                   </div>
-                  <div className="mt-1 font-display text-lg text-[#F59E0B]">{fmtMoney(purchaseAdvancesTotal)}</div>
+                  <div className="mt-1 font-display text-lg text-[#F59E0B]"><AnimatedMoney value={purchaseAdvancesTotal} /></div>
                 </div>
               </div>
               <div className="-mx-4 md:-mx-6 overflow-x-auto">

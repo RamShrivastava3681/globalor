@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
@@ -161,8 +162,8 @@ function PurchasesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
-          <Card title="Total purchases"><div className="num num-lg">{fmtMoney(totals.all)}</div></Card>
-          <Card title="Open payables"><div className="num num-lg text-warning">{fmtMoney(totals.open)}</div></Card>
+          <Card title="Total purchases"><div className="num num-lg"><AnimatedMoney value={totals.all} /></div></Card>
+          <Card title="Open payables"><div className="num num-lg text-warning"><AnimatedMoney value={totals.open} /></div></Card>
           <Card title="Suppliers used"><div className="num text-3xl">{new Set(invoiceData.map((p: any) => p.vendor_id)).size}</div></Card>
         </div>
 

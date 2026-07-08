@@ -13,12 +13,30 @@ export const Route = createFileRoute("/app/expenses")({
 });
 
 const CATS = [
-  { id: "logistics", label: "Logistics" },
-  { id: "insurance", label: "Insurance" },
-  { id: "interest", label: "Interest" },
-  { id: "commission", label: "Commission" },
-  { id: "administrative", label: "Administrative" },
-  { id: "other", label: "Other" },
+  { id: "accounting-and-bookkeeping", label: "Accounting and Bookkeeping" },
+  { id: "administration-expenses", label: "Administration Expenses" },
+  { id: "bank-charges", label: "Bank charges" },
+  { id: "bank-revaluations", label: "Bank Revaluations" },
+  { id: "business-administration-support", label: "Business Administration Support" },
+  { id: "consultancy-fees", label: "Consultancy Fees" },
+  { id: "employee-gross-salary", label: "Employee Gross Salary" },
+  { id: "employer-pension-contributions", label: "Employer Pension contributions" },
+  { id: "fx-realised-gains-and-losses", label: "FX realised gains and losses" },
+  { id: "insurances-other", label: "Insurances - other" },
+  { id: "it-expenses", label: "IT Expenses" },
+  { id: "it-platform-and-support", label: "IT platform and support" },
+  { id: "legal-and-compliance-support", label: "Legal and compliance support" },
+  { id: "legal-fees", label: "Legal fees" },
+  { id: "other-general-expenses", label: "Other General Expenses" },
+  { id: "professional-fees", label: "Professional Fees" },
+  { id: "professional-subscription", label: "Professional Subscription" },
+  { id: "realised-currency-gains", label: "Realised Currency Gains" },
+  { id: "referral-fee-admin-expense", label: "Referral Fee - Admin Expense" },
+  { id: "rent-expenses", label: "Rent Expenses" },
+  { id: "travelling-stay-and-food", label: "Travelling stay and food" },
+  { id: "logistics-and-procurement-cost", label: "Logistics & Procurement Cost" },
+  { id: "principal-cost", label: "Principal Cost" },
+  { id: "referral-fees", label: "Referral fees" },
 ];
 
 function catLabel(id: string) {
@@ -252,7 +270,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({
-    category: "logistics",
+    category: "accounting-and-bookkeeping",
     description: "",
     amount: "",
     expense_date: new Date().toISOString().slice(0, 10),

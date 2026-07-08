@@ -4,6 +4,7 @@ import { useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { Plus, X, Loader2, Link2, Trash2, Upload, Building2, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -96,8 +97,8 @@ function AdvancesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title="Open sales advances (received)"><div className="num num-lg text-success">{fmtMoney(totals.sales)}</div></Card>
-          <Card title="Open purchase advances (paid)"><div className="num num-lg text-warning">{fmtMoney(totals.purchase)}</div></Card>
+          <Card title="Open sales advances (received)"><div className="num num-lg text-success"><AnimatedMoney value={totals.sales} /></div></Card>
+          <Card title="Open purchase advances (paid)"><div className="num num-lg text-warning"><AnimatedMoney value={totals.purchase} /></div></Card>
         </div>
 
         <div className="flex gap-2">

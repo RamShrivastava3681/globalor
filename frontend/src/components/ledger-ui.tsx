@@ -1,8 +1,12 @@
 import { ReactNode } from "react";
+import { AnimatedMoney, AnimatedNumber } from "@/components/animated-number";
+import { fmtMoney, fmtDate, fmtDateTime, daysBetween } from "@/lib/format";
+
+export { fmtMoney, fmtDate, fmtDateTime, daysBetween };
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="border-b border-border bg-white px-4 py-6 md:px-6 md:py-8">
+    <div className="border-b border-border bg-card px-4 py-6 md:px-6 md:py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="max-w-3xl">
           {eyebrow && (
@@ -10,8 +14,8 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
               {eyebrow}
             </div>
           )}
-          <h1 className="font-display text-xl md:text-2xl font-bold tracking-tight text-[#0F172A]">{title}</h1>
-          {description && <p className="mt-1.5 text-sm text-[#64748B] leading-relaxed">{description}</p>}
+          <h1 className="font-display text-xl md:text-2xl font-bold tracking-tight text-card-foreground">{title}</h1>
+          {description && <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{description}</p>}
         </div>
         {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
       </div>
@@ -19,7 +23,7 @@ export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?:
   );
 }
 
-export function Stat({ label, value, delta, tone = "neutral" }: { label: string; value: string; delta?: string; tone?: "neutral" | "good" | "warn" | "bad" }) {
+export function Stat({ label, value, delta, tone = "neutral", animate, numValue, format = "money" }: { label: string; value: string; delta?: string; tone?: "neutral" | "good" | "warn" | "bad"; animate?: boolean; numValue?: number; format?: "money" | "number" }) {
   const toneCls = {
     neutral: "text-[#64748B]",
     good: "text-[#16A34A]",
@@ -33,12 +37,22 @@ export function Stat({ label, value, delta, tone = "neutral" }: { label: string;
     bad: "bg-[#DC2626]",
   }[tone];
   return (
-    <div className="bg-white border border-[#E2E8F0] rounded-xl p-4 md:p-5 shadow-[0_1px_3px_rgba(15,23,42,0.06)] hover:shadow-[0_4px_20px_rgba(15,23,42,0.06)] transition-shadow duration-200 min-w-0">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.1em] text-[#64748B]">
+    <div className="bg-card border border-border rounded-xl p-4 md:p-5 shadow-card hover:shadow-card-hover transition-shadow duration-200 min-w-0">
+      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
         {delta && tone !== "neutral" && <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />}
         {label}
       </div>
-      <div className="mt-2 num num-lg font-bold tracking-tight text-[#0F172A]">{value}</div>
+      <div className="mt-2 num num-lg font-bold tracking-tight text-card-foreground">
+        {animate && numValue !== undefined ? (
+          format === "money" ? (
+            <AnimatedMoney value={numValue} />
+          ) : (
+            <AnimatedNumber value={numValue} />
+          )
+        ) : (
+          value
+        )}
+      </div>
       {delta && <div className={`mt-1.5 text-sm font-medium ${toneCls}`}>{delta}</div>}
     </div>
   );
@@ -46,10 +60,10 @@ export function Stat({ label, value, delta, tone = "neutral" }: { label: string;
 
 export function Card({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <div className={`bg-white border border-[#E2E8F0] rounded-xl shadow-[0_1px_3px_rgba(15,23,42,0.06)] overflow-hidden ${className}`} style={{ containerType: "inline-size" }}>
+    <div className={`bg-card border border-border rounded-xl shadow-card overflow-hidden ${className}`} style={{ containerType: "inline-size" }}>
       {title && (
-        <div className="flex items-center justify-between border-b border-[#E2E8F0]/60 px-4 py-3 md:px-6 md:py-4">
-          <h3 className="font-display text-sm md:text-base font-semibold text-[#0F172A] break-words min-w-0">{title}</h3>
+        <div className="flex items-center justify-between border-b border-border/60 px-4 py-3 md:px-6 md:py-4">
+          <h3 className="font-display text-sm md:text-base font-semibold text-card-foreground break-words min-w-0">{title}</h3>
           {action}
         </div>
       )}
@@ -88,24 +102,4 @@ export function StatusPill({ status }: { status: string }) {
   );
 }
 
-export function fmtMoney(n: number | string | null | undefined) {
-  const v = Number(n ?? 0);
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
-}
 
-export function fmtDate(d: string | null | undefined) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-export function fmtDateTime(d: string | null | undefined) {
-  if (!d) return "—";
-  return new Date(d).toLocaleString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-    hour: "numeric", minute: "2-digit",
-  });
-}
-
-export function daysBetween(a: string, b: string = new Date().toISOString()) {
-  return Math.floor((new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24));
-}

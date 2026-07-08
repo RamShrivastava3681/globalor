@@ -4,6 +4,7 @@ import { Fragment, useState, useRef, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText, Upload, Loader2, X, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -315,10 +316,10 @@ function QueuePage() {
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card title="Supplier balance due"><div className="num num-lg text-warning">{fmtMoney(balanceToPay)}</div></Card>
-          <Card title="Advances applied (AP)"><div className="num num-lg text-primary">{fmtMoney(advancesAppliedOut)}</div></Card>
-          <Card title="Debtor balance expected"><div className="num num-lg text-primary">{fmtMoney(balanceToReceive)}</div></Card>
-          <Card title="Advances applied (AR)"><div className="num num-lg text-success">{fmtMoney(advancesAppliedIn)}</div></Card>
+          <Card title="Supplier balance due"><div className="num num-lg text-warning"><AnimatedMoney value={balanceToPay} /></div></Card>
+          <Card title="Advances applied (AP)"><div className="num num-lg text-primary"><AnimatedMoney value={advancesAppliedOut} /></div></Card>
+          <Card title="Debtor balance expected"><div className="num num-lg text-primary"><AnimatedMoney value={balanceToReceive} /></div></Card>
+          <Card title="Advances applied (AR)"><div className="num num-lg text-success"><AnimatedMoney value={advancesAppliedIn} /></div></Card>
         </div>
 
         <div className="flex flex-wrap gap-2">

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { AnimatedMoney } from "@/components/animated-number";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { Plus, X, Save, Trash2, ScrollText, FileText, ShoppingCart, Pencil, Send, Check, Clock, Loader2, Upload } from "lucide-react";
@@ -161,11 +162,7 @@ function CreditDebitNotesPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Credit notes total">
             <div className="num num-lg text-success">
-              {fmtMoney(
-                notes
-                  .filter((e) => e.type === "credit")
-                  .reduce((s, e) => s + Number(e.amount), 0),
-              )}
+              <AnimatedMoney value={notes.filter((e) => e.type === "credit").reduce((s, e) => s + Number(e.amount), 0)} />
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               {notes.filter((e) => e.type === "credit").length} entries
@@ -173,11 +170,7 @@ function CreditDebitNotesPage() {
           </Card>
           <Card title="Debit notes total">
             <div className="num num-lg text-warning">
-              {fmtMoney(
-                notes
-                  .filter((e) => e.type === "debit")
-                  .reduce((s, e) => s + Number(e.amount), 0),
-              )}
+              <AnimatedMoney value={notes.filter((e) => e.type === "debit").reduce((s, e) => s + Number(e.amount), 0)} />
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               {notes.filter((e) => e.type === "debit").length} entries
