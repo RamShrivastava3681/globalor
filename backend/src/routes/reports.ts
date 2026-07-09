@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
+import { diffDaysUTC } from "../utils/helpers.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
   PurchaseOrder, Advance, Expense, Supplier, CreditDebitNote,
@@ -92,6 +93,12 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
           return searchable.includes(search.toLowerCase());
         })
       : invoices;
+
+    // Server-side buyer (debtor) filter
+    const buyerId = (req.query.buyer_id as string) || "";
+    if (buyerId) {
+      filtered = filtered.filter((inv) => inv.debtor_id === buyerId);
+    }
 
     // Server-side status filter (applied before pagination, after search)
     const statusFilter = (req.query.status as string) || "";
@@ -256,6 +263,12 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
         })
       : aging;
 
+    // Server-side buyer (debtor) filter
+    const buyerId = (req.query.buyer_id as string) || "";
+    if (buyerId) {
+      filtered = filtered.filter((item) => item.debtor_id === buyerId);
+    }
+
     // Server-side status filter (applied before pagination, after search)
     const statusFilter = (req.query.status as string) || "";
     if (statusFilter) {
@@ -285,8 +298,74 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── GET /api/reports/debtors ──
 router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    res.json(debtors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
+    const [debtors, invoices] = await Promise.all([
+      scanTable<Debtor>(TABLES.DEBTORS),
+      scanTable<Invoice>(TABLES.INVOICES),
+    ]);
+
+    const SALES_OPEN = new Set(["pending", "approved", "advanced", "overdue", "disputed"]);
+    const SALES_CLOSED = new Set(["funded", "paid"]);
+
+    // Group invoices by debtor_id
+    const invoicesByDebtor = new Map<string, Invoice[]>();
+    for (const inv of invoices) {
+      if (inv.debtor_id) {
+        const list = invoicesByDebtor.get(inv.debtor_id) ?? [];
+        list.push(inv);
+        invoicesByDebtor.set(inv.debtor_id, list);
+      }
+    }
+
+    const enriched = debtors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((d) => {
+      const debtorInvoices = invoicesByDebtor.get(d.id) ?? [];
+      const count = debtorInvoices.length;
+      const closed = debtorInvoices.filter((inv) => SALES_CLOSED.has(inv.status)).length;
+      const open = debtorInvoices.filter((inv) => SALES_OPEN.has(inv.status)).length;
+      const totalInvoiced = debtorInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+      const outstanding = debtorInvoices
+        .filter((inv) => inv.status !== "paid" && inv.status !== "rejected")
+        .reduce((sum, inv) => sum + Number(inv.amount), 0);
+      const totalPaid = debtorInvoices
+        .filter((inv) => inv.status === "paid" && inv.amount_received != null)
+        .reduce((sum, inv) => sum + Number(inv.amount_received), 0);
+
+      // Pay days calculations (only for paid invoices with both dates)
+      const payDays: number[] = [];
+      for (const inv of debtorInvoices) {
+        if (inv.status === "paid" && inv.issue_date && inv.paid_date) {
+          const days = diffDaysUTC(inv.issue_date, inv.paid_date);
+          if (days >= 0) payDays.push(days);
+        }
+      }
+      payDays.sort((a, b) => a - b);
+
+      const avgDays = payDays.length > 0
+        ? Math.round(payDays.reduce((a, b) => a + b, 0) / payDays.length)
+        : null;
+      const medianDays = payDays.length > 0
+        ? (payDays.length % 2 === 1
+            ? payDays[Math.floor(payDays.length / 2)]
+            : Math.round((payDays[payDays.length / 2 - 1] + payDays[payDays.length / 2]) / 2))
+        : null;
+      const maxDays = payDays.length > 0 ? payDays[payDays.length - 1] : null;
+      const minDays = payDays.length > 0 ? payDays[0] : null;
+
+      return {
+        ...d,
+        total_invoices: count,
+        closed,
+        open,
+        outstanding,
+        total_invoiced: totalInvoiced,
+        total_paid: totalPaid,
+        avg_days: avgDays,
+        median_days: medianDays,
+        max_days: maxDays,
+        min_days: minDays,
+      };
+    });
+
+    res.json(enriched);
   } catch (err) {
     console.error("Reports debtors error:", err);
     res.status(500).json({ error: "Internal server error" });

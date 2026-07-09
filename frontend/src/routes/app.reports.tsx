@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X } from "lucide-react";
+import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -10,6 +10,7 @@ import "jspdf-autotable";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/app/reports")({
   component: ReportsPage,
@@ -150,6 +151,16 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
     case "debtors":
       return [
         { key: "name", label: "Name", render: (r: any) => r.name ?? "" },
+        { key: "total_invoices", label: "Total Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString() },
+        { key: "open", label: "Open", render: (r: any) => (r.open ?? 0).toLocaleString() },
+        { key: "closed", label: "Closed", render: (r: any) => (r.closed ?? 0).toLocaleString() },
+        { key: "outstanding", label: "Outstanding", render: (r: any) => r.outstanding != null ? fmtMoney(r.outstanding) : "—" },
+        { key: "total_invoiced", label: "Total Invoiced", render: (r: any) => r.total_invoiced != null ? fmtMoney(r.total_invoiced) : "—" },
+        { key: "total_paid", label: "Total Paid", render: (r: any) => r.total_paid != null ? fmtMoney(r.total_paid) : "—" },
+        { key: "avg_days", label: "Avg Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—" },
+        { key: "median_days", label: "Median Days", render: (r: any) => r.median_days != null ? `${r.median_days}d` : "—" },
+        { key: "max_days", label: "Max Days", render: (r: any) => r.max_days != null ? `${r.max_days}d` : "—" },
+        { key: "min_days", label: "Min Days", render: (r: any) => r.min_days != null ? `${r.min_days}d` : "—" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
         { key: "credit_limit", label: "Credit Limit", render: (r: any) => fmtMoney(r.credit_limit) },
         { key: "risk_score", label: "Risk Score", render: (r: any) => r.risk_score?.toString() ?? "—" },
@@ -351,6 +362,15 @@ function ReportsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const limit = 50;
 
+  // Buyer filter state
+  const [buyerId, setBuyerId] = useState("");
+
+  // Fetch debtors list for buyer dropdown
+  const { data: debtors = [] } = useQuery({
+    queryKey: ["debtors"],
+    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  });
+
   // Date range state
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
@@ -433,6 +453,7 @@ function ReportsPage() {
           params.set("limit", String(limit));
           if (searchQuery) params.set("search", searchQuery);
           if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+          if (buyerId) params.set("buyer_id", buyerId);
         }
         if (fromDate) params.set("from", toISODateString(fromDate));
         if (toDate) params.set("to", toISODateString(toDate));
@@ -492,7 +513,7 @@ function ReportsPage() {
   // Reset page when tab, filters, or dates change
   useEffect(() => {
     setPage(1);
-  }, [tab, statusFilter, searchQuery, fromDate, toDate]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId]);
 
   // Reset year/quarter/month dropdowns when tab changes
   useEffect(() => {
@@ -529,6 +550,7 @@ function ReportsPage() {
     const params = new URLSearchParams();
     if (searchQuery) params.set("search", searchQuery);
     if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+    if (buyerId) params.set("buyer_id", buyerId);
     if (fromDate) params.set("from", toISODateString(fromDate));
     if (toDate) params.set("to", toISODateString(toDate));
     const qs = params.toString();
@@ -864,7 +886,7 @@ function ReportsPage() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setFromDate(undefined); setToDate(undefined); }}
+              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setBuyerId(""); setFromDate(undefined); setToDate(undefined); }}
               className={`whitespace-nowrap px-4 py-3 text-xs font-medium uppercase tracking-widest transition-colors border-b-2 ${
                 tab === t.id
                   ? "border-primary text-primary"
@@ -968,6 +990,25 @@ function ReportsPage() {
                     {s}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Buyer filter — only for sales-invoices and aging */}
+            {(tab === "sales-invoices" || tab === "aging") && (
+              <div className="flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <select
+                  value={buyerId}
+                  onChange={(e) => setBuyerId(e.target.value)}
+                  className="rounded-md border border-border bg-background px-2 py-1.5 text-[11px] focus:outline-none focus:border-primary cursor-pointer max-w-[200px]"
+                >
+                  <option value="">All buyers</option>
+                  {debtors.map((d: any) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
           </>
