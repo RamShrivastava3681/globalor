@@ -74,10 +74,11 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor?.name ?? "" },
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
+        { key: "outstanding_amount", label: "Outstanding", render: (r: any) => r.outstanding != null ? fmtMoney(r.outstanding) : "—" },
         { key: "advance_rate", label: "Advance Rate", render: (r: any) => `${r.advance_rate ?? 0}%` },
         { key: "fee_rate", label: "Fee Rate", render: (r: any) => `${r.fee_rate ?? 0}%` },
         { key: "issue_date", label: "Issue Date", render: (r: any) => fmtDate(r.issue_date) },
-        { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
+        { key: "due_date", label: "ERP Due Date", render: (r: any) => fmtDate(r.due_date) },
         { key: "contractual_terms", label: "Contractual Payment Terms", render: (r: any) => r.has_contractual_due_date ? "Yes" : "N/A" },
         { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
         { key: "paid_date", label: "Paid Date", render: (r: any) => fmtDate(r.paid_date) },
@@ -100,7 +101,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "issue_date", label: "Issue Date", render: (r: any) => fmtDate(r.issue_date) },
-        { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
+        { key: "due_date", label: "ERP Due Date", render: (r: any) => fmtDate(r.due_date) },
         { key: "contractual_terms", label: "Contractual Payment Terms", render: (r: any) => r.has_contractual_due_date ? "Yes" : "N/A" },
         { key: "paid_date", label: "Paid Date", render: (r: any) => fmtDate(r.paid_date) },
         { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
@@ -148,7 +149,8 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "debtors":
       return [
-        { key: "name", label: "Name", render: (r: any) => r.name ?? "" },
+        { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "" },
+        { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—" },
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
         { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ? fmtDate(r.relationship_since) : "—" },
@@ -157,8 +159,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },
         { key: "contact_email", label: "Email", render: (r: any) => r.contact_email ?? "—" },
         { key: "contact_phone", label: "Phone", render: (r: any) => r.contact_phone ?? "—" },
-        { key: "city", label: "City", render: (r: any) => r.city ?? "—" },
-        { key: "country", label: "Country", render: (r: any) => r.country ?? "—" },
+        { key: "registered_address", label: "Registered Address", render: (r: any) => r.registered_address ?? "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
         { key: "notes", label: "Notes", render: (r: any) => r.notes ?? "—" },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
@@ -538,7 +539,7 @@ function ReportsPage() {
                     <tr key={row.id ?? i} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
                       {visibleColumnsList.map((col) => (
                         <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">
-                          <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" ? "num font-medium" : ""}>
+                          <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" || col.key === "outstanding_amount" ? "num font-medium" : ""}>
                             {col.render(row)}
                           </span>
                         </td>

@@ -79,13 +79,13 @@ function DebtorsPage() {
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <div className="mb-4 px-5">
-                <input type="text" placeholder="Search debtors by name, industry, city..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                <input type="text" placeholder="Search debtors by name, industry, address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
               </div>
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Name</th>
+                    <th className="px-5 py-2 text-left font-normal">Debtor Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     <th className="px-5 py-2 text-right font-normal">Credit limit</th>
                     <th className="px-5 py-2 text-left font-normal">Risk</th>
@@ -96,7 +96,7 @@ function DebtorsPage() {
                   {(debtorsQ.data ?? []).filter((d: any) => {
                     if (!searchQuery.trim()) return true;
                     const q = searchQuery.toLowerCase();
-                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.city?.toLowerCase().includes(q) || d.country?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
+                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.registered_address?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
                   }).map((d: any) => {
                     const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
@@ -152,14 +152,13 @@ function DebtorsPage() {
 function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState(() => ({
     name: editing?.name ?? "",
+    legal_entity_name: editing?.legal_entity_name ?? "",
     registration_no: editing?.registration_no ?? "",
     relationship_since: editing?.relationship_since ?? "",
     industry: editing?.industry ?? "",
     credit_limit: String(editing?.credit_limit ?? "100000"),
     risk_score: String(editing?.risk_score ?? "70"),
-    address_line: editing?.address_line ?? "",
-    city: editing?.city ?? "",
-    country: editing?.country ?? "",
+    registered_address: editing?.registered_address ?? "",
     postal_code: editing?.postal_code ?? "",
     phone: editing?.phone ?? "",
     website: editing?.website ?? "",
@@ -173,19 +172,18 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.name.trim()) throw new Error("Name is required");
+      if (!form.name.trim()) throw new Error("Debtor name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
 
       const payload = {
         name: form.name.trim(),
+        legal_entity_name: form.legal_entity_name || null,
         registration_no: form.registration_no || null,
         relationship_since: form.relationship_since || null,
         industry: form.industry || null,
         credit_limit: Number(form.credit_limit),
         risk_score: Number(form.risk_score),
-        address_line: form.address_line || null,
-        city: form.city || null,
-        country: form.country || null,
+        registered_address: form.registered_address || null,
         postal_code: form.postal_code || null,
         phone: form.phone || null,
         website: form.website || null,
@@ -219,7 +217,8 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           <Section title="Legal Entity">
             <div className="grid gap-3 md:grid-cols-2">
-              <L label="Legal Entity Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
+              <L label="Debtor Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
+              <L label="Legal Entity Name"><input maxLength={200} className="inp" value={form.legal_entity_name} onChange={set("legal_entity_name")} /></L>
               <L label="Registration No."><input maxLength={100} className="inp" value={form.registration_no} onChange={set("registration_no")} /></L>
               <L label="Industry"><input maxLength={100} className="inp" value={form.industry} onChange={set("industry")} /></L>
               <L label="Relationship Since"><input type="date" className="inp" value={form.relationship_since} onChange={set("relationship_since")} /></L>
@@ -228,9 +227,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
 
           <Section title="Registered Address">
             <div className="grid gap-3 md:grid-cols-2">
-              <L label="Address" full><input maxLength={300} className="inp" value={form.address_line} onChange={set("address_line")} /></L>
-              <L label="City"><input maxLength={100} className="inp" value={form.city} onChange={set("city")} /></L>
-              <L label="Country"><input maxLength={100} className="inp" value={form.country} onChange={set("country")} /></L>
+              <L label="Registered Address" full><input maxLength={500} className="inp" value={form.registered_address} onChange={set("registered_address")} /></L>
               <L label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={set("postal_code")} /></L>
             </div>
           </Section>
@@ -345,7 +342,8 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           <div className="rounded-lg border border-border bg-background/40 p-4">
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Debtor details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
-              <Detail label="Legal Entity Name" value={debtor.name} />
+              <Detail label="Debtor Name" value={debtor.name} />
+              {debtor.legal_entity_name && <Detail label="Legal Entity Name" value={debtor.legal_entity_name} />}
               {debtor.registration_no && <Detail label="Registration No." value={debtor.registration_no} />}
               <Detail label="Industry" value={debtor.industry || "—"} />
               {debtor.relationship_since && <Detail label="Relationship Since" value={debtor.relationship_since} />}
@@ -353,10 +351,8 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
               <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
               <Detail label="Contact" value={debtor.contact_name || "—"} />
               <Detail label="Email" value={debtor.contact_email || "—"} />
-              {debtor.address_line && <Detail label="Registered Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
+              {debtor.registered_address && <Detail label="Registered Address" value={debtor.registered_address} />}
               <Detail label="Phone" value={debtor.contact_phone || "—"} />
-              <Detail label="City" value={debtor.city || "—"} />
-              <Detail label="Country" value={debtor.country || "—"} />
             </div>
           </div>
 

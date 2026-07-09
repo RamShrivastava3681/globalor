@@ -82,7 +82,9 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
           .map((piId) => purchaseInvoiceMap.get(piId))
           .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
       }
-      return { ...inv, debtor, client, purchases };
+      const closed = inv.status === "paid" || inv.status === "funded";
+      const outstanding = closed ? 0 : Number(inv.amount) - (Number(inv.amount_received) || 0);
+      return { ...inv, debtor, client, purchases, outstanding };
     };
 
     // Server-side search filter (applied before pagination)

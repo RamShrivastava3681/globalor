@@ -333,7 +333,7 @@ function ProformasPage() {
                 }`}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                {field === "created" ? "Created date" : field === "due" ? "Due date" : "Proforma date"}
+                {field === "created" ? "Created date" : field === "due" ? "ERP Due date" : "Proforma date"}
                 {sortField === field && (
                   <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
                 )}

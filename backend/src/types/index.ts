@@ -49,11 +49,10 @@ export interface UserRole {
 export interface Debtor {
   id: string;
   name: string;
+  legal_entity_name: string | null;
   registration_no: string | null;
   relationship_since: string | null;
-  address_line: string | null;
-  city: string | null;
-  country: string | null;
+  registered_address: string | null;
   postal_code: string | null;
   phone: string | null;
   website: string | null;

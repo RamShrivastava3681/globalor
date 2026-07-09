@@ -282,7 +282,7 @@ function PurchasesPage() {
                     <th className="px-5 py-2 text-left font-normal">PO</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Due Date</th>
+                    <th className="px-5 py-2 text-left font-normal">ERP Due Date</th>
                     <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
@@ -809,7 +809,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
-              <Detail label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+              <Detail label="ERP Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
               <Detail label="Contractual payment terms" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}

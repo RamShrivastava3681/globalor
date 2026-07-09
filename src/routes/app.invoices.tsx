@@ -331,7 +331,7 @@ function InvoicesPage() {
                 }`}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "Due date"}
+                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "ERP Due date"}
                 {sortField === field && (
                   <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
                 )}
@@ -358,7 +358,7 @@ function InvoicesPage() {
                     <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
                     <th className="px-5 py-2 text-right font-normal">Received</th>
                     <th className="px-5 py-2 text-right font-normal">Short payment</th>
-                    <th className="px-5 py-2 text-left font-normal">Due Date</th>
+                    <th className="px-5 py-2 text-left font-normal">ERP Due Date</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -869,7 +869,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
               <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
-              <Detail label="Due date" value={fmtDate(invoice.due_date)} />
+              <Detail label="ERP Due date" value={fmtDate(invoice.due_date)} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
               <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
@@ -933,7 +933,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                     <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
                   </>
                 )}
-                {purchase.due_date && <Detail label="Due date" value={fmtDate(purchase.due_date)} />}
+                {purchase.due_date && <Detail label="ERP Due date" value={fmtDate(purchase.due_date)} />}
                 {purchase.po_number && <Detail label="PO number" value={purchase.po_number} />}
               </div>
             </div>
