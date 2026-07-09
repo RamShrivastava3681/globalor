@@ -164,6 +164,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "debtors":
       return [
+        { key: "uid", label: "UID", render: (r: any) => r.id ? `#${r.id.slice(-8).toUpperCase()}` : "" },
         { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "" },
         { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—" },
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
