@@ -49,6 +49,8 @@ export interface UserRole {
 export interface Debtor {
   id: string;
   name: string;
+  registration_no: string | null;
+  relationship_since: string | null;
   address_line: string | null;
   city: string | null;
   country: string | null;

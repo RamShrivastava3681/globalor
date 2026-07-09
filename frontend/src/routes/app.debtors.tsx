@@ -173,6 +173,8 @@ function DebtorsPage() {
 function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState(() => ({
     name: editing?.name ?? "",
+    registration_no: editing?.registration_no ?? "",
+    relationship_since: editing?.relationship_since ?? "",
     industry: editing?.industry ?? "",
     credit_limit: String(editing?.credit_limit ?? "100000"),
     risk_score: String(editing?.risk_score ?? "70"),
@@ -197,6 +199,8 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
 
       const payload = {
         name: form.name.trim(),
+        registration_no: form.registration_no || null,
+        relationship_since: form.relationship_since || null,
         industry: form.industry || null,
         credit_limit: Number(form.credit_limit),
         risk_score: Number(form.risk_score),
@@ -234,16 +238,16 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
-          <Section title="Company">
+          <Section title="Legal Entity">
             <div className="grid gap-3 md:grid-cols-2">
-              <L label="Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
+              <L label="Legal Entity Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
+              <L label="Registration No."><input maxLength={100} className="inp" value={form.registration_no} onChange={set("registration_no")} /></L>
               <L label="Industry"><input maxLength={100} className="inp" value={form.industry} onChange={set("industry")} /></L>
-              <L label="Website"><input type="url" maxLength={255} placeholder="https://" className="inp" value={form.website} onChange={set("website")} /></L>
-              <L label="Phone"><input maxLength={40} className="inp" value={form.phone} onChange={set("phone")} /></L>
+              <L label="Relationship Since"><input type="date" className="inp" value={form.relationship_since} onChange={set("relationship_since")} /></L>
             </div>
           </Section>
 
-          <Section title="Address">
+          <Section title="Registered Address">
             <div className="grid gap-3 md:grid-cols-2">
               <L label="Address" full><input maxLength={300} className="inp" value={form.address_line} onChange={set("address_line")} /></L>
               <L label="City"><input maxLength={100} className="inp" value={form.city} onChange={set("city")} /></L>
@@ -401,11 +405,15 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
           <div className="rounded-lg border border-border bg-background/40 p-4">
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Debtor details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+              <Detail label="Legal Entity Name" value={debtor.name} />
+              {debtor.registration_no && <Detail label="Registration No." value={debtor.registration_no} />}
+              <Detail label="Industry" value={debtor.industry || "—"} />
+              {debtor.relationship_since && <Detail label="Relationship Since" value={debtor.relationship_since} />}
               <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
               <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
               <Detail label="Contact" value={debtor.contact_name || "—"} />
               <Detail label="Email" value={debtor.contact_email || "—"} />
-              {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
+              {debtor.address_line && <Detail label="Registered Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
               <Detail label="Phone" value={debtor.contact_phone || "—"} />
               <Detail label="City" value={debtor.city || "—"} />
               <Detail label="Country" value={debtor.country || "—"} />

@@ -41,6 +41,8 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── POST /api/debtors ──
 const createDebtorSchema = z.object({
   name: z.string().min(1).max(200),
+  registration_no: z.string().max(100).nullable().optional(),
+  relationship_since: z.string().nullable().optional(),
   industry: z.string().max(100).nullable().optional(),
   credit_limit: z.number().min(0).optional().default(100000),
   risk_score: z.number().min(0).max(100).optional().default(70),
@@ -66,6 +68,8 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
     const debtor: Debtor = {
       id,
       name: parsed.name,
+      registration_no: parsed.registration_no || null,
+      relationship_since: parsed.relationship_since || null,
       industry: parsed.industry || null,
       credit_limit: parsed.credit_limit,
       risk_score: parsed.risk_score,

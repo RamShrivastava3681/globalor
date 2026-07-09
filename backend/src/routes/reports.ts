@@ -208,87 +208,75 @@ router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) =
   }
 });
 
-// ── GET /api/reports/aging ── (paginated)
-router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
+// ── GET /api/reports/aging ── (buyer-wise)
+router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const [invoices, allDebtors] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES),
+      scanTable<Debtor>(TABLES.DEBTORS),
+    ]);
+
     const now = new Date();
-
-    // Preload debtors and profiles into lookup maps
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
-    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
-    const aging = invoices
-      .filter((inv) => inv.status !== "paid" && inv.status !== "rejected" && inv.due_date != null)
-      .map((inv) => {
-        const due = new Date(inv.due_date!);
+    // Group outstanding non-paid/non-rejected invoices by debtor
+    const bucketsByDebtor = new Map<string, {
+      current: number;
+      bucket_1_30: number;
+      bucket_31_60: number;
+      bucket_61_90: number;
+      bucket_91_120: number;
+      bucket_over_120: number;
+      total: number;
+    }>();
+
+    for (const inv of invoices) {
+      if (inv.status === "paid" || inv.status === "rejected" || !inv.debtor_id) continue;
+
+      const amount = Number(inv.amount);
+      let bucket: keyof typeof bucketsByDebtor extends never ? string : "current" | "bucket_1_30" | "bucket_31_60" | "bucket_61_90" | "bucket_91_120" | "bucket_over_120" = "current";
+
+      if (inv.due_date) {
+        const due = new Date(inv.due_date);
         const diffDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-        const agingDays = diffDays > 0 ? diffDays : 0;
-        let aging_bucket = "Current";
-        if (agingDays > 0 && agingDays <= 30) aging_bucket = "1–30 days";
-        else if (agingDays <= 60) aging_bucket = "31–60 days";
-        else if (agingDays <= 90) aging_bucket = "61–90 days";
-        else if (agingDays > 90) aging_bucket = "90+ days";
+
+        if (diffDays >= 1 && diffDays <= 30) bucket = "bucket_1_30";
+        else if (diffDays >= 31 && diffDays <= 60) bucket = "bucket_31_60";
+        else if (diffDays >= 61 && diffDays <= 90) bucket = "bucket_61_90";
+        else if (diffDays >= 91 && diffDays <= 120) bucket = "bucket_91_120";
+        else if (diffDays > 120) bucket = "bucket_over_120";
+        else bucket = "current";
+      }
+
+      let entry = bucketsByDebtor.get(inv.debtor_id);
+      if (!entry) {
+        entry = { current: 0, bucket_1_30: 0, bucket_31_60: 0, bucket_61_90: 0, bucket_91_120: 0, bucket_over_120: 0, total: 0 };
+        bucketsByDebtor.set(inv.debtor_id, entry);
+      }
+
+      entry[bucket] += amount;
+      entry.total += amount;
+    }
+
+    // Build result array
+    const result = Array.from(bucketsByDebtor.entries())
+      .map(([debtorId, buckets]) => {
+        const debtor = debtorMap.get(debtorId);
         return {
-          ...inv,
-          aging_days: agingDays,
-          days_remaining: diffDays <= 0 ? Math.abs(diffDays) : 0,
-          is_overdue: diffDays > 0,
-          aging_bucket,
+          buyer_name: debtor?.name ?? "Unknown",
+          buyer_id: debtorId,
+          current: buckets.current,
+          bucket_1_30: buckets.bucket_1_30,
+          bucket_31_60: buckets.bucket_31_60,
+          bucket_61_90: buckets.bucket_61_90,
+          bucket_91_120: buckets.bucket_91_120,
+          bucket_over_120: buckets.bucket_over_120,
+          total_outstanding: buckets.total,
         };
       })
-      .sort((a, b) => b.aging_days - a.aging_days);
+      .sort((a, b) => b.total_outstanding - a.total_outstanding);
 
-    // Fast enrichment using lookup maps
-    const enrichAgingItem = (item: any) => {
-      const debtor = debtorMap.get(item.debtor_id);
-      const client = profileMap.get(item.client_id);
-      return { ...item, debtor_name: debtor?.name, client_name: client?.company_name };
-    };
-
-    // Server-side search filter (applied before pagination)
-    // Inline enrichment to make debtor/client names searchable
-    const search = (req.query.search as string) || "";
-    let filtered = search
-      ? aging.filter((item) => {
-          const enriched = {
-            ...item,
-            debtor_name: debtorMap.get(item.debtor_id)?.name,
-            client_name: profileMap.get(item.client_id)?.company_name,
-          };
-          const searchable = JSON.stringify(Object.values(enriched)).toLowerCase();
-          return searchable.includes(search.toLowerCase());
-        })
-      : aging;
-
-    // Server-side buyer (debtor) filter
-    const buyerId = (req.query.buyer_id as string) || "";
-    if (buyerId) {
-      filtered = filtered.filter((item) => item.debtor_id === buyerId);
-    }
-
-    // Server-side status filter (applied before pagination, after search)
-    const statusFilter = (req.query.status as string) || "";
-    if (statusFilter) {
-      filtered = applyStatusFilter(filtered, statusFilter, SALES_OPEN_STATUSES, SALES_CLOSED_STATUSES);
-    }
-
-    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
-    if (hasPagination) {
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
-      const total = filtered.length;
-      const totalPages = Math.ceil(total / limit);
-      const startIdx = (page - 1) * limit;
-      const pageItems = filtered.slice(startIdx, startIdx + limit);
-      const enriched = pageItems.map(enrichAgingItem);
-      res.json({ data: enriched, total, page, limit, totalPages });
-    } else {
-      const enriched = filtered.map(enrichAgingItem);
-      res.json(enriched);
-    }
+    res.json(result);
   } catch (err) {
     console.error("Reports aging error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -644,6 +632,100 @@ function computePnL(data: {
     profitAfterTax,
   };
 }
+
+// ── GET /api/reports/portfolio ──
+router.get("/portfolio", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const from = (req.query.from as string) || "1970-01-01";
+    const to = (req.query.to as string) || "2099-12-31";
+
+    const isInRange = (dateStr: string | null | undefined) => {
+      if (!dateStr) return false;
+      const d = dateStr.slice(0, 10);
+      return d >= from && d <= to;
+    };
+
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+
+    // Filter by date range (issue_date)
+    const filtered = from !== "1970-01-01" || to !== "2099-12-31"
+      ? invoices.filter((inv) => isInRange(inv.issue_date))
+      : invoices;
+
+    const totalInvoices = filtered.length;
+
+    // Unique buyers (debtors)
+    const buyerIds = new Set<string>();
+    for (const inv of filtered) {
+      if (inv.debtor_id) buyerIds.add(inv.debtor_id);
+    }
+
+    const totalBuyers = buyerIds.size;
+
+    // Total Invoice Value
+    const totalInvoiceValue = filtered.reduce((sum, inv) => sum + Number(inv.amount), 0);
+
+    // Collections Received: sum of amount_received for paid/funded invoices
+    const totalCollections = filtered
+      .filter((inv) => (inv.status === "paid" || inv.status === "funded") && inv.amount_received != null)
+      .reduce((sum, inv) => sum + Number(inv.amount_received), 0);
+
+    // Outstanding: sum of amounts for non-paid, non-rejected invoices
+    const totalOutstanding = filtered
+      .filter((inv) => inv.status !== "paid" && inv.status !== "rejected")
+      .reduce((sum, inv) => sum + Number(inv.amount), 0);
+
+    // Closed invoices: paid or funded
+    const closedInvoices = filtered.filter(
+      (inv) => inv.status === "paid" || inv.status === "funded"
+    ).length;
+
+    // Open invoices
+    const openInvoices = filtered.filter(
+      (inv) => inv.status !== "paid" && inv.status !== "funded" && inv.status !== "rejected"
+    ).length;
+
+    // Payment days: days between issue_date and paid_date for paid invoices
+    const payDays: number[] = [];
+    for (const inv of filtered) {
+      if (inv.status === "paid" && inv.issue_date && inv.paid_date) {
+        const days = diffDaysUTC(inv.issue_date, inv.paid_date);
+        if (days >= 0) payDays.push(days);
+      }
+    }
+    payDays.sort((a, b) => a - b);
+
+    const avgPaymentDays = payDays.length > 0
+      ? Math.round(payDays.reduce((a, b) => a + b, 0) / payDays.length)
+      : null;
+
+    const medianPaymentDays = payDays.length > 0
+      ? (payDays.length % 2 === 1
+          ? payDays[Math.floor(payDays.length / 2)]
+          : Math.round((payDays[payDays.length / 2 - 1] + payDays[payDays.length / 2]) / 2))
+      : null;
+
+    const reviewPeriod = from !== "1970-01-01" || to !== "2099-12-31"
+      ? `${from} — ${to}`
+      : "All time";
+
+    res.json([{
+      review_period: reviewPeriod,
+      total_buyers: totalBuyers,
+      total_invoices: totalInvoices,
+      total_invoice_value: totalInvoiceValue,
+      total_collections: totalCollections,
+      total_outstanding: totalOutstanding,
+      closed_invoices: closedInvoices,
+      open_invoices: openInvoices,
+      avg_payment_days: avgPaymentDays,
+      median_payment_days: medianPaymentDays,
+    }]);
+  } catch (err) {
+    console.error("Reports portfolio error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ── GET /api/reports/profit-loss ──
 router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) => {

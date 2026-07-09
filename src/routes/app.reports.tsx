@@ -14,9 +14,10 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses";
 
 const TABS: { id: ReportTab; label: string }[] = [
+  { id: "portfolio", label: "Portfolio Summary" },
   { id: "proformas", label: "Proforma invoices" },
   { id: "sales-invoices", label: "Sales invoices" },
   { id: "purchase-invoices", label: "Purchase invoices" },
@@ -30,6 +31,7 @@ const TABS: { id: ReportTab; label: string }[] = [
 // ── Status filter options ──
 // "open" = pending/approved/advanced/overdue, "closed" = paid/rejected for invoice types
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
+  "portfolio": ["all"],
   "proformas": ["all", "open", "closed", "proforma", "invoiced", "cancelled"],
   "sales-invoices": ["all", "open", "closed", "pending", "approved", "advanced", "paid", "overdue", "rejected", "funded"],
   "purchase-invoices": ["all", "open", "closed", "pending", "approved", "paid", "overdue", "disputed", "advanced", "funded"],
@@ -52,6 +54,19 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
   ];
 
   switch (tab) {
+    case "portfolio":
+      return [
+        { key: "review_period", label: "Review Period", render: (r: any) => r.review_period ?? "" },
+        { key: "total_buyers", label: "Total Buyers", render: (r: any) => (r.total_buyers ?? 0).toLocaleString() },
+        { key: "total_invoices", label: "Total Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString() },
+        { key: "total_invoice_value", label: "Total Invoice Value (USD)", render: (r: any) => fmtMoney(r.total_invoice_value ?? 0) },
+        { key: "total_collections", label: "Total Collections Received (USD)", render: (r: any) => fmtMoney(r.total_collections ?? 0) },
+        { key: "total_outstanding", label: "Total Outstanding (USD)", render: (r: any) => fmtMoney(r.total_outstanding ?? 0) },
+        { key: "closed_invoices", label: "Closed Invoices", render: (r: any) => (r.closed_invoices ?? 0).toLocaleString() },
+        { key: "open_invoices", label: "Open Invoices", render: (r: any) => (r.open_invoices ?? 0).toLocaleString() },
+        { key: "avg_payment_days", label: "Average Payment Days", render: (r: any) => r.avg_payment_days != null ? `${r.avg_payment_days}d` : "—" },
+        { key: "median_payment_days", label: "Median Payment Days", render: (r: any) => r.median_payment_days != null ? `${r.median_payment_days}d` : "—" },
+      ];
     case "sales-invoices":
       return [
         ...common,
@@ -122,21 +137,21 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "aging":
       return [
-        { key: "invoice_number", label: "Invoice #", render: (r: any) => r.invoice_number ?? "" },
-        { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor_name ?? "" },
-        { key: "amount", label: "Total", render: (r: any) => fmtMoney(r.amount) },
-        { key: "due_date", label: "Due Date", render: (r: any) => fmtDate(r.due_date) },
-        { key: "bucket_1_30", label: "1-30 days", render: (r: any) => r.aging_bucket === "1–30 days" ? fmtMoney(r.amount) : "—" },
-        { key: "bucket_31_60", label: "31-60 days", render: (r: any) => r.aging_bucket === "31–60 days" ? fmtMoney(r.amount) : "—" },
-        { key: "bucket_61_90", label: "61-90 days", render: (r: any) => r.aging_bucket === "61–90 days" ? fmtMoney(r.amount) : "—" },
-        { key: "bucket_90_plus", label: "90+ days", render: (r: any) => r.aging_bucket === "90+ days" ? fmtMoney(r.amount) : "—" },
-        { key: "aging_days", label: "Days", render: (r: any) => r.is_overdue ? `${r.aging_days}d` : r.days_remaining > 0 ? `${r.days_remaining}d left` : "—" },
-        { key: "status", label: "Status", render: (r: any) => r.status ?? "" },
+        { key: "buyer_name", label: "Buyer", render: (r: any) => r.buyer_name ?? "" },
+        { key: "current", label: "Current", render: (r: any) => r.current ? fmtMoney(r.current) : "—" },
+        { key: "bucket_1_30", label: "1–30 Days", render: (r: any) => r.bucket_1_30 ? fmtMoney(r.bucket_1_30) : "—" },
+        { key: "bucket_31_60", label: "31–60 Days", render: (r: any) => r.bucket_31_60 ? fmtMoney(r.bucket_31_60) : "—" },
+        { key: "bucket_61_90", label: "61–90 Days", render: (r: any) => r.bucket_61_90 ? fmtMoney(r.bucket_61_90) : "—" },
+        { key: "bucket_91_120", label: "91–120 Days", render: (r: any) => r.bucket_91_120 ? fmtMoney(r.bucket_91_120) : "—" },
+        { key: "bucket_over_120", label: "Over 120 Days", render: (r: any) => r.bucket_over_120 ? fmtMoney(r.bucket_over_120) : "—" },
+        { key: "total_outstanding", label: "Total Outstanding", render: (r: any) => fmtMoney(r.total_outstanding ?? 0) },
       ];
     case "debtors":
       return [
         { key: "name", label: "Name", render: (r: any) => r.name ?? "" },
+        { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
+        { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ? fmtDate(r.relationship_since) : "—" },
         { key: "credit_limit", label: "Credit Limit", render: (r: any) => fmtMoney(r.credit_limit) },
         { key: "risk_score", label: "Risk Score", render: (r: any) => r.risk_score?.toString() ?? "—" },
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },
