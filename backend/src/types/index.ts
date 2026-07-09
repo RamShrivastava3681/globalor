@@ -1,5 +1,5 @@
 // ── Enums ──
-export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations";
+export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 export type AlertSeverity = "info" | "warning" | "critical";
 export type AlertType = "overdue" | "credit_limit" | "risk_change" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created";
 export type InvoiceStatus = "pending" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";

@@ -116,6 +116,10 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
     read: ["*"],
     write: [], // clients write through the normal flow (their own data)
   },
+  viewer: {
+    read: ["*"],
+    write: [], // viewers can only read everything
+  },
 };
 
 /**

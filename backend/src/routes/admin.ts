@@ -26,7 +26,7 @@ const createUserSchema = z.object({
   password: z.string().min(6),
   company_name: z.string().min(1),
   contact_name: z.string().optional(),
-  role: z.enum(["client", "factor_admin", "treasury", "checker", "operations"]),
+  role: z.enum(["client", "factor_admin", "treasury", "checker", "operations", "viewer"]),
 });
 
 router.post("/users", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
@@ -118,7 +118,7 @@ router.get("/roles", requireAuth, requireRole("factor_admin"), async (req: AuthR
 // ── POST /api/admin/roles ──
 const upsertRoleSchema = z.object({
   user_id: z.string().min(1),
-  role: z.enum(["client", "factor_admin", "treasury", "checker"]),
+  role: z.enum(["client", "factor_admin", "treasury", "checker", "operations", "viewer"]),
   add: z.boolean(),
 });
 

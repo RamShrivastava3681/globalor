@@ -11,7 +11,7 @@ export const Route = createFileRoute("/app")({
 });
 
 function AppLayout() {
-  const { user, loading, isAdmin, isTreasury, isChecker, isOperations, signOut } = useAuth();
+  const { user, loading, isAdmin, isTreasury, isChecker, isOperations, isViewer, signOut } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -46,6 +46,10 @@ function AppLayout() {
     const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/inventory", "/app/suppliers", "/app/admin"];
     const checkerBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/debtors", "/app/suppliers", "/app/admin"];
     const operationsBlocked: string[] = [];
+    const viewerBlocked = ["/app/admin", "/app/queue", "/app/checker"];
+    if (isViewer && viewerBlocked.some((p) => pathname.startsWith(p))) {
+      navigate({ to: "/app/dashboard" });
+    }
     if (isTreasury && !isAdmin && !isChecker && treasuryBlocked.some((p) => pathname.startsWith(p))) {
       navigate({ to: "/app/queue" });
     }
@@ -84,6 +88,23 @@ function AppLayout() {
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+        { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
+        { to: "/app/alerts", label: "Alerts", icon: BellRing },
+        { to: "/app/settings", label: "Settings", icon: Settings },
+      ]
+    : isViewer
+    ? [
+        { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+        { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+        { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
+        { to: "/app/reports", label: "Reports", icon: BarChart3 },
+        { to: "/app/expenses", label: "Expenses", icon: Receipt },
+        { to: "/app/advances", label: "Advances", icon: Wallet },
+        { to: "/app/bulk-payments", label: "Bulk payments", icon: ArrowRightLeft },
+        { to: "/app/inventory", label: "Inventory", icon: Boxes },
+        { to: "/app/debtors", label: "Debtors", icon: Building2 },
+        { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/settings", label: "Settings", icon: Settings },
@@ -158,7 +179,7 @@ function AppLayout() {
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium text-sidebar-accent-foreground truncate">{user?.email}</div>
               <div className="text-[10px] text-sidebar-foreground">
-                {isAdmin ? "Admin" : isTreasury ? "Treasury" : isChecker ? "Checker" : "User"}
+                {isAdmin ? "Admin" : isTreasury ? "Treasury" : isChecker ? "Checker" : isViewer ? "Viewer" : isOperations ? "Operations" : "User"}
               </div>
             </div>
           </div>

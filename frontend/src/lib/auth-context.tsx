@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { api, getToken, setToken, clearToken } from "./api-client";
 
-export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations";
+export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 
 // Resource names used with canWrite() — matches backend permission resources
 export type WriteResource =
@@ -31,6 +31,7 @@ export const roleWritePermissions: Record<AppRole, WriteResource[] | ["*"]> = {
   checker: ["checker-desk"],
   treasury: ["funding-queue"],
   client: [],
+  viewer: [],
 };
 
 type AuthState = {
@@ -41,6 +42,7 @@ type AuthState = {
   isTreasury: boolean;
   isChecker: boolean;
   isOperations: boolean;
+  isViewer: boolean;
   isClient: boolean;
   canWrite: (resource: WriteResource) => boolean;
   refreshRoles: () => Promise<void>;
@@ -122,7 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isTreasury = roles.includes("treasury");
   const isChecker = roles.includes("checker");
   const isOperations = roles.includes("operations");
-  const isClient = roles.includes("client") || (!isAdmin && !isTreasury && !isChecker && !isOperations);
+  const isViewer = roles.includes("viewer");
+  const isClient = roles.includes("client") || (!isAdmin && !isTreasury && !isChecker && !isOperations && !isViewer);
 
   // Check if the user has write access to a specific resource
   const canWrite = (resource: WriteResource): boolean => {
@@ -142,6 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isTreasury,
     isChecker,
     isOperations,
+    isViewer,
     isClient,
     canWrite,
   refreshRoles,

@@ -16,6 +16,7 @@ const ALL_ROLES = [
   { value: "checker", label: "Checker", desc: "Read everything, approve/reject invoices" },
   { value: "treasury", label: "Treasury", desc: "Read everything, manage funding queue" },
   { value: "factor_admin", label: "Admin", desc: "Full access to everything" },
+  { value: "viewer", label: "Viewer", desc: "Read-only access to all data — cannot create, edit, or delete" },
 ] as const;
 
 function SettingsPage() {
