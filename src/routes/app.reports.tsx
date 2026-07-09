@@ -153,7 +153,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—" },
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
-        { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ? fmtDate(r.relationship_since) : "—" },
+        { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ?? "—" },
         { key: "credit_limit", label: "Credit Limit", render: (r: any) => fmtMoney(r.credit_limit) },
         { key: "risk_score", label: "Risk Score", render: (r: any) => r.risk_score?.toString() ?? "—" },
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },

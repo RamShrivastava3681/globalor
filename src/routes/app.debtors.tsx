@@ -221,7 +221,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
               <L label="Legal Entity Name"><input maxLength={200} className="inp" value={form.legal_entity_name} onChange={set("legal_entity_name")} /></L>
               <L label="Registration No."><input maxLength={100} className="inp" value={form.registration_no} onChange={set("registration_no")} /></L>
               <L label="Industry"><input maxLength={100} className="inp" value={form.industry} onChange={set("industry")} /></L>
-              <L label="Relationship Since"><input type="date" className="inp" value={form.relationship_since} onChange={set("relationship_since")} /></L>
+              <L label="Relationship Since"><input type="text" className="inp" value={form.relationship_since} onChange={set("relationship_since")} placeholder="e.g. 1 year 3 months" /></L>
             </div>
           </Section>
 
