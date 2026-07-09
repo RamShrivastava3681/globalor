@@ -175,10 +175,8 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "suppliers":
       return [
-        { key: "company_name", label: "Company", render: (r: any) => r.company_name ?? "" },
+        { key: "name", label: "Company", render: (r: any) => r.name ?? "" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
-        { key: "advance_rate", label: "Advance Rate", render: (r: any) => `${(r.advance_rate * 100).toFixed(1)}%` },
-        { key: "fee_rate", label: "Fee Rate", render: (r: any) => `${(r.fee_rate * 100).toFixed(1)}%` },
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },
         { key: "contact_email", label: "Email", render: (r: any) => r.contact_email ?? "—" },
         { key: "contact_phone", label: "Phone", render: (r: any) => r.contact_phone ?? "—" },

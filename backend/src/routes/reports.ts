@@ -4,7 +4,7 @@ import { scanTable, TABLES } from "../db/client.js";
 import { diffDaysUTC } from "../utils/helpers.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
-  PurchaseOrder, Advance, Expense, Supplier, CreditDebitNote,
+  PurchaseOrder, Advance, Expense, CreditDebitNote,
 } from "../types/index.js";
 
 const router = Router();
@@ -375,8 +375,10 @@ router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => 
 // ── GET /api/reports/suppliers ──
 router.get("/suppliers", requireAuth, async (_req: AuthRequest, res: Response) => {
   try {
-    const suppliers = await scanTable<Supplier>(TABLES.SUPPLIERS);
-    res.json(suppliers.sort((a, b) => (a.company_name ?? '').localeCompare(b.company_name ?? '')));
+    // NOTE: "Suppliers" on the frontend refers to the vendor list (vendors you buy from).
+    // The legacy TABLES.SUPPLIERS contains factor-managed supplier data, not your actual suppliers.
+    const vendors = await scanTable<Vendor>(TABLES.VENDORS);
+    res.json(vendors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
   } catch (err) {
     console.error("Reports suppliers error:", err);
     res.status(500).json({ error: "Internal server error" });
