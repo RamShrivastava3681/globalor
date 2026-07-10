@@ -14,7 +14,7 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "tracking-inventory";
 
 const TABS: { id: ReportTab; label: string }[] = [
   { id: "portfolio", label: "Portfolio Summary" },
@@ -26,6 +26,7 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: "suppliers", label: "Suppliers" },
   { id: "advances", label: "Advances" },
   { id: "expenses", label: "Expenses" },
+  { id: "tracking-inventory", label: "Inventory tracking" },
 ];
 
 // ── Status filter options ──
@@ -40,6 +41,7 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
+  "tracking-inventory": ["all"],
 };
 
 // ── Open (non-closed) statuses for invoice-type reports ──
@@ -198,6 +200,17 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "expense_date", label: "Date", render: (r: any) => fmtDate(r.expense_date) },
         { key: "invoice_link", label: "Linked Invoice", render: (r: any) => r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? "—" },
+        { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
+      ];
+    case "tracking-inventory":
+      return [
+        { key: "item", label: "Item", render: (r: any) => r.item ?? "" },
+        { key: "description", label: "Description", render: (r: any) => r.description ?? "—" },
+        { key: "closing_quantity", label: "Closing Qty", render: (r: any) => Number(r.closing_quantity ?? 0).toLocaleString() },
+        { key: "price_sale", label: "Price Sale", render: (r: any) => fmtMoney(r.price_sale ?? 0) },
+        { key: "extended_price", label: "Extended Price", render: (r: any) => fmtMoney(r.extended_price ?? 0) },
+        { key: "unit_cost", label: "Unit Cost", render: (r: any) => fmtMoney(r.unit_cost ?? 0) },
+        { key: "extended_cost", label: "Extended Cost", render: (r: any) => fmtMoney(r.extended_cost ?? 0) },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
       ];
     default:

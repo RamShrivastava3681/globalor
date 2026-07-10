@@ -318,6 +318,21 @@ export interface StockMovementWithRelations extends StockMovement {
   purchase?: { invoice_number: string };
 }
 
+// ── Inventory Items (tracking only, not stock movements) ──
+export interface InventoryItem {
+  id: string;
+  client_id: string;
+  item: string;
+  description: string | null;
+  closing_quantity: number;
+  price_sale: number;
+  extended_price: number;
+  unit_cost: number;
+  extended_cost: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── Credit / Debit Notes ──
 export interface CreditDebitNote {
   id: string;

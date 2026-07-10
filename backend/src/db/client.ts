@@ -44,6 +44,7 @@ export const TABLES = {
   ADVANCES: `${p()}_advances`,
   EXPENSES: `${p()}_expenses`,
   STOCK_MOVEMENTS: `${p()}_stock_movements`,
+  INVENTORY_ITEMS: `${p()}_inventory_items`,
   ALERTS: `${p()}_alerts`,
   CREDIT_DEBIT_NOTES: `${p()}_credit_debit_notes`,
   PAYMENTS: `${p()}_payments`,

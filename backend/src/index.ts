@@ -26,6 +26,7 @@ import purchaseOrderRoutes from "./routes/purchaseOrders.js";
 import alertRoutes from "./routes/alerts.js";
 import expenseRoutes from "./routes/expenses.js";
 import stockMovementRoutes from "./routes/stockMovements.js";
+import inventoryItemRoutes from "./routes/inventoryItems.js";
 import adminRoutes from "./routes/admin.js";
 import noaRoutes from "./routes/noa.js";
 import uploadRoutes from "./routes/upload.js";
@@ -66,6 +67,7 @@ app.use("/api/advances", advanceRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/stock-movements", stockMovementRoutes);
+app.use("/api/inventory-items", inventoryItemRoutes);
 app.use("/api/admin", adminRoutes);
 
 // Public NOA endpoints get a moderate limiter

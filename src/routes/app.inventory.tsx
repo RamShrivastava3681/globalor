@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Link2 } from "lucide-react";
+import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Link2, Upload, Database, FileDown } from "lucide-react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/app/inventory")({
   component: InventoryPage,
@@ -16,12 +17,18 @@ function InventoryPage() {
   const canEdit = canWrite("stock-movements");
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "in" | "out">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
+  });
+
+  const inventoryItemsQ = useQuery({
+    queryKey: ["inventory_items"],
+    queryFn: async () => (await api.get<any[]>("/inventory-items")) ?? [],
   });
 
   const rows = (movementsQ.data ?? []).filter((m: any) => {
@@ -58,11 +65,23 @@ function InventoryPage() {
     }).sort((a, b) => a.sku.localeCompare(b.sku));
   }, [movementsQ.data]);
 
+  const totalTrackingValue = useMemo(() => {
+    return (inventoryItemsQ.data ?? []).reduce((sum: number, i: any) => sum + Number(i.extended_cost || 0), 0);
+  }, [inventoryItemsQ.data]);
+
   const del = useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/stock-movements/${id}`);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["stock_movements"] }); toast.success("Removed"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteTrackingItem = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/inventory-items/${id}`);
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["inventory_items"] }); toast.success("Item removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -74,9 +93,14 @@ function InventoryPage() {
         description="Stock-in from purchase invoices (credit) and stock-out from sales invoices (debit)."
         actions={
           canEdit ? (
-            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              <Plus className="h-4 w-4" /> New movement
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                <Upload className="h-4 w-4" /> Mass import tracking items
+              </button>
+              <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                <Plus className="h-4 w-4" /> New movement
+              </button>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
           )
@@ -84,7 +108,65 @@ function InventoryPage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <Card title="Current balances">
+        {/* ── Tracking Items ── */}
+        {inventoryItemsQ.data && inventoryItemsQ.data.length > 0 && (
+          <Card title={
+            <span className="inline-flex items-center gap-2">
+              <Database className="h-4 w-4 text-primary" />
+              Inventory tracking items ({inventoryItemsQ.data.length})
+            </span>
+          }>
+            {inventoryItemsQ.isLoading ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">Loading…</div>
+            ) : (
+              <div className="-mx-5 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Item</th>
+                      <th className="px-5 py-2 text-left font-normal">Description</th>
+                      <th className="px-5 py-2 text-right font-normal">Closing Qty</th>
+                      <th className="px-5 py-2 text-right font-normal">Price Sale</th>
+                      <th className="px-5 py-2 text-right font-normal">Extended Price</th>
+                      <th className="px-5 py-2 text-right font-normal">Unit Cost</th>
+                      <th className="px-5 py-2 text-right font-normal">Extended Cost</th>
+                      {canEdit && <th className="px-5 py-2 text-right font-normal"></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(inventoryItemsQ.data ?? []).map((i: any) => (
+                      <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-2.5 font-medium">{i.item}</td>
+                        <td className="px-5 py-2.5 text-muted-foreground max-w-[200px] truncate">{i.description || "—"}</td>
+                        <td className="px-5 py-2.5 text-right num">{Number(i.closing_quantity).toLocaleString()}</td>
+                        <td className="px-5 py-2.5 text-right num">{fmtMoney(i.price_sale)}</td>
+                        <td className="px-5 py-2.5 text-right num">{fmtMoney(i.extended_price)}</td>
+                        <td className="px-5 py-2.5 text-right num">{fmtMoney(i.unit_cost)}</td>
+                        <td className="px-5 py-2.5 text-right num font-medium">{fmtMoney(i.extended_cost)}</td>
+                        {canEdit && (
+                          <td className="px-5 py-2.5 text-right">
+                            <button onClick={() => deleteTrackingItem.mutate(i.id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border font-medium">
+                      <td className="px-5 py-3 text-xs uppercase tracking-widest text-muted-foreground" colSpan={6}>Total extended cost</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(totalTrackingValue)}</td>
+                      {canEdit && <td />}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+
+        <Card title="Current balances (from stock movements)">
           {balances.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">No items tracked yet.</div>
           ) : (
@@ -190,6 +272,7 @@ function InventoryPage() {
       </div>
 
       {open && user && <NewMovementModal onClose={() => setOpen(false)} />}
+      {importOpen && <ImportInventoryItemsModal onClose={() => setImportOpen(false)} />}
     </div>
   );
 }
@@ -294,4 +377,306 @@ function NewMovementModal({ onClose }: { onClose: () => void }) {
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+// ── Mass Import Inventory Items Modal ──
+
+interface ImportRow {
+  item: string;
+  description: string;
+  closing_quantity: number;
+  price_sale: number;
+  unit_cost: number;
+}
+
+function ImportInventoryItemsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState<"form" | "preview" | "done">("form");
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadTemplate = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const headers = ["Item", "Description", "Closing Quantity", "Price Sale", "Unit Cost"];
+      const sampleData = [
+        ["Widget A", "Standard aluminum widget", 150, 29.99, 18.50],
+        ["Widget B", "Premium titanium widget", 75, 59.99, 32.00],
+        ["Gadget X", "Electronic gadget with battery", 200, 14.99, 8.75],
+        ["Component Y", "Plastic housing component", 500, 3.50, 1.20],
+        ["Tool Kit Z", "5-piece tool kit in case", 30, 89.99, 55.00],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleData]);
+      ws["!cols"] = [
+        { wch: 18 },
+        { wch: 30 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 14 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, "Inventory Items");
+      XLSX.writeFile(wb, "inventory-import-template.xlsx");
+      toast.success("Template downloaded");
+    } catch (err) {
+      toast.error("Failed to download template");
+    }
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+
+        const parsed: ImportRow[] = json.map((row: any) => {
+          const item = row.item ?? row["Item"] ?? row.Item ?? row["Item Name"] ?? row.item_name ?? "";
+          const desc = row.description ?? row["Description"] ?? row.Description ?? row.desc ?? "";
+          const cq = Number(row.closing_quantity ?? row["Closing Quantity"] ?? row.closingQty ?? row["Closing Qty"] ?? row.qty ?? row.Qty ?? 0);
+          const ps = Number(row.price_sale ?? row["Price Sale"] ?? row.priceSale ?? row["Sale Price"] ?? row.unit_price ?? row["Unit Price"] ?? 0);
+          const uc = Number(row.unit_cost ?? row["Unit Cost"] ?? row.unitCost ?? row.cost ?? row.Cost ?? 0);
+
+          return {
+            item: String(item).trim(),
+            description: String(desc).trim(),
+            closing_quantity: isNaN(cq) ? 0 : cq,
+            price_sale: isNaN(ps) ? 0 : ps,
+            unit_cost: isNaN(uc) ? 0 : uc,
+          };
+        }).filter((r) => r.item.length > 0);
+
+        if (parsed.length === 0) {
+          toast.error("No valid rows found. Expected columns: Item, Description, Closing Quantity, Price Sale, Unit Cost");
+          return;
+        }
+
+        setRows(parsed);
+        setStep("preview");
+      } catch (err) {
+        toast.error("Could not parse the file. Please check the format.");
+        console.error(err);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const batchImport = useMutation({
+    mutationFn: async () => {
+      return await api.post<{ created: number; errors: Array<{ item: string; error: string }> }>("/inventory-items/batch", {
+        items: rows.map((r) => ({
+          item: r.item,
+          description: r.description || null,
+          closing_quantity: r.closing_quantity,
+          price_sale: r.price_sale,
+          unit_cost: r.unit_cost,
+        })),
+      });
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["inventory_items"] });
+      const errList = (data.errors ?? []).map((e) => `${e.item}: ${e.error}`);
+      setResult({ created: data.created, errors: errList });
+      setStep("done");
+      if (errList.length === 0) {
+        toast.success(`${data.created} items imported successfully`);
+      } else {
+        toast.success(`${data.created} imported, ${errList.length} failed`);
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const totals = useMemo(() => {
+    return rows.reduce((acc, r) => ({
+      extendedPrice: acc.extendedPrice + r.closing_quantity * r.price_sale,
+      extendedCost: acc.extendedCost + r.closing_quantity * r.unit_cost,
+      totalQty: acc.totalQty + r.closing_quantity,
+    }), { extendedPrice: 0, extendedCost: 0, totalQty: 0 });
+  }, [rows]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            <span className="inline-flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
+              {step === "form" ? "Mass import tracking items" : step === "preview" ? "Preview imported items" : "Import complete"}
+            </span>
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {step === "form" && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-xs space-y-2">
+              <p className="font-medium text-primary">📋 Excel / CSV format</p>
+              <p className="text-muted-foreground">
+                Upload a spreadsheet (.xlsx, .xls, .csv, .tsv, .ods) with the following columns:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { col: "Item *", desc: "Name of the inventory item" },
+                  { col: "Description", desc: "Optional description" },
+                  { col: "Closing Quantity", desc: "Number of units on hand (>= 0)" },
+                  { col: "Price Sale", desc: "Selling price per unit (>= 0)" },
+                  { col: "Unit Cost", desc: "Cost per unit (>= 0)" },
+                ].map((f) => (
+                  <div key={f.col} className="flex items-center gap-2 rounded-md border border-border bg-background/60 px-3 py-2">
+                    <code className="font-mono text-primary text-[11px]">{f.col}</code>
+                    <span className="text-muted-foreground">— {f.desc}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                <strong>Extended Price</strong> and <strong>Extended Cost</strong> are auto-calculated from Closing Quantity × Price Sale / Unit Cost.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-border pt-4">
+              <div>
+                <L label="Upload Excel / CSV file *">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                    onChange={handleFile}
+                    className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                  />
+                </L>
+              </div>
+              <div className="flex items-end justify-end">
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
+                >
+                  <FileDown className="h-4 w-4" />
+                  Download template
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {step === "preview" && (
+          <div className="space-y-4 p-5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono text-foreground">{fileName}</span> ·
+                Found <strong className="text-foreground">{rows.length}</strong> items
+                · Total qty: <strong className="text-foreground">{totals.totalQty.toLocaleString()}</strong>
+              </div>
+              <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
+            </div>
+
+            <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total extended price</span>
+                <span className="font-mono">{fmtMoney(totals.extendedPrice)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total extended cost</span>
+                <span className="font-mono">{fmtMoney(totals.extendedCost)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Gross margin</span>
+                <span className="font-mono">{totals.extendedPrice > 0 ? `${(((totals.extendedPrice - totals.extendedCost) / totals.extendedPrice) * 100).toFixed(1)}%` : "—"}</span>
+              </div>
+            </div>
+
+            <div className="-mx-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">#</th>
+                    <th className="px-5 py-2 text-left font-normal">Item</th>
+                    <th className="px-5 py-2 text-left font-normal">Description</th>
+                    <th className="px-5 py-2 text-right font-normal">Closing Qty</th>
+                    <th className="px-5 py-2 text-right font-normal">Price Sale</th>
+                    <th className="px-5 py-2 text-right font-normal">Extended Price</th>
+                    <th className="px-5 py-2 text-right font-normal">Unit Cost</th>
+                    <th className="px-5 py-2 text-right font-normal">Extended Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
+                      <td className="px-5 py-3 font-medium">{r.item}</td>
+                      <td className="px-5 py-3 text-muted-foreground max-w-[180px] truncate">{r.description || "—"}</td>
+                      <td className="px-5 py-3 text-right num">{r.closing_quantity.toLocaleString()}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.price_sale)}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.closing_quantity * r.price_sale)}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.unit_cost)}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(r.closing_quantity * r.unit_cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border font-medium">
+                    <td className="px-5 py-3" colSpan={3}>Totals</td>
+                    <td className="px-5 py-3 text-right num">{totals.totalQty.toLocaleString()}</td>
+                    <td />
+                    <td className="px-5 py-3 text-right num">{fmtMoney(totals.extendedPrice)}</td>
+                    <td />
+                    <td className="px-5 py-3 text-right num">{fmtMoney(totals.extendedCost)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+              <button
+                disabled={batchImport.isPending}
+                onClick={() => batchImport.mutate()}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {batchImport.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Import {rows.length} item{rows.length !== 1 ? "s" : ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && result && (
+          <div className="space-y-4 p-5">
+            <div className="rounded-lg border border-success/30 bg-success/5 p-6 text-center">
+              <Database className="mx-auto h-8 w-8 text-success mb-2" />
+              <div className="text-3xl font-display text-success">{result.created}</div>
+              <div className="text-xs text-muted-foreground mt-1">Inventory items imported successfully</div>
+            </div>
+            {result.errors.length > 0 && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>
+                <ul className="space-y-1">
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="text-xs text-destructive">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Done</button>
+            </div>
+          </div>
+        )}
+
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
 }

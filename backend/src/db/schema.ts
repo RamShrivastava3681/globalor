@@ -95,6 +95,12 @@ const tableDefs = [
     BillingMode: "PAY_PER_REQUEST",
   },
   {
+    TableName: TABLES.INVENTORY_ITEMS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
     TableName: TABLES.ALERTS,
     KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
     AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],

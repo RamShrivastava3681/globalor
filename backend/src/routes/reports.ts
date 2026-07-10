@@ -4,7 +4,7 @@ import { scanTable, TABLES } from "../db/client.js";
 import { diffDaysUTC } from "../utils/helpers.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
-  PurchaseOrder, Advance, Expense, CreditDebitNote,
+  PurchaseOrder, Advance, Expense, CreditDebitNote, InventoryItem,
 } from "../types/index.js";
 
 const router = Router();
@@ -774,6 +774,21 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
     });
   } catch (err) {
     console.error("Reports profit-loss error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/inventory-tracking ──
+router.get("/inventory-tracking", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS);
+    const userItems = items
+      .filter((i) => i.client_id === req.user!.id)
+      .sort((a, b) => a.item.localeCompare(b.item));
+
+    res.json(userItems);
+  } catch (err) {
+    console.error("Reports inventory-tracking error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

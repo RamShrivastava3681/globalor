@@ -19,7 +19,7 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "tracking-inventory";
 
 const TABS: { id: ReportTab; label: string }[] = [
   { id: "portfolio", label: "Portfolio Summary" },
@@ -32,6 +32,7 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: "suppliers", label: "Suppliers" },
   { id: "advances", label: "Advances" },
   { id: "expenses", label: "Expenses" },
+  { id: "tracking-inventory", label: "Inventory tracking" },
 ];
 
 // ── Status filter options ──
@@ -46,17 +47,18 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
+  "tracking-inventory": ["all"],
 };
 
 // ── Tab-specific open/closed statuses ──
 function getOpenStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio") return [];
+  if (tab === "profit-loss" || tab === "portfolio" || tab === "tracking-inventory") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["pending", "approved", "advanced", "overdue", "disputed"];
   return ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
 }
 
 function getClosedStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio") return [];
+  if (tab === "profit-loss" || tab === "portfolio" || tab === "tracking-inventory") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["funded", "paid"];
   return ["paid", "rejected", "cancelled", "disputed"];
 }
@@ -231,6 +233,17 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "profit-loss":
       return [];
+    case "tracking-inventory":
+      return [
+        { key: "item", label: "Item", render: (r: any) => r.item ?? "" },
+        { key: "description", label: "Description", render: (r: any) => r.description ?? "—" },
+        { key: "closing_quantity", label: "Closing Qty", render: (r: any) => Number(r.closing_quantity ?? 0).toLocaleString() },
+        { key: "price_sale", label: "Price Sale", render: (r: any) => fmtMoney(r.price_sale ?? 0) },
+        { key: "extended_price", label: "Extended Price", render: (r: any) => fmtMoney(r.extended_price ?? 0) },
+        { key: "unit_cost", label: "Unit Cost", render: (r: any) => fmtMoney(r.unit_cost ?? 0) },
+        { key: "extended_cost", label: "Extended Cost", render: (r: any) => fmtMoney(r.extended_cost ?? 0) },
+        { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
+      ];
     default:
       return common;
   }
