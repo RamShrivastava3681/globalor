@@ -296,7 +296,7 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
+      if (!form.amount || isNaN(Number(form.amount))) throw new Error("Enter a valid amount");
       const payload: any = {
         category: form.category,
         description: form.description || null,
@@ -327,7 +327,7 @@ function NewExpenseModal({ onClose, onCreated }: { onClose: () => void; onCreate
           </L>
           <div className="grid grid-cols-2 gap-3">
             <L label="Amount (USD) *">
-              <input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
             </L>
             <L label="Date">
               <input required type="date" className="inp" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} />

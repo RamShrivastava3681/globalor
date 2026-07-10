@@ -49,7 +49,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 const createSchema = z.object({
   category: z.string().min(1),
   description: z.string().nullable().optional(),
-  amount: z.number().positive(),
+  amount: z.number(),
   expense_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   invoice_id: z.string().nullable().optional(),
   purchase_invoice_id: z.string().nullable().optional(),

@@ -403,6 +403,15 @@ function ReportsPage() {
   const [selectedQuarter, setSelectedQuarter] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
 
+  // Company name from profile
+  const [companyName, setCompanyName] = useState("");
+
+  useEffect(() => {
+    api.get<any>("/profiles/me").then((data) => {
+      if (data?.company_name) setCompanyName(data.company_name);
+    }).catch(() => {});
+  }, []);
+
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
@@ -679,18 +688,21 @@ function ReportsPage() {
       if (isPnL) {
         if (!pnlData) { toast.error("No data to export"); return; }
         const rows = buildPnlRows();
+        const reportLabel = "Profit & Loss Statement";
+        const periodText = `Period: ${fmtDate(pnlData.from)} \u2014 ${fmtDate(pnlData.to)}`;
         const wsData = [
-          ["Profit & Loss Statement"],
-          [`Period: ${fmtDate(pnlData.from)} \u2014 ${fmtDate(pnlData.to)}`],
+          [companyName || "Company Name"],
+          [reportLabel],
+          [periodText],
           [],
           ["Line Item", "Amount (USD)"],
           ...rows.map((r) => [r.label, r.value]),
         ];
         const ws = XLSX.utils.aoa_to_sheet(wsData);
         ws["!cols"] = [{ wch: 55 }, { wch: 20 }];
-        // Bold the header row
+        // Bold the column header row (now at index 4)
         for (let c = 0; c < 2; c++) {
-          const addr = XLSX.utils.encode_cell({ r: 3, c });
+          const addr = XLSX.utils.encode_cell({ r: 4, c });
           if (ws[addr]) ws[addr].s = { font: { bold: true } };
         }
         const wb = XLSX.utils.book_new();
@@ -706,7 +718,15 @@ function ReportsPage() {
         return;
       }
       const cols = visibleColumnsList.length > 0 ? visibleColumnsList : columns;
+      const reportLabel = TABS.find((t) => t.id === tab)?.label ?? "Report";
+      const periodText = (fromDate || toDate)
+        ? `Period: ${fromDate ? fmtDate(toISODateString(fromDate)) : "..."} \u2014 ${toDate ? fmtDate(toISODateString(toDate)) : "..."}`
+        : `Generated: ${new Date().toLocaleDateString()}`;
       const wsData = [
+        [companyName || "Company Name"],
+        [reportLabel],
+        [periodText],
+        [],
         cols.map((c) => c.label),
         ...allData.map((row: any) => cols.map((c) => c.render(row))),
       ];
