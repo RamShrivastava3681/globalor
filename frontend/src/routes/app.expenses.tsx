@@ -32,6 +32,7 @@ const CATS = [
   { id: "professional-fees", label: "Professional Fees" },
   { id: "professional-subscription", label: "Professional Subscription" },
   { id: "realised-currency-gains", label: "Realised Currency Gains" },
+  { id: "unrealised-currency-gains", label: "Unrealised Currency Gains" },
   { id: "referral-fee-admin-expense", label: "Referral Fee - Admin Expense" },
   { id: "rent-expenses", label: "Rent Expenses" },
   { id: "travelling-stay-and-food", label: "Travelling stay and food" },

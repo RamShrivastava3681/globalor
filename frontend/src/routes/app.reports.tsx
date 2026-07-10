@@ -175,6 +175,8 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "outstanding", label: "Outstanding", render: (r: any) => r.outstanding != null ? fmtMoney(r.outstanding) : "—" },
         { key: "total_invoiced", label: "Total Invoiced", render: (r: any) => r.total_invoiced != null ? fmtMoney(r.total_invoiced) : "—" },
         { key: "total_paid", label: "Total Paid", render: (r: any) => r.total_paid != null ? fmtMoney(r.total_paid) : "—" },
+        { key: "oldest_outstanding_invoice_date", label: "Oldest Outstanding Invoice", render: (r: any) => r.oldest_outstanding_invoice_date ? fmtDate(r.oldest_outstanding_invoice_date) : "—" },
+        { key: "latest_invoice_date", label: "Latest Invoice", render: (r: any) => r.latest_invoice_date ? fmtDate(r.latest_invoice_date) : "—" },
         { key: "avg_days", label: "Avg Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—" },
         { key: "median_days", label: "Median Days", render: (r: any) => r.median_days != null ? `${r.median_days}d` : "—" },
         { key: "max_days", label: "Max Days", render: (r: any) => r.max_days != null ? `${r.max_days}d` : "—" },
@@ -360,6 +362,7 @@ const ADMIN_CAT_LABELS: Record<string, string> = {
   "professional-fees": "Professional Fees",
   "professional-subscription": "Professional Subscriptions",
   "realised-currency-gains": "Realised Currency Gains",
+  "unrealised-currency-gains": "Unrealised Currency Gains",
   "referral-fee-admin-expense": "Referral Fee - Admin Expense",
   "rent-expenses": "Rent Expenses",
   "travelling-stay-and-food": "Travel, Stay and Food",
@@ -1138,15 +1141,17 @@ function ReportsPage() {
 
     // ── Table 2: Invoice Summary per Debtor ──
     const invoiceSummaryCols = [
-      { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "", align: "left" as const, width: 48 },
-      { key: "total_invoices", label: "Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString(), align: "right" as const, width: 20 },
-      { key: "total_invoiced", label: "Invoiced Amount", render: (r: any) => pdfMoney(r.total_invoiced), align: "right" as const, width: 30 },
-      { key: "open", label: "Open Invoices", render: (r: any) => (r.open ?? 0).toLocaleString(), align: "right" as const, width: 24 },
-      { key: "closed", label: "Closed Invoices", render: (r: any) => (r.closed ?? 0).toLocaleString(), align: "right" as const, width: 26 },
-      { key: "total_paid", label: "Total Collection", render: (r: any) => pdfMoney(r.total_paid), align: "right" as const, width: 30 },
-      { key: "outstanding", label: "Total Outstanding", render: (r: any) => pdfMoney(r.outstanding), align: "right" as const, width: 30 },
-      { key: "avg_days", label: "Avg Pay Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—", align: "center" as const, width: 22 },
-      { key: "median_days", label: "Avg Median Days", render: (r: any) => r.median_days != null ? `${r.median_days}d` : "—", align: "center" as const, width: 26 },
+      { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "", align: "left" as const, width: 42 },
+      { key: "total_invoices", label: "Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString(), align: "right" as const, width: 18 },
+      { key: "total_invoiced", label: "Invoiced Amount", render: (r: any) => pdfMoney(r.total_invoiced), align: "right" as const, width: 24 },
+      { key: "open", label: "Open Invoices", render: (r: any) => (r.open ?? 0).toLocaleString(), align: "right" as const, width: 20 },
+      { key: "closed", label: "Closed Invoices", render: (r: any) => (r.closed ?? 0).toLocaleString(), align: "right" as const, width: 20 },
+      { key: "total_paid", label: "Total Collection", render: (r: any) => pdfMoney(r.total_paid), align: "right" as const, width: 24 },
+      { key: "outstanding", label: "Total Outstanding", render: (r: any) => pdfMoney(r.outstanding), align: "right" as const, width: 24 },
+      { key: "oldest_outstanding_invoice_date", label: "Oldest Outstanding Inv.", render: (r: any) => r.oldest_outstanding_invoice_date ?? "—", align: "center" as const, width: 26 },
+      { key: "latest_invoice_date", label: "Latest Invoice", render: (r: any) => r.latest_invoice_date ?? "—", align: "center" as const, width: 22 },
+      { key: "avg_days", label: "Avg Pay Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—", align: "center" as const, width: 18 },
+      { key: "median_days", label: "Avg Median Days", render: (r: any) => r.median_days != null ? `${r.median_days}d` : "—", align: "center" as const, width: 20 },
     ];
 
     autoTableD.call(doc, {
@@ -1210,6 +1215,8 @@ function ReportsPage() {
         data.reduce((s: number, r: any) => s + Number(r.closed ?? 0), 0).toLocaleString(),
         pdfMoney(data.reduce((s: number, r: any) => s + Number(r.total_paid ?? 0), 0)),
         pdfMoney(data.reduce((s: number, r: any) => s + Number(r.outstanding ?? 0), 0)),
+        "—",
+        "—",
         "—",
         "—",
       ]],

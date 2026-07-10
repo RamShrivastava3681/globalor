@@ -340,6 +340,25 @@ router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => 
       const maxDays = payDays.length > 0 ? payDays[payDays.length - 1] : null;
       const minDays = payDays.length > 0 ? payDays[0] : null;
 
+      // Oldest outstanding invoice date (earliest issue_date among non-paid, non-rejected invoices)
+      const outstandingInvs = debtorInvoices.filter(
+        (inv) => inv.status !== "paid" && inv.status !== "rejected"
+      );
+      let oldestOutstandingInvoiceDate: string | null = null;
+      for (const inv of outstandingInvs) {
+        if (inv.issue_date && (!oldestOutstandingInvoiceDate || inv.issue_date < oldestOutstandingInvoiceDate)) {
+          oldestOutstandingInvoiceDate = inv.issue_date;
+        }
+      }
+
+      // Latest invoice date (most recent issue_date among all invoices)
+      let latestInvoiceDate: string | null = null;
+      for (const inv of debtorInvoices) {
+        if (inv.issue_date && (!latestInvoiceDate || inv.issue_date > latestInvoiceDate)) {
+          latestInvoiceDate = inv.issue_date;
+        }
+      }
+
       return {
         ...d,
         total_invoices: count,
@@ -352,6 +371,8 @@ router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => 
         median_days: medianDays,
         max_days: maxDays,
         min_days: minDays,
+        oldest_outstanding_invoice_date: oldestOutstandingInvoiceDate,
+        latest_invoice_date: latestInvoiceDate,
       };
     });
 
