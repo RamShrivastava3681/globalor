@@ -5,10 +5,13 @@ import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
 
 export const Route = createFileRoute("/app/purchases")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -334,6 +337,9 @@ function PurchasesPage() {
                             <button onClick={() => setViewing(p)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
                               <Eye className="h-3 w-3" /> View
                             </button>
+                            <button onClick={() => exportPurchaseInvoicePdf(p)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                              <Printer className="h-3 w-3" /> PDF
+                            </button>
                             {p.status === "pending" && (
                               canReview ? (
                                 <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
@@ -441,6 +447,231 @@ function PurchasesPage() {
       )}
     </div>
   );
+}
+
+// ── Purchase Invoice PDF Export ──
+async function exportPurchaseInvoicePdf(invoice: any) {
+  try {
+    const logo = await getLogoBase64().catch(() => undefined);
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pw = doc.internal.pageSize.width;
+    const margin = 14;
+    const contentW = pw - 2 * margin;
+
+    // ── Header ──
+    drawPdfHeaderBar(doc, `Purchase Invoice ${invoice.invoice_number}`, `Status: ${invoice.status?.replace("_", " ").toUpperCase()} · ${pdfDate(invoice.issue_date)}`, logo);
+
+    let y = 42;
+
+    // ── Invoice Details Section ──
+    pdfSectionHeading(doc, "INVOICE DETAILS", margin, y, contentW);
+    y += 8;
+
+    const invoiceFields = [
+      { label: "Invoice Number", value: invoice.invoice_number },
+      { label: "Amount", value: pdfMoney(invoice.amount) },
+      { label: "Issue Date", value: pdfDate(invoice.issue_date) },
+      { label: "ERP Due Date", value: pdfDate(invoice.due_date) },
+      { label: "Payment Terms", value: invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (${invoice.due_date_source === "bl" ? "from BL" : "from invoice"})` : "—" },
+      { label: "Contractual Terms", value: invoice.has_contractual_due_date ? "Yes" : "N/A" },
+      { label: "Status", value: invoice.status?.replace("_", " ") ?? "—" },
+      { label: "PO Number", value: invoice.po_number || "—" },
+      { label: "PO Date", value: pdfDate(invoice.po_date) },
+      { label: "BL Date", value: pdfDate(invoice.bl_date) },
+      { label: "Created", value: pdfDate(invoice.created_at) },
+    ];
+
+    const colW = contentW / 2;
+    invoiceFields.forEach((f, idx) => {
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const x = margin + col * colW;
+      const rowY = y + row * 6;
+
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(100, 116, 139);
+      doc.text(f.label, x, rowY);
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(8);
+      doc.text(f.value, x + 42, rowY);
+    });
+
+    y += Math.ceil(invoiceFields.length / 2) * 6 + 4;
+
+    // ── Payment / Funding Details ──
+    if (invoice.paid_date || invoice.funded_date || invoice.advance_paid_date) {
+      pdfSectionHeading(doc, "PAYMENT & FUNDING DETAILS", margin, y, contentW);
+      y += 8;
+
+      const payFields = [
+        { label: "Paid Date", value: pdfDate(invoice.paid_date) },
+        { label: "Funded Date", value: pdfDate(invoice.funded_date) },
+        { label: "Advance Paid Date", value: pdfDate(invoice.advance_paid_date) },
+      ];
+      if (invoice.paid_note) payFields.push({ label: "Payment Note", value: invoice.paid_note });
+
+      payFields.forEach((f, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const x = margin + col * colW;
+        const rowY = y + row * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(payFields.length / 2) * 6 + 4;
+    }
+
+    // ── Supplier / Vendor Details ──
+    const vendor = invoice.vendor;
+    if (vendor) {
+      y += 2;
+      pdfSectionHeading(doc, "SUPPLIER DETAILS", margin, y, contentW);
+      y += 8;
+
+      const vendorFields = [
+        { label: "Name", value: vendor.name || "—" },
+        { label: "Contact", value: vendor.contact_name || "—" },
+        { label: "Email", value: vendor.contact_email || "—" },
+        { label: "Phone", value: vendor.contact_phone || "—" },
+        { label: "Industry", value: vendor.industry || "—" },
+        { label: "Address", value: [vendor.address_line, vendor.city, vendor.country].filter(Boolean).join(", ") || "—" },
+        { label: "Website", value: vendor.website || "—" },
+      ];
+
+      vendorFields.forEach((f, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const x = margin + col * colW;
+        const rowY = y + row * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(vendorFields.length / 2) * 6 + 4;
+    }
+
+    // ── Client Details ──
+    const client = invoice.client;
+    if (client) {
+      y += 2;
+      pdfSectionHeading(doc, "CLIENT (FACTOR)", margin, y, contentW);
+      y += 8;
+
+      const clientFields = [
+        { label: "Company", value: client.company_name || "—" },
+        { label: "Contact", value: client.contact_name || "—" },
+        { label: "Email", value: client.email || "—" },
+      ];
+
+      clientFields.forEach((f, idx) => {
+        const x = margin + (idx % 2) * colW;
+        const rowY = y + Math.floor(idx / 2) * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(clientFields.length / 2) * 6 + 4;
+    }
+
+    // ── Notes ──
+    if (invoice.notes) {
+      y += 2;
+      pdfSectionHeading(doc, "NOTES", margin, y, contentW);
+      y += 8;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(100, 116, 139);
+      doc.text(invoice.notes, margin, y);
+      y += 8;
+    }
+
+    // ── Linked Sales Invoices ──
+    const linkedSales = invoice.linkedSales || [];
+    if (linkedSales.length > 0) {
+      y += 2;
+      pdfSectionHeading(doc, "LINKED SALES INVOICES", margin, y, contentW);
+      y += 8;
+
+      const lsHead = [["Invoice #", "Debtor", "Amount", "Status"]];
+      const lsBody = linkedSales.map((s: any) => [
+        s.invoice_number || "—",
+        s.debtor?.name || "—",
+        pdfMoney(s.amount),
+        s.status?.replace("_", " ") || "—",
+      ]);
+
+      (doc as any).autoTable.call(doc, {
+        startY: y,
+        head: lsHead,
+        body: lsBody,
+        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: margin, right: margin, bottom: 20 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // ── Documents ──
+    if (invoice.documents && invoice.documents.length > 0) {
+      y += 2;
+      pdfSectionHeading(doc, "ATTACHMENTS", margin, y, contentW);
+      y += 8;
+
+      const docHead = [["Name", "Type", "Size"]];
+      const docBody = invoice.documents.map((d: any) => [
+        d.name || "—",
+        d.type || "—",
+        d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—",
+      ]);
+
+      (doc as any).autoTable.call(doc, {
+        startY: y,
+        head: docHead,
+        body: docBody,
+        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: margin, right: margin, bottom: 20 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    drawPdfFooter(doc);
+    doc.save(`purchase-invoice-${invoice.invoice_number?.replace(/[^a-zA-Z0-9]/g, "-") || "export"}.pdf`);
+    toast.success(`Purchase invoice PDF downloaded`);
+  } catch (err) {
+    console.error("Purchase invoice PDF export error:", err);
+    toast.error("Failed to export purchase invoice PDF");
+  }
 }
 
 function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; onClose: () => void; onDone: () => void }) {

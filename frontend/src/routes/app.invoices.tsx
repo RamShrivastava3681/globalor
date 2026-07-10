@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
 
 export const Route = createFileRoute("/app/invoices")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -403,6 +406,9 @@ function InvoicesPage() {
                             <button onClick={() => setViewing(i)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
                               <Eye className="h-3 w-3" /> View
                             </button>
+                            <button onClick={() => exportSalesInvoicePdf(i)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
+                              <Printer className="h-3 w-3" /> PDF
+                            </button>
                             {canSendNoa && i.noa_status === "not_sent" && (
                               <button onClick={() => sendNoa.mutate(i.id)} className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
                                 <Send className="h-3 w-3" /> Send NOA
@@ -531,6 +537,238 @@ function InvoicesPage() {
       )}
     </div>
   );
+}
+
+// ── Sales Invoice PDF Export ──
+async function exportSalesInvoicePdf(invoice: any) {
+  try {
+    const logo = await getLogoBase64().catch(() => undefined);
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pw = doc.internal.pageSize.width;
+    const margin = 14;
+    const contentW = pw - 2 * margin;
+
+    // ── Header ──
+    drawPdfHeaderBar(doc, `Invoice ${invoice.invoice_number}`, `Status: ${invoice.status?.replace("_", " ").toUpperCase()} · ${pdfDate(invoice.issue_date)}`, logo);
+
+    let y = 42;
+
+    // ── Invoice Details Section ──
+    pdfSectionHeading(doc, "INVOICE DETAILS", margin, y, contentW);
+    y += 8;
+
+    // Two-column grid for invoice details
+    const invoiceFields = [
+      { label: "Invoice Number", value: invoice.invoice_number },
+      { label: "Amount", value: pdfMoney(invoice.amount) },
+      { label: "Issue Date", value: pdfDate(invoice.issue_date) },
+      { label: "ERP Due Date", value: pdfDate(invoice.due_date) },
+      { label: "Payment Terms", value: invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (${invoice.due_date_source === "bl" ? "from BL" : "from invoice"})` : "—" },
+      { label: "Contractual Terms", value: invoice.has_contractual_due_date ? "Yes" : "N/A" },
+      { label: "Status", value: invoice.status?.replace("_", " ") ?? "—" },
+      { label: "NOA Status", value: invoice.noa_status?.replace("_", " ") ?? "—" },
+      { label: "PO Number", value: invoice.po_number || "—" },
+      { label: "PO Date", value: pdfDate(invoice.po_date) },
+      { label: "BL Date", value: pdfDate(invoice.bl_date) },
+      { label: "Created", value: pdfDate(invoice.created_at) },
+    ];
+
+    // Draw as a 2-column grid
+    const colW = contentW / 2;
+    invoiceFields.forEach((f, idx) => {
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const x = margin + col * colW;
+      const rowY = y + row * 6;
+
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(100, 116, 139);
+      doc.text(f.label, x, rowY);
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(8);
+      doc.text(f.value, x + 42, rowY);
+    });
+
+    const fieldsEnd = y + Math.ceil(invoiceFields.length / 2) * 6 + 4;
+
+    // ── Payment Details (if paid) ──
+    if (invoice.status === "paid" || invoice.amount_received != null) {
+      y = fieldsEnd + 2;
+      pdfSectionHeading(doc, "PAYMENT DETAILS", margin, y, contentW);
+      y += 8;
+
+      const payFields = [
+        { label: "Paid Date", value: pdfDate(invoice.paid_date) },
+        { label: "Amount Received", value: pdfMoney(invoice.amount_received) },
+        { label: "Short Payment", value: pdfMoney(invoice.short_payment) },
+        { label: "Late Days", value: invoice.late_days != null ? `${invoice.late_days}d` : "—" },
+      ];
+      if (invoice.paid_note) payFields.push({ label: "Payment Note", value: invoice.paid_note });
+
+      payFields.forEach((f, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const x = margin + col * colW;
+        const rowY = y + row * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(payFields.length / 2) * 6 + 4;
+    }
+
+    // ── Debtor Details ──
+    const debtor = invoice.debtor;
+    if (debtor) {
+      y = Math.max(y, fieldsEnd) + 2;
+      pdfSectionHeading(doc, "DEBTOR DETAILS", margin, y, contentW);
+      y += 8;
+
+      const debtorFields = [
+        { label: "Name", value: debtor.name || "—" },
+        { label: "Legal Entity", value: debtor.legal_entity_name || "—" },
+        { label: "Registration No.", value: debtor.registration_no || "—" },
+        { label: "Industry", value: debtor.industry || "—" },
+        { label: "Credit Limit", value: pdfMoney(debtor.credit_limit) },
+        { label: "Risk Score", value: debtor.risk_score != null ? `${debtor.risk_score}/100` : "—" },
+        { label: "Contact", value: debtor.contact_name || "—" },
+        { label: "Email", value: debtor.contact_email || "—" },
+        { label: "Phone", value: debtor.contact_phone || "—" },
+        { label: "Registered Address", value: debtor.registered_address || "—" },
+        { label: "Relationship Since", value: debtor.relationship_since || "—" },
+      ];
+
+      debtorFields.forEach((f, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const x = margin + col * colW;
+        const rowY = y + row * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(debtorFields.length / 2) * 6 + 4;
+
+      // Debtor notes
+      if (debtor.notes) {
+        y += 2;
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Notes: ${debtor.notes}`, margin, y);
+        y += 6;
+      }
+    }
+
+    // ── Client Details ──
+    const client = invoice.client;
+    if (client) {
+      y += 2;
+      pdfSectionHeading(doc, "CLIENT (FACTOR)", margin, y, contentW);
+      y += 8;
+
+      const clientFields = [
+        { label: "Company", value: client.company_name || "—" },
+        { label: "Contact", value: client.contact_name || "—" },
+        { label: "Email", value: client.email || "—" },
+      ];
+
+      clientFields.forEach((f, idx) => {
+        const x = margin + (idx % 2) * colW;
+        const rowY = y + Math.floor(idx / 2) * 6;
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 116, 139);
+        doc.text(f.label, x, rowY);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(8);
+        doc.text(f.value, x + 42, rowY);
+      });
+
+      y += Math.ceil(clientFields.length / 2) * 6 + 4;
+    }
+
+    // ── Linked Purchase Invoices ──
+    if (invoice.purchases && invoice.purchases.length > 0) {
+      y += 2;
+      pdfSectionHeading(doc, "LINKED PURCHASE INVOICES", margin, y, contentW);
+      y += 8;
+
+      const head = [["Invoice #", "Supplier", "Amount", "Status"]];
+      const body = invoice.purchases.map((p: any) => [
+        p.invoice_number || "—",
+        p.vendor?.name || "—",
+        pdfMoney(p.amount),
+        p.status?.replace("_", " ") || "—",
+      ]);
+
+      (doc as any).autoTable.call(doc, {
+        startY: y,
+        head,
+        body,
+        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: margin, right: margin, bottom: 20 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // ── Documents ──
+    if (invoice.documents && invoice.documents.length > 0) {
+      y += 2;
+      pdfSectionHeading(doc, "ATTACHMENTS", margin, y, contentW);
+      y += 8;
+
+      const docHead = [["Name", "Type", "Size"]];
+      const docBody = invoice.documents.map((d: any) => [
+        d.name || "—",
+        d.type || "—",
+        d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—",
+      ]);
+
+      (doc as any).autoTable.call(doc, {
+        startY: y,
+        head: docHead,
+        body: docBody,
+        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
+        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: margin, right: margin, bottom: 20 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // ── Footer ──
+    drawPdfFooter(doc);
+    doc.save(`invoice-${invoice.invoice_number?.replace(/[^a-zA-Z0-9]/g, "-") || "export"}.pdf`);
+    toast.success(`Invoice PDF downloaded`);
+  } catch (err) {
+    console.error("Invoice PDF export error:", err);
+    toast.error("Failed to export invoice PDF");
+  }
 }
 
 function NoaBadge({ status }: { status: string }) {
