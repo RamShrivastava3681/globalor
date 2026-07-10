@@ -156,7 +156,7 @@ function Dashboard() {
               : "Sales, purchases, and income from your trading book."
         }
         actions={
-          <Link to={isTreasury ? "/app/queue" : "/app/invoices"} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-[#00B8FF] to-[#0099D9] px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:shadow-md hover:from-[#0099D9] hover:to-[#0077B6] transition-all">
+          <Link to={isTreasury ? "/app/queue" : "/app/invoices"} search={{}} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-[#00B8FF] to-[#0099D9] px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:shadow-md hover:from-[#0099D9] hover:to-[#0077B6] transition-all">
             {isTreasury ? "Open funding queue" : isAdmin ? "Open invoice queue" : "New sales invoice"}
           </Link>
         }
@@ -265,7 +265,7 @@ function Dashboard() {
             </div>
             <div className="mt-4 grid grid-cols-5 gap-2 border-t border-border pt-4">
               {(() => {
-                const total = Object.values(aging).reduce((a: number, x: number) => a + x, 0) || 1;
+                const total = (Object.values(aging) as number[]).reduce((a: number, x: number) => a + x, 0) || 1;
                 return [
                   { label: "Current", val: aging.current, cls: "text-[#16A34A]" },
                   { label: "1–30d", val: aging.b1, cls: "text-[#00B8FF]" },
@@ -324,7 +324,7 @@ function Dashboard() {
           </div>
         </Card>
 
-        <Card title="Recent invoices" action={<Link to="/app/invoices" className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
+        <Card title="Recent invoices" action={<Link to="/app/invoices" search={{ view: undefined }} className="text-xs font-medium text-[#00B8FF] hover:text-[#0099D9] transition-colors">View all →</Link>}>
           {invoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-sm text-muted-foreground"><FileText className="mb-3 h-6 w-6 text-border" />No invoices yet.</div>
           ) : (
@@ -595,7 +595,7 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
               <div className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground">Linked transaction</div>
               <div className="mt-0.5">
                 {link ? (
-                  <Link to={link.to} className="inline-flex items-center gap-1 text-primary hover:underline">
+                  <Link to={link.to} search={{ view: undefined }} className="inline-flex items-center gap-1 text-primary hover:underline">
                     <Link2 className="h-3 w-3" />
                     <span className="text-muted-foreground">{link.kind}</span>
                     <span className="font-mono">{link.num}</span>

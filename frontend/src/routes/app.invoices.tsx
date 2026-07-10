@@ -941,7 +941,7 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     orderY = totalsStartY + totalsHeadH + totalsH + 6;
 
     // ── Draw footer on all pages ──
-    const totalPagesFinal = doc.internal.getNumberOfPages();
+    const totalPagesFinal = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= totalPagesFinal; i++) {
       drawPageFooter(i, totalPagesFinal);
     }

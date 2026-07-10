@@ -22,7 +22,7 @@ export type WriteResource =
   | "admin";
 
 // Permission map mirrors the backend
-export const roleWritePermissions: Record<AppRole, WriteResource[] | ["*"]> = {
+export const roleWritePermissions: Record<AppRole, readonly (WriteResource | "*")[]> = {
   factor_admin: ["*"],
   operations: [
     "suppliers", "debtors", "invoices", "purchase-invoices",

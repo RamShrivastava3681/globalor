@@ -111,7 +111,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
           entries: entries.map((e) => ({
             ...e,
             client: profileMap.get(e.client_id)
-              ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name }
+              ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name ?? undefined }
               : undefined,
             debtor: e.debtor_id && debtorMap.get(e.debtor_id)
               ? { name: debtorMap.get(e.debtor_id)?.name }
