@@ -4,7 +4,6 @@
  */
 
 import jsPDF from "jspdf";
-import "jspdf-autotable";
 import { fmtDate } from "@/components/ledger-ui";
 
 // ── Cached logo loader ──

@@ -6,7 +6,8 @@ import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, B
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import { applyPlugin } from "jspdf-autotable";
+applyPlugin(jsPDF);
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
