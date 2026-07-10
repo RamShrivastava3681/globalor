@@ -20,6 +20,120 @@ import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
+// ── GET /api/invoices/check-duplicates ── (find duplicate invoice numbers across sales & purchase invoices)
+router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    // Scan both sales and purchase invoices
+    const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+
+    // Preload debtors, vendors, and profiles for enrichment
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    // Group all invoices by invoice_number
+    const byNumber = new Map<string, Array<{
+      type: "sales" | "purchase";
+      id: string;
+      invoice_number: string;
+      amount: number;
+      status: string;
+      client_id: string;
+      debtor_id?: string;
+      vendor_id?: string;
+      issue_date?: string;
+      created_at?: string;
+    }>>();
+
+    for (const inv of salesInvoices) {
+      const key = inv.invoice_number?.toLowerCase().trim();
+      if (!key) continue;
+      const entry = byNumber.get(key) || [];
+      entry.push({
+        type: "sales",
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.amount,
+        status: inv.status,
+        client_id: inv.client_id,
+        debtor_id: inv.debtor_id,
+        issue_date: inv.issue_date,
+        created_at: inv.created_at,
+      });
+      byNumber.set(key, entry);
+    }
+
+    for (const inv of purchaseInvoices) {
+      const key = inv.invoice_number?.toLowerCase().trim();
+      if (!key) continue;
+      const entry = byNumber.get(key) || [];
+      entry.push({
+        type: "purchase",
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.amount,
+        status: inv.status,
+        client_id: inv.client_id,
+        vendor_id: inv.vendor_id,
+        issue_date: inv.issue_date,
+        created_at: inv.created_at,
+      });
+      byNumber.set(key, entry);
+    }
+
+    // Filter to only duplicates (invoice numbers that appear more than once)
+    const duplicates: Array<{
+      invoice_number: string;
+      count: number;
+      entries: Array<{
+        type: "sales" | "purchase";
+        id: string;
+        invoice_number: string;
+        amount: number;
+        status: string;
+        client?: { company_name?: string; contact_name?: string };
+        debtor?: { name?: string };
+        vendor?: { name?: string };
+        issue_date?: string;
+        created_at?: string;
+      }>;
+    }> = [];
+
+    for (const [key, entries] of byNumber) {
+      if (entries.length > 1) {
+        duplicates.push({
+          invoice_number: entries[0].invoice_number, // use the original casing
+          count: entries.length,
+          entries: entries.map((e) => ({
+            ...e,
+            client: profileMap.get(e.client_id)
+              ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name }
+              : undefined,
+            debtor: e.debtor_id && debtorMap.get(e.debtor_id)
+              ? { name: debtorMap.get(e.debtor_id)?.name }
+              : undefined,
+            vendor: e.vendor_id && vendorMap.get(e.vendor_id)
+              ? { name: vendorMap.get(e.vendor_id)?.name }
+              : undefined,
+          })),
+        });
+      }
+    }
+
+    // Sort by invoice_number alphabetically
+    duplicates.sort((a, b) => a.invoice_number.localeCompare(b.invoice_number));
+
+    res.json({ duplicates, totalDuplicates: duplicates.length });
+  } catch (err) {
+    console.error("Check duplicate invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── GET /api/invoices ── (paginated when page/limit provided, legacy array otherwise)
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {

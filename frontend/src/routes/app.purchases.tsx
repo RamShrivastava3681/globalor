@@ -5,7 +5,7 @@ import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -43,6 +43,8 @@ function PurchasesPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const limit = 50;
+
+  const [duplicateCheckOpen, setDuplicateCheckOpen] = useState(false);
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices", searchQuery, issueDateFrom, issueDateTo, createdFrom, createdTo, page, limit, sortField, sortOrder],
@@ -154,6 +156,9 @@ function PurchasesPage() {
               </button>
               <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
                 <Upload className="h-4 w-4" /> Mass import
+              </button>
+              <button onClick={() => setDuplicateCheckOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-warning/50 px-4 py-2 text-sm font-medium text-warning hover:bg-warning/5">
+                <AlertTriangle className="h-4 w-4" /> Check duplicates
               </button>
             </div>
           ) : (
@@ -445,6 +450,10 @@ function PurchasesPage() {
           inventory={viewedInventory}
           onClose={() => setViewing(null)}
         />
+      )}
+
+      {duplicateCheckOpen && (
+        <DuplicateCheckModal onClose={() => setDuplicateCheckOpen(false)} />
       )}
     </div>
   );
@@ -1488,4 +1497,129 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   );
 }
 
+// ── Duplicate Check Modal ──
+function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
+  const dupQ = useQuery({
+    queryKey: ["invoices", "check-duplicates"],
+    queryFn: async () => (await api.get<any>("/invoices/check-duplicates")) ?? { duplicates: [], totalDuplicates: 0 },
+  });
+
+  const duplicates = dupQ.data?.duplicates ?? [];
+  const totalDuplicates = dupQ.data?.totalDuplicates ?? 0;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-lg">
+              <AlertTriangle className="mr-1.5 inline h-5 w-5 text-warning" />
+              Duplicate invoice numbers
+            </h3>
+            {dupQ.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="p-5">
+          {dupQ.isLoading ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Scanning all invoices for duplicates…</div>
+          ) : dupQ.isError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+              Failed to check for duplicates. Please try again.
+            </div>
+          ) : totalDuplicates === 0 ? (
+            <div className="flex flex-col items-center py-10">
+              <div className="text-3xl mb-2">✓</div>
+              <div className="text-sm text-success font-medium">No duplicate invoice numbers found!</div>
+              <div className="text-xs text-muted-foreground mt-1">All invoice numbers across sales and purchase invoices are unique.</div>
+            </div>
+          ) : (
+            <>
+              <div className="mb-4 flex items-center gap-2 text-sm">
+                <span className="rounded-full border border-warning/50 bg-warning/10 px-3 py-1 font-mono text-xs font-medium text-warning">
+                  {totalDuplicates} duplicate invoice number{totalDuplicates !== 1 ? "s" : ""}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Found across both sales and purchase invoices
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {duplicates.map((dup: any) => (
+                  <div key={dup.invoice_number} className="rounded-lg border border-border bg-background/40 overflow-hidden">
+                    {/* Group header */}
+                    <div className="flex items-center justify-between border-b border-border bg-warning/5 px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                        <span className="font-mono text-sm font-medium">{dup.invoice_number}</span>
+                        <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+                          {dup.count} entries
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        Total: {fmtMoney(dup.entries.reduce((s: number, e: any) => s + Number(e.amount), 0))}
+                      </span>
+                    </div>
+
+                    {/* Entries table */}
+                    <div className="-mx-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                          <tr className="border-b border-border">
+                            <th className="px-4 py-2 text-left font-normal">Type</th>
+                            <th className="px-4 py-2 text-left font-normal">UID</th>
+                            <th className="px-4 py-2 text-left font-normal">Debtor / Supplier</th>
+                            <th className="px-4 py-2 text-left font-normal">Issue date</th>
+                            <th className="px-4 py-2 text-right font-normal">Amount</th>
+                            <th className="px-4 py-2 text-left font-normal">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dup.entries.map((entry: any) => (
+                            <tr key={entry.id} className="border-b border-border/60 hover:bg-muted/30">
+                              <td className="px-4 py-2.5">
+                                {entry.type === "sales" ? (
+                                  <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary">Sales</span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/5 px-2 py-0.5 text-[10px] font-medium text-warning">Purchase</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">#{entry.id.slice(-8).toUpperCase()}</td>
+                              <td className="px-4 py-2.5">
+                                {entry.type === "sales"
+                                  ? (entry.debtor?.name ?? "—")
+                                  : (entry.vendor?.name ?? "—")
+                                }
+                              </td>
+                              <td className="px-4 py-2.5 text-sm">{fmtDate(entry.issue_date)}</td>
+                              <td className="px-4 py-2.5 text-right num">{fmtMoney(entry.amount)}</td>
+                              <td className="px-4 py-2.5"><StatusPill status={entry.status} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="mt-6 flex justify-end gap-2 pt-2 border-t border-border">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
+            <button
+              onClick={() => dupQ.refetch()}
+              disabled={dupQ.isRefetching}
+              className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm text-primary hover:bg-primary/5 disabled:opacity-50"
+            >
+              {dupQ.isRefetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
