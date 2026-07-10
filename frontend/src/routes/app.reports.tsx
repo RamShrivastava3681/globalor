@@ -573,15 +573,19 @@ function ReportsPage() {
     const result = await api.get<any>(url);
     const allData = Array.isArray(result) ? result : (result?.data ?? result ?? []);
     // For consistent export, apply client-side filters too (covers non-paginated tabs)
+    // Only apply status filter when the data actually has status-related fields
     return allData.filter((row: any) => {
       if (statusFilter !== "all") {
         const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
-        if (statusFilter === "open") {
-          if (!getOpenStatuses(tab).includes(rowStatus)) return false;
-        } else if (statusFilter === "closed") {
-          if (!getClosedStatuses(tab).includes(rowStatus)) return false;
-        } else if (rowStatus !== statusFilter) {
-          return false;
+        // Skip status filtering if this data type doesn't have status fields (e.g. aging, portfolio, debtors)
+        if (rowStatus !== "") {
+          if (statusFilter === "open") {
+            if (!getOpenStatuses(tab).includes(rowStatus)) return false;
+          } else if (statusFilter === "closed") {
+            if (!getClosedStatuses(tab).includes(rowStatus)) return false;
+          } else if (rowStatus !== statusFilter) {
+            return false;
+          }
         }
       }
       if (searchQuery) {
@@ -876,7 +880,12 @@ function ReportsPage() {
       { key: "median_payment_days", label: "Median Days", render: (r: any) => r.median_payment_days != null ? `${r.median_payment_days}d` : "—" },
     ];
 
-    (doc as any).autoTable.call(doc, {
+    const autoTableP = (doc as any).autoTable;
+    if (typeof autoTableP !== "function") {
+      toast.error("PDF export plugin not available");
+      return;
+    }
+    autoTableP.call(doc, {
       startY: detailStartY + 6,
       head: [detailCols.map((c) => c.label)],
       body: data.map((r: any) => detailCols.map((c) => c.render(r))),
@@ -939,7 +948,12 @@ function ReportsPage() {
       return undefined;
     };
 
-    (doc as any).autoTable.call(doc, {
+    const autoTableA = (doc as any).autoTable;
+    if (typeof autoTableA !== "function") {
+      toast.error("PDF export plugin not available");
+      return;
+    }
+    autoTableA.call(doc, {
       startY: 48,
       head: [agingCols.map((c) => c.label)],
       body: data.map((r: any) => agingCols.map((c) => c.render(r))),
@@ -1074,7 +1088,12 @@ function ReportsPage() {
       { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—", align: "left" as const, width: 22 },
     ];
 
-    (doc as any).autoTable.call(doc, {
+    const autoTableD = (doc as any).autoTable;
+    if (typeof autoTableD !== "function") {
+      toast.error("PDF export plugin not available");
+      return;
+    }
+    autoTableD.call(doc, {
       startY: 72,
       head: [debtorCols.map((c) => c.label)],
       body: data.map((r: any) => debtorCols.map((c) => c.render(r))),

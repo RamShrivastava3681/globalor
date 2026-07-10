@@ -1344,6 +1344,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => exportSalesInvoicePdf(invoice)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs hover:border-primary hover:text-primary transition-colors">
+              <Printer className="h-3.5 w-3.5" /> Download PDF
+            </button>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
           </div>
         </div>
