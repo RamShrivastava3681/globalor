@@ -540,230 +540,404 @@ function InvoicesPage() {
   );
 }
 
-// ── Sales Invoice PDF Export ──
-async function exportSalesInvoicePdf(invoice: any) {
+// ── Professional Commercial Invoice PDF Export ──
+async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
   try {
-    const logo = await getLogoBase64().catch(() => undefined);
+    const logoPromise = getLogoBase64().catch(() => undefined);
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pw = doc.internal.pageSize.width;
     const margin = 14;
     const contentW = pw - 2 * margin;
 
-    // ── Header ──
-    drawPdfHeaderBar(doc, `Invoice ${invoice.invoice_number}`, `Status: ${invoice.status?.replace("_", " ").toUpperCase()} · ${pdfDate(invoice.issue_date)}`, logo);
+    // Pre-process inventory items into a consistent format
+    const invItems: any[] = (inventoryItems ?? []).filter(Boolean).map((m: any) => ({
+      sku: m.sku || "—",
+      item_name: m.item_name || "—",
+      quantity: Number(m.quantity) || 0,
+      unit: m.unit || "unit",
+      unit_cost: m.unit_cost != null ? Number(m.unit_cost) : null,
+      total: m.unit_cost != null ? (Number(m.quantity) || 0) * Number(m.unit_cost) : 0,
+    }));
 
-    let y = 42;
+    const showInvTable = invItems.length > 0;
 
-    // ── Invoice Details Section ──
-    pdfSectionHeading(doc, "INVOICE DETAILS", margin, y, contentW);
-    y += 8;
+    // Compute totals
+    const subtotal = invoice.amount;
+    const vat = 0;        // No VAT field in current data model
+    const discount = 0;   // No discount field in current data model
+    const grandTotal = subtotal + vat - discount;
 
-    // Two-column grid for invoice details
-    const invoiceFields = [
-      { label: "Invoice Number", value: invoice.invoice_number },
-      { label: "Amount", value: pdfMoney(invoice.amount) },
-      { label: "Issue Date", value: pdfDate(invoice.issue_date) },
-      { label: "ERP Due Date", value: pdfDate(invoice.due_date) },
-      { label: "Payment Terms", value: invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (${invoice.due_date_source === "bl" ? "from BL" : "from invoice"})` : "—" },
-      { label: "Contractual Terms", value: invoice.has_contractual_due_date ? "Yes" : "N/A" },
-      { label: "Status", value: invoice.status?.replace("_", " ") ?? "—" },
-      { label: "NOA Status", value: invoice.noa_status?.replace("_", " ") ?? "—" },
-      { label: "PO Number", value: invoice.po_number || "—" },
-      { label: "PO Date", value: pdfDate(invoice.po_date) },
-      { label: "BL Date", value: pdfDate(invoice.bl_date) },
-      { label: "Created", value: pdfDate(invoice.created_at) },
-    ];
+    const logo = await logoPromise;
+    const debtor = invoice.debtor;
+    const client = invoice.client;
 
-    // Draw as a 2-column grid
-    const colW = contentW / 2;
-    invoiceFields.forEach((f, idx) => {
-      const col = idx % 2;
-      const row = Math.floor(idx / 2);
-      const x = margin + col * colW;
-      const rowY = y + row * 6;
+    // ── Page counter ──
+    let currentPage = 1;
 
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(100, 116, 139);
-      doc.text(f.label, x, rowY);
+    // ── Helper: draw header block on given page ──
+    const drawPageHeader = (pg: number) => {
+      doc.setPage(pg);
 
+      // Logo + company name on the left (white background)
+      if (logo) {
+        try {
+          doc.addImage(logo, "PNG", margin, 4, 32, 20);
+        } catch { /* ignore */ }
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
+        doc.text(client?.company_name || "Company Name", 50, 14);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 116, 139);
+        const headerTags = [`Invoice ${invoice.invoice_number}`, `Status: ${(invoice.status || "").replace("_", " ").toUpperCase()}`];
+        doc.text(headerTags.join(" · "), 50, 22);
+      } else {
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
+        doc.text(client?.company_name || "Company Name", margin, 16);
+      }
+
+      // Horizontal divider below header
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.3);
+      doc.line(margin, 31, pw - margin, 31);
+    };
+
+    // ── Helper: draw footer on given page ──
+    const drawPageFooter = (pg: number, totalPages: number) => {
+      doc.setPage(pg);
+      const pageH = doc.internal.pageSize.height;
+      const footerY = pageH - 18;
+
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.3);
+      doc.line(margin, footerY - 2, pw - margin, footerY - 2);
+
+      doc.setFontSize(6.5);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(8);
-      doc.text(f.value, x + 42, rowY);
+      doc.setTextColor(100, 116, 139);
+
+      const footerLines = [
+        client?.company_name || "Company Name",
+        debtor?.registered_address || "",
+        `Phone: ${debtor?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${debtor?.website || "—"}`,
+      ];
+
+      footerLines.forEach((line, i) => {
+        if (line) {
+          doc.text(line, pw / 2, footerY + i * 4, { align: "center" });
+        }
+      });
+
+      // Page number
+      doc.setTextColor(150);
+      doc.setFontSize(6);
+      doc.text(`Page ${pg} of ${totalPages}`, pw / 2, footerY + footerLines.length * 4 + 3, { align: "center" });
+    };
+
+    // ── Draw first page ──
+    drawPageHeader(1);
+    let y = 36;
+    let rowNum = 0;
+
+    // ── Customer Information Block ──
+    // Left: Invoice To
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("INVOICE TO", margin, y);
+    y += 5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(30, 41, 59);
+    const custName = debtor?.name || "—";
+    const custAddr = debtor?.registered_address || "";
+    const custLines = [custName, custAddr].filter(Boolean);
+    custLines.forEach((line) => {
+      doc.text(line, margin, y);
+      y += 4;
     });
 
-    const fieldsEnd = y + Math.ceil(invoiceFields.length / 2) * 6 + 4;
+    // Right side: Invoice Date + Invoice Number (at the same y position as the customer name)
+    const rightX = pw / 2 + 8;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Invoice Date:", rightX, 36);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    doc.text(pdfDate(invoice.issue_date), rightX + 22, 36);
 
-    // ── Payment Details (if paid) ──
-    if (invoice.status === "paid" || invoice.amount_received != null) {
-      y = fieldsEnd + 2;
-      pdfSectionHeading(doc, "PAYMENT DETAILS", margin, y, contentW);
-      y += 8;
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Invoice #:", rightX, 41);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    doc.text(invoice.invoice_number, rightX + 22, 41);
 
-      const payFields = [
-        { label: "Paid Date", value: pdfDate(invoice.paid_date) },
-        { label: "Amount Received", value: pdfMoney(invoice.amount_received) },
-        { label: "Short Payment", value: pdfMoney(invoice.short_payment) },
-        { label: "Late Days", value: invoice.late_days != null ? `${invoice.late_days}d` : "—" },
-      ];
-      if (invoice.paid_note) payFields.push({ label: "Payment Note", value: invoice.paid_note });
+    // ── Order Information Grid ──
+    let orderY = Math.max(y + 4, 52);
 
-      payFields.forEach((f, idx) => {
-        const col = idx % 2;
-        const row = Math.floor(idx / 2);
-        const x = margin + col * colW;
-        const rowY = y + row * 6;
-
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(100, 116, 139);
-        doc.text(f.label, x, rowY);
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(8);
-        doc.text(f.value, x + 42, rowY);
-      });
-
-      y += Math.ceil(payFields.length / 2) * 6 + 4;
-    }
-
-    // ── Debtor Details ──
-    const debtor = invoice.debtor;
-    if (debtor) {
-      y = Math.max(y, fieldsEnd) + 2;
-      pdfSectionHeading(doc, "DEBTOR DETAILS", margin, y, contentW);
-      y += 8;
-
-      const debtorFields = [
-        { label: "Name", value: debtor.name || "—" },
-        { label: "Legal Entity", value: debtor.legal_entity_name || "—" },
-        { label: "Registration No.", value: debtor.registration_no || "—" },
-        { label: "Industry", value: debtor.industry || "—" },
-        { label: "Credit Limit", value: pdfMoney(debtor.credit_limit) },
-        { label: "Risk Score", value: debtor.risk_score != null ? `${debtor.risk_score}/100` : "—" },
-        { label: "Contact", value: debtor.contact_name || "—" },
-        { label: "Email", value: debtor.contact_email || "—" },
-        { label: "Phone", value: debtor.contact_phone || "—" },
-        { label: "Registered Address", value: debtor.registered_address || "—" },
-        { label: "Relationship Since", value: debtor.relationship_since || "—" },
-      ];
-
-      debtorFields.forEach((f, idx) => {
-        const col = idx % 2;
-        const row = Math.floor(idx / 2);
-        const x = margin + col * colW;
-        const rowY = y + row * 6;
-
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(100, 116, 139);
-        doc.text(f.label, x, rowY);
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(8);
-        doc.text(f.value, x + 42, rowY);
-      });
-
-      y += Math.ceil(debtorFields.length / 2) * 6 + 4;
-
-      // Debtor notes
-      if (debtor.notes) {
-        y += 2;
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "italic");
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Notes: ${debtor.notes}`, margin, y);
-        y += 6;
+    // Build order info rows (skip empty ones)
+    const orderFields: Array<{ label: string; value: string }> = [];
+    const addField = (label: string, value: string | null | undefined) => {
+      if (value && String(value).trim() && String(value) !== "—" && String(value) !== "null") {
+        orderFields.push({ label, value: String(value) });
       }
-    }
+    };
+    addField("Proforma", invoice.proforma_number ?? invoice.po_number);
+    addField("Customer PO", invoice.po_number);
+    addField("Sales Order", null);
+    addField("Purchase Order", invoice.po_number);
+    addField("Issue Date", invoice.issue_date);
+    addField("Delivery Date", invoice.bl_date);
+    addField("Sales Date", invoice.issue_date);
+    addField("Due Date", invoice.due_date);
+    addField("Payment Terms", invoice.payment_terms_days ? `${invoice.payment_terms_days}d net` : null);
+    addField("Currency", "USD");
+    addField("Incoterm", null);
+    addField("Shipping Route", null);
+    addField("Dispatch Location", null);
+    addField("Delivery Location", null);
 
-    // ── Client Details ──
-    const client = invoice.client;
-    if (client) {
-      y += 2;
-      pdfSectionHeading(doc, "CLIENT (FACTOR)", margin, y, contentW);
-      y += 8;
+    // Draw the order info grid if there are fields
+    if (orderFields.length > 0) {
+      const gridCols = 4;
+      const colGridW = contentW / gridCols;
+      const rowH = 6;
+      const gridRows = Math.ceil(orderFields.length / gridCols);
+      const gridH = gridRows * rowH;
+      const headerH = 5;
 
-      const clientFields = [
-        { label: "Company", value: client.company_name || "—" },
-        { label: "Contact", value: client.contact_name || "—" },
-        { label: "Email", value: client.email || "—" },
-      ];
+      // Check page break
+      if (orderY + headerH + gridH + 8 > doc.internal.pageSize.height - 25) {
+        drawPageFooter(1, 1);
+        doc.addPage();
+        currentPage++;
+        drawPageHeader(currentPage);
+        orderY = 36;
+      }
 
-      clientFields.forEach((f, idx) => {
-        const x = margin + (idx % 2) * colW;
-        const rowY = y + Math.floor(idx / 2) * 6;
+      // Draw grid border
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+      doc.rect(margin, orderY, contentW, headerH + gridH);
 
-        doc.setFontSize(7);
+      // Draw grid header row
+      doc.setFillColor(240, 242, 245);
+      doc.rect(margin, orderY, contentW, headerH, "F");
+
+      for (let c = 1; c < gridCols; c++) {
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin + c * colGridW, orderY, margin + c * colGridW, orderY + headerH + gridH);
+      }
+
+      // Fill header text
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(100, 116, 139);
+      const headerLabels = ["Field", "Value", "Field", "Value"];
+      headerLabels.forEach((lbl, idx) => {
+        doc.text(lbl, margin + (idx % 2) * (colGridW * 2) + 1.5, orderY + 3.5);
+      });
+
+      // Draw horizontal separators between rows
+      for (let r = 1; r <= gridRows; r++) {
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, orderY + headerH + r * rowH, margin + contentW, orderY + headerH + r * rowH);
+      }
+
+      // Fill cell values
+      orderFields.forEach((f, idx) => {
+        const col = idx % gridCols;
+        const row = Math.floor(idx / gridCols);
+        const cx = margin + col * colGridW;
+        const cy = orderY + headerH + row * rowH;
+
+        // Label (gray, bold)
+        doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(100, 116, 139);
-        doc.text(f.label, x, rowY);
+        doc.text(f.label, cx + 1.5, cy + 3);
 
+        // Value (dark, normal)
         doc.setFont("helvetica", "normal");
         doc.setTextColor(30, 41, 59);
+        const valStr = f.value;
+        if (valStr.length > 25) {
+          doc.setFontSize(5.5);
+        } else {
+          doc.setFontSize(6.5);
+        }
+        doc.text(valStr, cx + colGridW / 2, cy + 3);
+      });
+
+      orderY += headerH + gridH + 6;
+    }
+
+    // ── Inventory Table ──
+    if (showInvTable) {
+      // Check for page break before inventory
+      if (orderY > doc.internal.pageSize.height - 40) {
+        drawPageFooter(currentPage, 1);
+        doc.addPage();
+        currentPage++;
+        drawPageHeader(currentPage);
+        orderY = 36;
+      }
+
+      const invHeader = [["Product Code", "Reference", "Description", "Country of Origin", "Qty", "Unit", "Inner Box", "Master Box", "Unit Price", "Total"]];
+      const invBody = invItems.map((item: any) => [
+        item.sku,
+        "—",
+        item.item_name,
+        "—",
+        item.quantity,
+        item.unit,
+        "—",
+        "—",
+        item.unit_cost != null ? pdfMoney(item.unit_cost) : "—",
+        pdfMoney(item.total),
+      ]);
+
+      const invColumns = [
+        { header: "Product Code", dataKey: "sku", align: "left" as const },
+        { header: "Reference", dataKey: "ref", align: "left" as const },
+        { header: "Description", dataKey: "desc", align: "left" as const },
+        { header: "Country of Origin", dataKey: "origin", align: "left" as const },
+        { header: "Qty", dataKey: "qty", align: "right" as const },
+        { header: "Unit", dataKey: "unit", align: "left" as const },
+        { header: "Inner Box", dataKey: "innerBox", align: "right" as const },
+        { header: "Master Box", dataKey: "masterBox", align: "right" as const },
+        { header: "Unit Price", dataKey: "unitPrice", align: "right" as const },
+        { header: "Total", dataKey: "total", align: "right" as const },
+      ];
+
+      (doc as any).autoTable.call(doc, {
+        startY: orderY,
+        head: invHeader,
+        body: invBody,
+        styles: {
+          fontSize: 6.5,
+          cellPadding: 2,
+          lineColor: [200, 200, 200],
+          lineWidth: 0.15,
+          textColor: [30, 30, 30],
+          fontStyle: "normal",
+        },
+        headStyles: {
+          fillColor: [30, 64, 175],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          fontSize: 6,
+          halign: "center",
+        },
+        columnStyles: {
+          0: { halign: "left" },
+          1: { halign: "left" },
+          2: { halign: "left", cellWidth: 35 },
+          3: { halign: "left" },
+          4: { halign: "right" },
+          5: { halign: "left" },
+          6: { halign: "right" },
+          7: { halign: "right" },
+          8: { halign: "right" },
+          9: { halign: "right" },
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { top: 34, left: margin, right: margin, bottom: 22 },
+        tableLineColor: [200, 200, 200],
+        tableLineWidth: 0.15,
+        showHead: "everyPage",
+        rowPageBreak: "avoid",
+        pageBreak: "auto",
+        didDrawPage: (data: any) => {
+          currentPage++;
+          drawPageHeader(currentPage);
+        },
+      });
+
+      orderY = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // ── Totals ──
+    const totalsX = pw / 2 + 8;
+    const totalsW = pw / 2 - margin - 8;
+
+    // Check page break
+    if (orderY > doc.internal.pageSize.height - 35) {
+      drawPageFooter(currentPage, 1);
+      doc.addPage();
+      currentPage++;
+      drawPageHeader(currentPage);
+      orderY = 36;
+    }
+
+    // Draw totals box
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.2);
+    const totalsStartY = orderY;
+
+    const totalsRows: Array<{ label: string; value: string; bold?: boolean; fontSize?: number }> = [];
+    totalsRows.push({ label: "Subtotal", value: pdfMoney(subtotal) });
+    if (vat > 0) totalsRows.push({ label: "VAT", value: pdfMoney(vat) });
+    if (discount > 0) totalsRows.push({ label: "Discount", value: pdfMoney(discount) });
+    totalsRows.push({ label: "Grand Total", value: pdfMoney(grandTotal), bold: true, fontSize: 10 });
+
+    const totalsRowH = 6;
+    const totalsH = totalsRows.length * totalsRowH;
+    const totalsHeadH = 5;
+
+    // Draw totals area background
+    doc.setFillColor(248, 250, 252);
+    doc.rect(totalsX, totalsStartY, totalsW, totalsHeadH + totalsH, "F");
+    doc.rect(totalsX, totalsStartY, totalsW, totalsHeadH + totalsH);
+
+    // Header row
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(100, 116, 139);
+    doc.text("Amount", totalsX + totalsW - 4, totalsStartY + 3.5, { align: "right" });
+    doc.text("Total", totalsX + 3, totalsStartY + 3.5);
+
+    // Separator
+    doc.setDrawColor(200, 200, 200);
+    doc.line(totalsX, totalsStartY + totalsHeadH, totalsX + totalsW, totalsStartY + totalsHeadH);
+
+    // Draw each total row
+    totalsRows.forEach((row, idx) => {
+      const ry = totalsStartY + totalsHeadH + idx * totalsRowH;
+
+      if (row.bold) {
+        // Draw a top border for the Grand Total row
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineWidth(0.3);
+        doc.line(totalsX, ry, totalsX + totalsW, ry);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(row.fontSize || 9);
+        doc.setTextColor(30, 41, 59);
+      } else {
+        doc.setFont("helvetica", "normal");
         doc.setFontSize(8);
-        doc.text(f.value, x + 42, rowY);
-      });
+        doc.setTextColor(30, 41, 59);
+      }
 
-      y += Math.ceil(clientFields.length / 2) * 6 + 4;
+      doc.text(row.label, totalsX + 3, ry + 4);
+      doc.text(row.value, totalsX + totalsW - 4, ry + 4, { align: "right" });
+    });
+
+    orderY = totalsStartY + totalsHeadH + totalsH + 6;
+
+    // ── Draw footer on all pages ──
+    const totalPagesFinal = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPagesFinal; i++) {
+      drawPageFooter(i, totalPagesFinal);
     }
 
-    // ── Linked Purchase Invoices ──
-    if (invoice.purchases && invoice.purchases.length > 0) {
-      y += 2;
-      pdfSectionHeading(doc, "LINKED PURCHASE INVOICES", margin, y, contentW);
-      y += 8;
-
-      const head = [["Invoice #", "Supplier", "Amount", "Status"]];
-      const body = invoice.purchases.map((p: any) => [
-        p.invoice_number || "—",
-        p.vendor?.name || "—",
-        pdfMoney(p.amount),
-        p.status?.replace("_", " ") || "—",
-      ]);
-
-      (doc as any).autoTable.call(doc, {
-        startY: y,
-        head,
-        body,
-        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
-        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        margin: { left: margin, right: margin, bottom: 20 },
-      });
-      y = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // ── Documents ──
-    if (invoice.documents && invoice.documents.length > 0) {
-      y += 2;
-      pdfSectionHeading(doc, "ATTACHMENTS", margin, y, contentW);
-      y += 8;
-
-      const docHead = [["Name", "Type", "Size"]];
-      const docBody = invoice.documents.map((d: any) => [
-        d.name || "—",
-        d.type || "—",
-        d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—",
-      ]);
-
-      (doc as any).autoTable.call(doc, {
-        startY: y,
-        head: docHead,
-        body: docBody,
-        styles: { fontSize: 7.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
-        headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7, halign: "left" },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
-        margin: { left: margin, right: margin, bottom: 20 },
-      });
-      y = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // ── Footer ──
-    drawPdfFooter(doc);
     doc.save(`invoice-${invoice.invoice_number?.replace(/[^a-zA-Z0-9]/g, "-") || "export"}.pdf`);
     toast.success(`Invoice PDF downloaded`);
   } catch (err) {
@@ -1345,7 +1519,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => exportSalesInvoicePdf(invoice)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs hover:border-primary hover:text-primary transition-colors">
+            <button onClick={() => exportSalesInvoicePdf(invoice, inventory)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs hover:border-primary hover:text-primary transition-colors">
               <Printer className="h-3.5 w-3.5" /> Download PDF
             </button>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>

@@ -759,12 +759,9 @@ function ReportsPage() {
     }
   };
 
-  // ── Helper: draw a subtle header bar across the page ──
+  // ── Helper: draw a clean white header bar across the page ──
   const drawPdfHeaderBar = (doc: jsPDF, title: string, subtitle: string, logoBase64?: string) => {
     const pw = doc.internal.pageSize.width;
-    // Dark header bar
-    doc.setFillColor(30, 64, 175);
-    doc.rect(0, 0, pw, 32, "F");
 
     if (logoBase64) {
       // Logo on the left
@@ -776,21 +773,28 @@ function ReportsPage() {
       // Title & subtitle shifted right to accommodate logo
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
+      doc.setTextColor(30, 41, 59);
       doc.text(title, 54, 14);
       doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
       doc.text(subtitle, 54, 23);
     } else {
-      // No logo — centered layout
+      // No logo — left-aligned layout
       doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
+      doc.setTextColor(30, 41, 59);
       doc.text(title, 14, 16);
       doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
       doc.text(subtitle, 14, 25);
     }
+
+    // Horizontal divider below header
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(14, 31, pw - 14, 31);
   };
 
   // ── Helper: format money for PDF ──
@@ -1018,7 +1022,7 @@ function ReportsPage() {
     toast.success(`Aging report downloaded as PDF \u00b7 ${data.length} buyers`);
   };
 
-  // ── Specialized: Debtors Report PDF ──
+  // ── Specialized: Debtors Report PDF (two-table layout) ──
   const exportDebtorsPdf = async (data: any[], logoBase64?: string) => {
     if (data.length === 0) { toast.error("No debtor data to export"); return; }
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -1030,75 +1034,138 @@ function ReportsPage() {
     const totalInvoiced = data.reduce((s: number, r: any) => s + Number(r.total_invoiced ?? 0), 0);
     const totalPaid = data.reduce((s: number, r: any) => s + Number(r.total_paid ?? 0), 0);
     const totalInvoices = data.reduce((s: number, r: any) => s + Number(r.total_invoices ?? 0), 0);
-    const avgPayDays = data
-      .filter((r: any) => r.avg_days != null)
-      .reduce((s: number, r: any, _: number, arr: any[]) => s + Number(r.avg_days) / arr.length, 0);
 
     // ── Header Bar ──
     drawPdfHeaderBar(doc, "Debtors Report", `Comprehensive debtor analysis as of ${new Date().toLocaleDateString()}`, logoBase64);
 
-    // ── Summary Metrics ──
-    const summaryMetrics = [
-      { label: "Total Debtors", value: totalDebtors.toLocaleString(), color: [59, 130, 246] },
-      { label: "Total Invoices", value: totalInvoices.toLocaleString(), color: [16, 185, 129] },
-      { label: "Total Invoiced", value: pdfMoney(totalInvoiced), color: [245, 158, 11] },
-      { label: "Total Paid", value: pdfMoney(totalPaid), color: [139, 92, 246] },
-      { label: "Total Outstanding", value: pdfMoney(totalOutstanding), color: [239, 68, 68] },
-      { label: "Avg Pay Days", value: avgPayDays > 0 ? `${Math.round(avgPayDays)}d` : "—", color: [16, 185, 129] },
-    ];
-
-    const cardW = (pw - 28 - 15) / 6;
-    const cardH = 22;
-    summaryMetrics.forEach((m, idx) => {
-      const x = 14 + idx * (cardW + 3);
-      const y = 42;
-
-      // Card bg
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(x, y, cardW, cardH, 2, 2, "FD");
-
-      // Accent
-      doc.setFillColor(m.color[0], m.color[1], m.color[2]);
-      doc.rect(x, y, 2.5, cardH, "F");
-
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 116, 139);
-      doc.text(m.label, x + 5, y + 8);
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(30, 41, 59);
-      doc.text(m.value, x + 5, y + 18);
-    });
-
-    // ── Debtor Detail Table ──
-    const debtorCols = [
-      { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "", align: "left" as const, width: 35 },
-      { key: "uid", label: "UID", render: (r: any) => r.id ? `#${r.id.slice(-8).toUpperCase()}` : "", align: "left" as const, width: 18 },
-      { key: "total_invoices", label: "Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString(), align: "right" as const, width: 16 },
-      { key: "open", label: "Open", render: (r: any) => (r.open ?? 0).toLocaleString(), align: "right" as const, width: 14 },
-      { key: "closed", label: "Closed", render: (r: any) => (r.closed ?? 0).toLocaleString(), align: "right" as const, width: 14 },
-      { key: "outstanding", label: "Outstanding", render: (r: any) => pdfMoney(r.outstanding), align: "right" as const, width: 24 },
-      { key: "total_invoiced", label: "Invoiced", render: (r: any) => pdfMoney(r.total_invoiced), align: "right" as const, width: 24 },
-      { key: "total_paid", label: "Paid", render: (r: any) => pdfMoney(r.total_paid), align: "right" as const, width: 24 },
-      { key: "avg_days", label: "Avg Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—", align: "center" as const, width: 16 },
-      { key: "max_days", label: "Max Days", render: (r: any) => r.max_days != null ? `${r.max_days}d` : "—", align: "center" as const, width: 16 },
-      { key: "credit_limit", label: "Credit Limit", render: (r: any) => pdfMoney(r.credit_limit), align: "right" as const, width: 22 },
-      { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—", align: "left" as const, width: 22 },
-    ];
+    // ── Summary line ──
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Total Debtors: ${totalDebtors}  ·  Total Invoices: ${totalInvoices.toLocaleString()}  ·  Total Invoiced: ${pdfMoney(totalInvoiced)}  ·  Total Paid: ${pdfMoney(totalPaid)}  ·  Total Outstanding: ${pdfMoney(totalOutstanding)}`, 14, 42);
+    doc.setDrawColor(200, 200, 200);
+    doc.line(14, 44, pw - 14, 44);
 
     const autoTableD = (doc as any).autoTable;
     if (typeof autoTableD !== "function") {
       toast.error("PDF export plugin not available");
       return;
     }
+
+    // ── Table 1: Debtor Details (legal name, address, industry, relationship since) ──
+    const debtorDetailCols = [
+      { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "", align: "left" as const, width: 45 },
+      { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—", align: "left" as const, width: 50 },
+      { key: "registered_address", label: "Registered Address", render: (r: any) => r.registered_address ?? "—", align: "left" as const, width: 70 },
+      { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—", align: "left" as const, width: 35 },
+      { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ?? "—", align: "center" as const, width: 28 },
+    ];
+
     autoTableD.call(doc, {
-      startY: 72,
-      head: [debtorCols.map((c) => c.label)],
-      body: data.map((r: any) => debtorCols.map((c) => c.render(r))),
-      styles: { fontSize: 6.5, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.1, textColor: [30, 30, 30] },
+      startY: 48,
+      head: [["DEBTOR DETAILS"]],
+      body: [],
+      styles: {
+        fontSize: 8,
+        cellPadding: 2,
+        lineColor: [200, 200, 200],
+        lineWidth: 0.1,
+        textColor: [30, 64, 175],
+        fontStyle: "bold",
+      },
+      headStyles: {
+        fillColor: [30, 64, 175],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "left",
+      },
+      margin: { left: 14, right: 14, bottom: 20 },
+      tableLineColor: [200, 200, 200],
+      tableLineWidth: 0.15,
+    });
+
+    const table1End = (doc as any).lastAutoTable.finalY || 50;
+
+    autoTableD.call(doc, {
+      startY: table1End + 1,
+      head: [debtorDetailCols.map((c) => c.label)],
+      body: data.map((r: any) => debtorDetailCols.map((c) => c.render(r))),
+      styles: {
+        fontSize: 7,
+        cellPadding: 2.5,
+        lineColor: [200, 200, 200],
+        lineWidth: 0.1,
+        textColor: [30, 30, 30],
+      },
+      headStyles: {
+        fillColor: [59, 130, 246],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 7,
+        halign: "center",
+      },
+      columnStyles: Object.fromEntries(
+        debtorDetailCols.map((c, i) => [i, { halign: c.align, cellWidth: c.width }])
+      ),
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: 14, right: 14, bottom: 20 },
+      tableLineColor: [200, 200, 200],
+      tableLineWidth: 0.15,
+    });
+
+    const table1FinalY = (doc as any).lastAutoTable.finalY || 50;
+
+    // ── Table 2: Invoice Summary per Debtor ──
+    const invoiceSummaryCols = [
+      { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "", align: "left" as const, width: 48 },
+      { key: "total_invoices", label: "Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString(), align: "right" as const, width: 20 },
+      { key: "total_invoiced", label: "Invoiced Amount", render: (r: any) => pdfMoney(r.total_invoiced), align: "right" as const, width: 30 },
+      { key: "open", label: "Open Invoices", render: (r: any) => (r.open ?? 0).toLocaleString(), align: "right" as const, width: 24 },
+      { key: "closed", label: "Closed Invoices", render: (r: any) => (r.closed ?? 0).toLocaleString(), align: "right" as const, width: 26 },
+      { key: "total_paid", label: "Total Collection", render: (r: any) => pdfMoney(r.total_paid), align: "right" as const, width: 30 },
+      { key: "outstanding", label: "Total Outstanding", render: (r: any) => pdfMoney(r.outstanding), align: "right" as const, width: 30 },
+      { key: "avg_days", label: "Avg Pay Days", render: (r: any) => r.avg_days != null ? `${r.avg_days}d` : "—", align: "center" as const, width: 22 },
+      { key: "median_days", label: "Avg Median Days", render: (r: any) => r.median_days != null ? `${r.median_days}d` : "—", align: "center" as const, width: 26 },
+    ];
+
+    autoTableD.call(doc, {
+      startY: table1FinalY + 8,
+      head: [["INVOICE SUMMARY"]],
+      body: [],
+      styles: {
+        fontSize: 8,
+        cellPadding: 2,
+        lineColor: [200, 200, 200],
+        lineWidth: 0.1,
+        textColor: [30, 64, 175],
+        fontStyle: "bold",
+      },
+      headStyles: {
+        fillColor: [30, 64, 175],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "left",
+      },
+      margin: { left: 14, right: 14, bottom: 20 },
+      tableLineColor: [200, 200, 200],
+      tableLineWidth: 0.15,
+    });
+
+    const sectionHeadEnd = (doc as any).lastAutoTable.finalY || table1FinalY + 8;
+
+    autoTableD.call(doc, {
+      startY: sectionHeadEnd + 1,
+      head: [invoiceSummaryCols.map((c) => c.label)],
+      body: data.map((r: any) => invoiceSummaryCols.map((c) => c.render(r))),
+      styles: {
+        fontSize: 7,
+        cellPadding: 2.5,
+        lineColor: [200, 200, 200],
+        lineWidth: 0.1,
+        textColor: [30, 30, 30],
+      },
       headStyles: {
         fillColor: [30, 64, 175],
         textColor: [255, 255, 255],
@@ -1107,10 +1174,32 @@ function ReportsPage() {
         halign: "center",
       },
       columnStyles: Object.fromEntries(
-        debtorCols.map((c, i) => [i, { halign: c.align, cellWidth: c.width }])
+        invoiceSummaryCols.map((c, i) => [i, { halign: c.align, cellWidth: c.width }])
       ),
       alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { left: 14, right: 14, bottom: 20 },
+      showFoot: "lastPage",
+      tableLineColor: [200, 200, 200],
+      tableLineWidth: 0.15,
+      // Totals footer
+      foot: [[
+        "TOTALS",
+        data.reduce((s: number, r: any) => s + Number(r.total_invoices ?? 0), 0).toLocaleString(),
+        pdfMoney(data.reduce((s: number, r: any) => s + Number(r.total_invoiced ?? 0), 0)),
+        data.reduce((s: number, r: any) => s + Number(r.open ?? 0), 0).toLocaleString(),
+        data.reduce((s: number, r: any) => s + Number(r.closed ?? 0), 0).toLocaleString(),
+        pdfMoney(data.reduce((s: number, r: any) => s + Number(r.total_paid ?? 0), 0)),
+        pdfMoney(data.reduce((s: number, r: any) => s + Number(r.outstanding ?? 0), 0)),
+        "—",
+        "—",
+      ]],
+      footStyles: {
+        fillColor: [30, 64, 175],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "center",
+      },
       didDrawPage: () => {},
     });
 

@@ -59,14 +59,11 @@ export function drawPdfFooter(doc: jsPDF) {
 }
 
 /**
- * Draw a professional dark-blue header bar at the top of the first page.
+ * Draw a clean white header bar with logo on the left.
  * Includes the company logo (if provided) on the left, title + subtitle to the right.
  */
 export function drawPdfHeaderBar(doc: jsPDF, title: string, subtitle: string, logoBase64?: string) {
   const pw = doc.internal.pageSize.width;
-  // Dark header bar
-  doc.setFillColor(30, 64, 175);
-  doc.rect(0, 0, pw, 32, "F");
 
   if (logoBase64) {
     try {
@@ -76,20 +73,27 @@ export function drawPdfHeaderBar(doc: jsPDF, title: string, subtitle: string, lo
     }
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
+    doc.setTextColor(30, 41, 59);
     doc.text(title, 54, 14);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
     doc.text(subtitle, 54, 23);
   } else {
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
+    doc.setTextColor(30, 41, 59);
     doc.text(title, 14, 16);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
     doc.text(subtitle, 14, 25);
   }
+
+  // Horizontal divider below header
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.line(14, 31, pw - 14, 31);
 }
 
 /** Format money for PDF display: $X,XXX.XX */
