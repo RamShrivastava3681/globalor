@@ -818,6 +818,93 @@ router.post("/bulk-pay", requireAuth, requireAnyWriteAccess("invoices", "funding
   }
 });
 
+// ── POST /api/invoices/bulk-search ── (search invoices by uploaded Excel invoice numbers)
+router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { invoiceNumbers } = z.object({
+      invoiceNumbers: z.array(z.string().min(1)).min(1).max(10000),
+    }).parse(req.body);
+
+    // Normalize input invoice numbers for case-insensitive matching
+    const searchSet = new Set(invoiceNumbers.map((n) => n.toLowerCase().trim()));
+
+    // Preload all invoices, debtors, and profiles
+    const [allInvoices, allDebtors, allProfiles] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES),
+      scanTable<Debtor>(TABLES.DEBTORS),
+      scanTable<Profile>(TABLES.PROFILES),
+    ]);
+
+    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    // Separate invoices into found vs not-in-excel
+    const found: Array<Invoice & { debtor?: Debtor; client?: Profile }> = [];
+    const platformInvoiceNumbers = new Set<string>();
+    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_id: string | null }> = [];
+
+    for (const inv of allInvoices) {
+      const normalized = inv.invoice_number.toLowerCase().trim();
+      platformInvoiceNumbers.add(normalized);
+      platformInvoices.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.amount,
+        issue_date: inv.issue_date,
+        debtor_id: inv.debtor_id,
+      });
+
+      if (searchSet.has(normalized)) {
+        found.push({
+          ...inv,
+          debtor: inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined,
+          client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
+        });
+      }
+    }
+
+    // Invoice numbers in the Excel that were NOT found in the platform
+    const notFoundInPlatform = invoiceNumbers.filter((n) => !platformInvoiceNumbers.has(n.toLowerCase().trim()));
+
+    // Platform invoices NOT in the Excel (limit to 500 for performance)
+    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name: string | null }> = [];
+    let notInExcelTotal = 0;
+
+    for (const pi of platformInvoices) {
+      if (!searchSet.has(pi.invoice_number.toLowerCase().trim())) {
+        notInExcelTotal++;
+        if (notInExcel.length < 500) {
+          notInExcel.push({
+            ...pi,
+            debtor_name: pi.debtor_id ? (debtorMap.get(pi.debtor_id)?.name ?? null) : null,
+          });
+        }
+      }
+    }
+
+    res.json({
+      found,
+      notFoundInPlatform,
+      notInExcel,
+      notInExcelTotal,
+      summary: {
+        excelCount: invoiceNumbers.length,
+        foundCount: found.length,
+        notFoundCount: notFoundInPlatform.length,
+        platformCount: platformInvoiceNumbers.size,
+        notInExcelCount: notInExcelTotal,
+      },
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Bulk invoice search error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/invoices/:id/send-noa ──
 router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {

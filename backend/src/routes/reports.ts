@@ -34,10 +34,29 @@ function applyStatusFilter<T extends { status?: string }>(
   });
 }
 
+// ── Date range filter helper ──
+function dateRangeFilter(req: AuthRequest) {
+  const from = (req.query.from as string) || "";
+  const to = (req.query.to as string) || "";
+  const isInRange = (dateStr: string | null | undefined): boolean => {
+    if (!from && !to) return true;
+    if (!dateStr) return false;
+    const d = dateStr.slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  };
+  return { from, to, isInRange };
+}
+
 // ── GET /api/reports/sales-invoices ── (paginated)
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    if (from || to) {
+      invoices = invoices.filter((inv) => isInRange(inv.issue_date));
+    }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
     // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
@@ -131,7 +150,11 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 // ── GET /api/reports/purchase-invoices ── (paginated)
 router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    if (from || to) {
+      invoices = invoices.filter((pi) => isInRange(pi.issue_date));
+    }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
     // Preload vendors and profiles into lookup maps
@@ -182,9 +205,13 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
 });
 
 // ── GET /api/reports/proformas ──
-router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
+    if (from || to) {
+      orders = orders.filter((po) => isInRange(po.proforma_date ?? po.created_at));
+    }
 
     // Preload lookup maps to avoid N+1 GetItem calls
     const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
@@ -211,10 +238,15 @@ router.get("/proformas", requireAuth, async (_req: AuthRequest, res: Response) =
 });
 
 // ── GET /api/reports/aging ── (buyer-wise)
-router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    if (from || to) {
+      allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
+    }
     const [invoices, allDebtors] = await Promise.all([
-      scanTable<Invoice>(TABLES.INVOICES),
+      Promise.resolve(allInvoices),
       scanTable<Debtor>(TABLES.DEBTORS),
     ]);
 
@@ -286,11 +318,16 @@ router.get("/aging", requireAuth, async (_req: AuthRequest, res: Response) => {
 });
 
 // ── GET /api/reports/debtors ──
-router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    if (from || to) {
+      allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
+    }
     const [debtors, invoices] = await Promise.all([
       scanTable<Debtor>(TABLES.DEBTORS),
-      scanTable<Invoice>(TABLES.INVOICES),
+      Promise.resolve(allInvoices),
     ]);
 
     const SALES_OPEN = new Set(["pending", "approved", "advanced", "overdue", "disputed"]);
@@ -384,11 +421,15 @@ router.get("/debtors", requireAuth, async (_req: AuthRequest, res: Response) => 
 });
 
 // ── GET /api/reports/suppliers ──
-router.get("/suppliers", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/suppliers", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const { from, to, isInRange } = dateRangeFilter(req);
     // NOTE: "Suppliers" on the frontend refers to the vendor list (vendors you buy from).
     // The legacy TABLES.SUPPLIERS contains factor-managed supplier data, not your actual suppliers.
-    const vendors = await scanTable<Vendor>(TABLES.VENDORS);
+    let vendors = await scanTable<Vendor>(TABLES.VENDORS);
+    if (from || to) {
+      vendors = vendors.filter((v) => isInRange(v.created_at));
+    }
     res.json(vendors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')));
   } catch (err) {
     console.error("Reports suppliers error:", err);
@@ -397,9 +438,13 @@ router.get("/suppliers", requireAuth, async (_req: AuthRequest, res: Response) =
 });
 
 // ── GET /api/reports/advances ──
-router.get("/advances", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const advances = await scanTable<Advance>(TABLES.ADVANCES);
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let advances = await scanTable<Advance>(TABLES.ADVANCES);
+    if (from || to) {
+      advances = advances.filter((a) => isInRange(a.advance_date));
+    }
 
     // Preload lookup maps to avoid N+1 GetItem calls
     const allInvoices = await scanTable<any>(TABLES.INVOICES);
@@ -460,9 +505,13 @@ router.get("/advances", requireAuth, async (_req: AuthRequest, res: Response) =>
 });
 
 // ── GET /api/reports/expenses ──
-router.get("/expenses", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const expenses = await scanTable<any>(TABLES.EXPENSES);
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let expenses = await scanTable<any>(TABLES.EXPENSES);
+    if (from || to) {
+      expenses = expenses.filter((e: any) => isInRange(e.expense_date));
+    }
 
     // Preload lookup maps to avoid N+1 GetItem calls
     const allInvoices = await scanTable<any>(TABLES.INVOICES);
@@ -781,12 +830,15 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 // ── GET /api/reports/inventory-tracking ──
 router.get("/inventory-tracking", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS);
-    const userItems = items
-      .filter((i) => i.client_id === req.user!.id)
-      .sort((a, b) => a.item.localeCompare(b.item));
+    const { from, to, isInRange } = dateRangeFilter(req);
+    let items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS);
+    items = items.filter((i) => i.client_id === req.user!.id);
+    if (from || to) {
+      items = items.filter((i) => isInRange(i.created_at));
+    }
+    items.sort((a, b) => a.item.localeCompare(b.item));
 
-    res.json(userItems);
+    res.json(items);
   } catch (err) {
     console.error("Reports inventory-tracking error:", err);
     res.status(500).json({ error: "Internal server error" });

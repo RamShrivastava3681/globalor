@@ -523,7 +523,7 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, buyerId]);
 
   useEffect(() => {
     fetchData();
@@ -621,7 +621,7 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [tab, statusFilter, searchQuery, fromDate, toDate]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId]);
 
   // ── P&L export helpers ──
   const buildPnlRows = useCallback(() => {
