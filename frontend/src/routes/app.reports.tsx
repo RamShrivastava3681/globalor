@@ -19,7 +19,7 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "tracking-inventory";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking";
 
 const TABS: { id: ReportTab; label: string }[] = [
   { id: "portfolio", label: "Portfolio Summary" },
@@ -32,7 +32,7 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: "suppliers", label: "Suppliers" },
   { id: "advances", label: "Advances" },
   { id: "expenses", label: "Expenses" },
-  { id: "tracking-inventory", label: "Inventory tracking" },
+  { id: "inventory-tracking", label: "Inventory tracking" },
 ];
 
 // ── Status filter options ──
@@ -47,18 +47,18 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
-  "tracking-inventory": ["all"],
+  "inventory-tracking": ["all"],
 };
 
 // ── Tab-specific open/closed statuses ──
 function getOpenStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio" || tab === "tracking-inventory") return [];
+  if (tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["pending", "approved", "advanced", "overdue", "disputed"];
   return ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
 }
 
 function getClosedStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio" || tab === "tracking-inventory") return [];
+  if (tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["funded", "paid"];
   return ["paid", "rejected", "cancelled", "disputed"];
 }
@@ -233,7 +233,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
       ];
     case "profit-loss":
       return [];
-    case "tracking-inventory":
+    case "inventory-tracking":
       return [
         { key: "item", label: "Item", render: (r: any) => r.item ?? "" },
         { key: "description", label: "Description", render: (r: any) => r.description ?? "—" },

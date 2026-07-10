@@ -14,7 +14,7 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "tracking-inventory";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "inventory-tracking";
 
 const TABS: { id: ReportTab; label: string }[] = [
   { id: "portfolio", label: "Portfolio Summary" },
@@ -26,7 +26,7 @@ const TABS: { id: ReportTab; label: string }[] = [
   { id: "suppliers", label: "Suppliers" },
   { id: "advances", label: "Advances" },
   { id: "expenses", label: "Expenses" },
-  { id: "tracking-inventory", label: "Inventory tracking" },
+  { id: "inventory-tracking", label: "Inventory tracking" },
 ];
 
 // ── Status filter options ──
@@ -41,7 +41,7 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
-  "tracking-inventory": ["all"],
+  "inventory-tracking": ["all"],
 };
 
 // ── Open (non-closed) statuses for invoice-type reports ──
