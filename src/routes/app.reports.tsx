@@ -162,8 +162,7 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "industry", label: "Industry", render: (r: any) => r.industry ?? "—" },
         { key: "relationship_since", label: "Relationship Since", render: (r: any) => r.relationship_since ?? "—" },
-        { key: "credit_limit", label: "Credit Limit", render: (r: any) => fmtMoney(r.credit_limit) },
-        { key: "risk_score", label: "Risk Score", render: (r: any) => r.risk_score?.toString() ?? "—" },
+
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },
         { key: "contact_email", label: "Email", render: (r: any) => r.contact_email ?? "—" },
         { key: "contact_phone", label: "Phone", render: (r: any) => r.contact_phone ?? "—" },
@@ -595,8 +594,8 @@ function ReportsPage() {
                   {filtered.map((row, i) => (
                     <tr key={row.id ?? i} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
                       {visibleColumnsList.map((col) => (
-                        <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">
-                          <span className={col.key === "amount" || col.key === "credit_limit" || col.key === "proforma_funded_amount" || col.key === "outstanding_amount" ? "num font-medium" : ""}>
+                        <td key={col.key} className="px-4 py-2.5 whitespace-nowrap">                            <span className={col.key === "amount" || col.key === "proforma_funded_amount" || col.key === "outstanding_amount" ? "num font-medium" : ""}>
+
                             {col.render(row)}
                           </span>
                         </td>

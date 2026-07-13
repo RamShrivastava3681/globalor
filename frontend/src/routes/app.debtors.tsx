@@ -60,7 +60,7 @@ function DebtorsPage() {
       <PageHeader
         eyebrow="Counterparties"
         title="Debtor book"
-        description="Credit limits, risk scores, and payment terms for every payer."
+        description="Payment terms, contacts, and invoicing history for every payer."
         actions={
           canEdit && (
             <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -90,8 +90,6 @@ function DebtorsPage() {
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Debtor Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
-                    <th className="px-5 py-2 text-right font-normal">Credit limit</th>
-                    <th className="px-5 py-2 text-left font-normal">Risk</th>
                     {canEdit && <th className="px-5 py-2" />}
                   </tr>
                 </thead>
@@ -101,21 +99,11 @@ function DebtorsPage() {
                     const q = searchQuery.toLowerCase();
                     return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.registered_address?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
                   }).map((d: any) => {
-                    const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
                       <tr key={d.id} className="border-b border-border/60">
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={d.id}>#{d.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 font-medium">{d.name}</td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(d.credit_limit)}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                              <div className={`h-full ${d.risk_score >= 75 ? "bg-success" : d.risk_score >= 50 ? "bg-warning" : "bg-destructive"}`} style={{ width: `${d.risk_score}%` }} />
-                            </div>
-                            <span className={`num text-xs ${riskTone}`}>{d.risk_score}</span>
-                          </div>
-                        </td>
                         <td className="px-5 py-3 text-right">
                           <button onClick={() => setViewing(d)} className="mr-2 rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary">
                             <Eye className="mr-1 inline h-3 w-3" />View
@@ -177,8 +165,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
     registration_no: editing?.registration_no ?? "",
     relationship_since: editing?.relationship_since ?? "",
     industry: editing?.industry ?? "",
-    credit_limit: String(editing?.credit_limit ?? "100000"),
-    risk_score: String(editing?.risk_score ?? "70"),
+
     registered_address: editing?.registered_address ?? "",
     postal_code: editing?.postal_code ?? "",
     phone: editing?.phone ?? "",
@@ -202,8 +189,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
         registration_no: form.registration_no || null,
         relationship_since: form.relationship_since || null,
         industry: form.industry || null,
-        credit_limit: Number(form.credit_limit),
-        risk_score: Number(form.risk_score),
+
         registered_address: form.registered_address || null,
         postal_code: form.postal_code || null,
         phone: form.phone || null,
@@ -262,12 +248,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
             </div>
           </Section>
 
-          <Section title="Credit terms">
-            <div className="grid gap-3 md:grid-cols-2">
-              <L label="Credit limit"><input required type="number" min="0" className="inp" value={form.credit_limit} onChange={set("credit_limit")} /></L>
-              <L label="Risk score (0–100)"><input required type="number" min="0" max="100" className="inp" value={form.risk_score} onChange={set("risk_score")} /></L>
-            </div>
-          </Section>
+
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
@@ -407,8 +388,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
               {debtor.registration_no && <Detail label="Registration No." value={debtor.registration_no} />}
               <Detail label="Industry" value={debtor.industry || "—"} />
               {debtor.relationship_since && <Detail label="Relationship Since" value={debtor.relationship_since} />}
-              <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
-              <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
+
               <Detail label="Contact" value={debtor.contact_name || "—"} />
               <Detail label="Email" value={debtor.contact_email || "—"} />
               {debtor.registered_address && <Detail label="Registered Address" value={debtor.registered_address} />}

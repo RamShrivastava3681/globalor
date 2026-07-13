@@ -14,7 +14,7 @@ import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js"
 import { sendWelcomeEmail } from "../utils/email.js";
 import type {
   AppRole, UserRole, Profile, Invoice, Debtor, Alert,
-  AlertSeverity, AlertType, NoaInvoiceResult, NoaStatus, User,
+  NoaInvoiceResult, NoaStatus, User,
 } from "../types/index.js";
 
 const router = Router();
@@ -200,40 +200,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
       }
     }
 
-    for (const d of debtors) {
-      const exposure = invoices
-        .filter((i) => i.debtor_id === d.id && i.status !== "paid" && i.status !== "rejected")
-        .reduce((s, i) => s + Number(i.amount), 0);
-      const util = Number(d.credit_limit) > 0 ? exposure / Number(d.credit_limit) : 0;
-      if (util > 0.85) {
-        alertsToCreate.push({
-          id: generateId(),
-          client_id: null,
-          debtor_id: d.id,
-          invoice_id: null,
-          type: "credit_limit",
-          severity: util > 1 ? "critical" : "warning",
-          message: `${d.name} at ${(util * 100).toFixed(0)}% of credit limit ($${exposure.toLocaleString()} / $${d.credit_limit.toLocaleString()})`,
-          is_read: false,
-          created_at: nowISO(),
-          created_by: req.user!.id,
-        });
-      }
-      if (d.risk_score < 40) {
-        alertsToCreate.push({
-          id: generateId(),
-          client_id: null,
-          debtor_id: d.id,
-          invoice_id: null,
-          type: "risk_change",
-          severity: "warning",
-          message: `${d.name} risk score is low (${d.risk_score})`,
-          is_read: false,
-          created_at: nowISO(),
-          created_by: req.user!.id,
-        });
-      }
-    }
+
 
     for (const alert of alertsToCreate) {
       await putItem(TABLES.ALERTS, alert as any);

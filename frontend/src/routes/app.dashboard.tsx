@@ -553,14 +553,14 @@ function Dashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={(debtorsQ.data ?? []).slice(0, 8).map((d: any) => {
                   const exposure = invoices.filter((i: any) => i.debtor_id === d.id && i.status !== "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
-                  return { name: d.name.slice(0, 14), exposure, limit: Number(d.credit_limit) };
+                  return { name: d.name.slice(0, 14), exposure };
                 })}>
                   <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" stroke="var(--color-muted-foreground)" fontSize={11} tickLine={false} axisLine={false} />
                   <YAxis stroke="var(--color-muted-foreground)" fontSize={11} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => fmtMoney(v)} cursor={{ fill: "var(--color-muted)" }} />
                   <Bar dataKey="exposure" name="Exposure" fill="var(--color-primary)" radius={[4, 4, 0, 0]} barSize={32} />
-                  <Bar dataKey="limit" name="Credit limit" fill="var(--color-muted)" radius={[4, 4, 0, 0]} barSize={32} />
+
                 </BarChart>
               </ResponsiveContainer>
             </div>

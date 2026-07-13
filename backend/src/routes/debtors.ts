@@ -45,8 +45,7 @@ const createDebtorSchema = z.object({
   registration_no: z.string().max(100).nullable().optional(),
   relationship_since: z.string().nullable().optional(),
   industry: z.string().max(100).nullable().optional(),
-  credit_limit: z.number().min(0).optional().default(100000),
-  risk_score: z.number().min(0).max(100).optional().default(70),
+
   registered_address: z.string().max(500).nullable().optional(),
   postal_code: z.string().max(20).nullable().optional(),
   phone: z.string().max(40).nullable().optional(),
@@ -71,8 +70,7 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
       registration_no: parsed.registration_no || null,
       relationship_since: parsed.relationship_since || null,
       industry: parsed.industry || null,
-      credit_limit: parsed.credit_limit,
-      risk_score: parsed.risk_score,
+
       registered_address: parsed.registered_address || null,
       postal_code: parsed.postal_code || null,
       phone: parsed.phone || null,

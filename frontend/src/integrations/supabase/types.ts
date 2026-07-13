@@ -152,7 +152,6 @@ export type Database = {
           contact_phone: string | null
           country: string | null
           created_at: string
-          credit_limit: number
           id: string
           industry: string | null
           name: string
@@ -160,7 +159,6 @@ export type Database = {
           payment_terms_days: number
           phone: string | null
           postal_code: string | null
-          risk_score: number
           updated_at: string
           website: string | null
         }
@@ -173,7 +171,6 @@ export type Database = {
           contact_phone?: string | null
           country?: string | null
           created_at?: string
-          credit_limit?: number
           id?: string
           industry?: string | null
           name: string
@@ -181,7 +178,6 @@ export type Database = {
           payment_terms_days?: number
           phone?: string | null
           postal_code?: string | null
-          risk_score?: number
           updated_at?: string
           website?: string | null
         }
@@ -194,7 +190,6 @@ export type Database = {
           contact_phone?: string | null
           country?: string | null
           created_at?: string
-          credit_limit?: number
           id?: string
           industry?: string | null
           name?: string
@@ -202,7 +197,6 @@ export type Database = {
           payment_terms_days?: number
           phone?: string | null
           postal_code?: string | null
-          risk_score?: number
           updated_at?: string
           website?: string | null
         }
@@ -869,8 +863,6 @@ export type Database = {
       alert_severity: "info" | "warning" | "critical"
       alert_type:
         | "overdue"
-        | "credit_limit"
-        | "risk_change"
         | "large_invoice"
         | "payment_received"
       app_role: "client" | "factor_admin" | "treasury" | "checker"
@@ -1022,8 +1014,6 @@ export const Constants = {
       alert_severity: ["info", "warning", "critical"],
       alert_type: [
         "overdue",
-        "credit_limit",
-        "risk_change",
         "large_invoice",
         "payment_received",
       ],

@@ -1,7 +1,7 @@
 // ── Enums ──
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertType = "overdue" | "credit_limit" | "risk_change" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created";
+export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created";
 export type InvoiceStatus = "pending" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 export type NoaStatus = "not_sent" | "sent" | "accepted" | "rejected" | "commented";
 export type PurchaseInvoiceStatus = "pending" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded";
@@ -61,8 +61,6 @@ export interface Debtor {
   contact_designation: string | null;
   contact_phone: string | null;
   industry: string | null;
-  credit_limit: number;
-  risk_score: number;
   payment_terms_days?: number;
   notes: string | null;
   created_at: string;

@@ -402,8 +402,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
                 <Detail label="Email" value={debtor.contact_email || "—"} />
                 <Detail label="Phone" value={debtor.contact_phone || "—"} />
                 <Detail label="Industry" value={debtor.industry || "—"} />
-                <Detail label="Credit limit" value={fmtMoney(debtor.credit_limit)} />
-                <Detail label="Risk score" value={debtor.risk_score != null ? `${debtor.risk_score}/100` : "—"} />
+
                 {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
                 {debtor.website && <Detail label="Website" value={debtor.website} />}
               </div>
