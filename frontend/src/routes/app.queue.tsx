@@ -5,7 +5,7 @@ import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText, Upload, Loader2, X, DollarSign } from "lucide-react";
+import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, ArrowUpDown, ScrollText, Upload, Loader2, X, DollarSign, History, ChevronDown, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
@@ -58,6 +58,19 @@ function QueuePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"issue" | "due">("due");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  // Payment history state
+  const [payHistoryOpen, setPayHistoryOpen] = useState(false);
+  const [payHistoryFilter, setPayHistoryFilter] = useState<"all" | "debtor" | "supplier">("all");
+
+  const payHistoryQ = useQuery({
+    queryKey: ["payments-history", payHistoryFilter],
+    enabled: payHistoryOpen,
+    queryFn: async () => {
+      const params = payHistoryFilter !== "all" ? `?party_type=${payHistoryFilter}` : "";
+      return (await api.get<any>(`/payments/history${params}`)) ?? { payments: [], totals: {} };
+    },
+  });
 
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
@@ -510,6 +523,170 @@ function QueuePage() {
           }}
         />
       )}
+
+      {/* ── Payment History ── */}
+      <Card
+        title={
+          <button
+            onClick={() => setPayHistoryOpen(!payHistoryOpen)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-muted-foreground" />
+              <span>Payment history</span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${payHistoryOpen ? "rotate-180" : ""}`} />
+          </button>
+        }
+      >
+        {payHistoryOpen && (
+          <div className="space-y-4">
+            {/* Filter by party type */}
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: "all" as const, label: "All", desc: "Show all payments" },
+                { key: "debtor" as const, label: "Debtors (AR)", desc: "Receipts from customers" },
+                { key: "supplier" as const, label: "Suppliers (AP)", desc: "Payments to vendors" },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    setPayHistoryFilter(opt.key);
+                    setPayHistoryOpen(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-widest transition ${
+                    payHistoryFilter === opt.key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {opt.key === "debtor" ? (
+                    <ArrowDownRight className="h-3 w-3 text-success" />
+                  ) : opt.key === "supplier" ? (
+                    <ArrowUpRight className="h-3 w-3 text-warning" />
+                  ) : null}
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {payHistoryQ.isLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" /> Loading payment history…
+              </div>
+            ) : (payHistoryQ.data?.payments ?? []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <Banknote className="mx-auto mb-3 h-8 w-8 opacity-40" />
+                No paid invoices yet.
+              </div>
+            ) : (
+              <>
+                {/* Summary stats */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-lg border border-border bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest">Total events</div>
+                    <div className="mt-1 num text-lg">{payHistoryQ.data?.totals?.total_events ?? 0}</div>
+                  </div>
+                  <div className="rounded-lg border border-success/20 bg-success/5 p-3 text-center">
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest">From debtors</div>
+                    <div className="mt-1 num text-lg text-success">
+                      {fmtMoney(payHistoryQ.data?.totals?.total_debtor_payments ?? 0)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-warning/20 bg-warning/5 p-3 text-center">
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest">To suppliers</div>
+                    <div className="mt-1 num text-lg text-warning">
+                      {fmtMoney(payHistoryQ.data?.totals?.total_supplier_payments ?? 0)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest">Net</div>
+                    <div className={`mt-1 num text-lg ${
+                      (payHistoryQ.data?.totals?.total_debtor_payments ?? 0) >= (payHistoryQ.data?.totals?.total_supplier_payments ?? 0)
+                        ? "text-success" : "text-destructive"
+                    }`}>
+                      {fmtMoney(
+                        (payHistoryQ.data?.totals?.total_debtor_payments ?? 0) -
+                        (payHistoryQ.data?.totals?.total_supplier_payments ?? 0)
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Date</th>
+                        <th className="px-5 py-2 text-left font-normal">Party</th>
+                        <th className="px-5 py-2 text-left font-normal">Type</th>
+                        <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                        <th className="px-5 py-2 text-right font-normal">Amount</th>
+                        <th className="px-5 py-2 text-right font-normal">Received / Paid</th>
+                        <th className="px-5 py-2 text-right font-normal">Late days</th>
+                        <th className="px-5 py-2 text-left font-normal">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(payHistoryQ.data?.payments ?? []).map((p: any) => {
+                        const isDebtor = p.type === "debtor_payment";
+                        const paidAmount = p.amount_received ?? p.amount;
+                        const shortPay = isDebtor
+                          ? Math.max(0, +(p.amount - paidAmount).toFixed(2))
+                          : 0;
+                        return (
+                          <tr key={`${p.type}-${p.id}`} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 text-xs font-mono">
+                              {p.paid_date ? fmtDate(p.paid_date) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="px-5 py-3 text-xs font-medium">
+                              <div className="flex items-center gap-1.5">
+                                {isDebtor ? (
+                                  <ArrowDownRight className="h-3.5 w-3.5 text-success" />
+                                ) : (
+                                  <ArrowUpRight className="h-3.5 w-3.5 text-warning" />
+                                )}
+                                {p.party_name}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                                isDebtor
+                                  ? "bg-success/15 text-success"
+                                  : "bg-warning/15 text-warning"
+                              }`}>
+                                {isDebtor ? "Receipt" : "Payment"}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
+                            <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                            <td className={`px-5 py-3 text-right num font-medium ${isDebtor ? "text-success" : "text-warning"}`}>
+                              {fmtMoney(paidAmount)}
+                            </td>
+                            <td className={`px-5 py-3 text-right num ${(p.late_days ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                              {p.late_days != null ? p.late_days : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground max-w-[160px] truncate" title={p.paid_note ?? ""}>
+                              {p.paid_note || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {!payHistoryOpen && (
+          <div className="text-xs text-muted-foreground">
+            {payHistoryQ.data
+              ? `${payHistoryQ.data.totals.total_events} records tracked`
+              : "Click to load payment history for paid invoices"}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
