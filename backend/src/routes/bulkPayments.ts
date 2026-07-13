@@ -40,6 +40,7 @@ async function closeInvoice(inv: Invoice, closeDate: string, now: string) {
     paid_date: closeDate,
     receipt_date: closeDate,
     late_days: lateDays,
+    payment_type: "bulk_pay",
     updated_at: now,
   });
 }
@@ -181,6 +182,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
             paid_date: closeDate,
             receipt_date: closeDate,
             late_days: lateDays,
+            payment_type: "bulk_pay",
             updated_at: now,
           });
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });

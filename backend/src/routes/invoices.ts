@@ -362,6 +362,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       late_days: null,
       paid_note: null,
       status: "pending",
+      payment_type: "manual_pay",
       noa_status: "not_sent",
       noa_token,
       noa_sent_at: null,
@@ -591,6 +592,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           late_days: null,
           paid_note: null,
           status: "pending",
+          payment_type: "mass_upload",
           noa_status: "not_sent",
           noa_token,
           noa_sent_at: null,
@@ -789,6 +791,7 @@ router.post("/bulk-pay", requireAuth, requireAnyWriteAccess("invoices", "funding
           amount_received: amountReceived,
           short_payment: shortPayment,
           late_days: lateDays,
+          payment_type: "bulk_pay",
           updated_at: now,
         };
 

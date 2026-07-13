@@ -88,6 +88,10 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "short_payment", label: "Short Payment", render: (r: any) => r.short_payment ? fmtMoney(r.short_payment) : "—" },
         { key: "late_days", label: "Late Days", render: (r: any) => r.late_days?.toString() ?? "—" },
         { key: "noa_status", label: "NOA Status", render: (r: any) => r.noa_status ?? "" },
+        { key: "payment_type", label: "Payment Type", render: (r: any) => {
+            const pt = r.payment_type ?? "manual_pay";
+            return pt === "mass_upload" ? "Mass Upload" : pt === "bulk_pay" ? "Bulk Pay" : "Manual Pay";
+          } },
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
         { key: "bl_date", label: "BL Date", render: (r: any) => fmtDate(r.bl_date) },
