@@ -89,8 +89,10 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "late_days", label: "Late Days", render: (r: any) => r.late_days?.toString() ?? "—" },
         { key: "noa_status", label: "NOA Status", render: (r: any) => r.noa_status ?? "" },
         { key: "payment_type", label: "Payment Type", render: (r: any) => {
+            const closed = r.status === "paid" || r.status === "funded";
+            if (!closed) return "—";
             const pt = r.payment_type ?? "manual_pay";
-            return pt === "mass_upload" ? "Mass Upload" : pt === "bulk_pay" ? "Bulk Pay" : "Manual Pay";
+            return pt === "mass_upload" ? "Mass Upload" : pt === "bulk_pay" ? "Bulk Pay" : pt === "treasury_pay" ? "Treasury Pay" : "Manual Pay";
           } },
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
@@ -239,6 +241,10 @@ function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Payment type filter state (separate toggles for bulk-pay and treasury-pay)
+  const [filterBulkPay, setFilterBulkPay] = useState(false);
+  const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
+
   // Column visibility state
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
@@ -296,6 +302,13 @@ function ReportsPage() {
       } else if (rowStatus !== statusFilter) {
         return false;
       }
+    }
+    // Payment type filter
+    if (filterBulkPay || filterTreasuryPay) {
+      const pt = row.payment_type ?? "manual_pay";
+      const matchesBulkPay = filterBulkPay && pt === "bulk_pay";
+      const matchesTreasuryPay = filterTreasuryPay && pt === "treasury_pay";
+      if (!matchesBulkPay && !matchesTreasuryPay) return false;
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -450,6 +463,33 @@ function ReportsPage() {
                 {s}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Payment type filter — only for sales-invoices */}
+        {tab === "sales-invoices" && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground shrink-0">Pay:</span>
+            <button
+              onClick={() => setFilterBulkPay((p) => !p)}
+              className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-widest transition-colors ${
+                filterBulkPay
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+              }`}
+            >
+              Bulk Pay
+            </button>
+            <button
+              onClick={() => setFilterTreasuryPay((p) => !p)}
+              className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-widest transition-colors ${
+                filterTreasuryPay
+                  ? "bg-primary text-primary-foreground"
+                  : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+              }`}
+            >
+              Treasury Pay
+            </button>
           </div>
         )}
 

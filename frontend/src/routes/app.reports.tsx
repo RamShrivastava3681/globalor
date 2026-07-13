@@ -105,8 +105,10 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "pay_days", label: "Pay Days", render: (r: any) => (r.status === "paid" && r.issue_date && r.paid_date) ? `${daysBetween(r.issue_date, r.paid_date)}d` : "—" },
         { key: "noa_status", label: "NOA Status", render: (r: any) => r.noa_status ?? "" },
         { key: "payment_type", label: "Payment Type", render: (r: any) => {
+            const closed = r.status === "paid" || r.status === "funded";
+            if (!closed) return "—";
             const pt = r.payment_type ?? "manual_pay";
-            return pt === "mass_upload" ? "Mass Upload" : pt === "bulk_pay" ? "Bulk Pay" : "Manual Pay";
+            return pt === "mass_upload" ? "Mass Upload" : pt === "bulk_pay" ? "Bulk Pay" : pt === "treasury_pay" ? "Treasury Pay" : "Manual Pay";
           } },
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
@@ -401,6 +403,10 @@ function ReportsPage() {
   // Buyer filter state
   const [buyerId, setBuyerId] = useState("");
 
+  // Payment type filter state (separate toggles for bulk-pay and treasury-pay)
+  const [filterBulkPay, setFilterBulkPay] = useState(false);
+  const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
+
   // Fetch debtors list for buyer dropdown
   const { data: debtors = [] } = useQuery({
     queryKey: ["debtors"],
@@ -500,6 +506,13 @@ function ReportsPage() {
           if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
           if (buyerId) params.set("buyer_id", buyerId);
         }
+        // Payment type filter (comma-separated values for server-side filtering)
+        const activePaymentTypes: string[] = [];
+        if (filterBulkPay) activePaymentTypes.push("bulk_pay");
+        if (filterTreasuryPay) activePaymentTypes.push("treasury_pay");
+        if (activePaymentTypes.length > 0) {
+          params.set("payment_type", activePaymentTypes.join(","));
+        }
         if (fromDate) params.set("from", toISODateString(fromDate));
         if (toDate) params.set("to", toISODateString(toDate));
         const qs = params.toString();
@@ -527,7 +540,7 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, buyerId]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, buyerId, filterBulkPay, filterTreasuryPay]);
 
   useEffect(() => {
     fetchData();
@@ -558,7 +571,7 @@ function ReportsPage() {
   // Reset page when tab, filters, or dates change
   useEffect(() => {
     setPage(1);
-  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay]);
 
   // Reset year/quarter/month dropdowns when tab changes
   useEffect(() => {
@@ -596,6 +609,13 @@ function ReportsPage() {
     if (searchQuery) params.set("search", searchQuery);
     if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
     if (buyerId) params.set("buyer_id", buyerId);
+    // Payment type filter for export
+    const exportPaymentTypes: string[] = [];
+    if (filterBulkPay) exportPaymentTypes.push("bulk_pay");
+    if (filterTreasuryPay) exportPaymentTypes.push("treasury_pay");
+    if (exportPaymentTypes.length > 0) {
+      params.set("payment_type", exportPaymentTypes.join(","));
+    }
     if (fromDate) params.set("from", toISODateString(fromDate));
     if (toDate) params.set("to", toISODateString(toDate));
     const qs = params.toString();
@@ -625,7 +645,7 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId]);
+  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay]);
 
   // ── P&L export helpers ──
   const buildPnlRows = useCallback(() => {
@@ -1433,7 +1453,7 @@ function ReportsPage() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setBuyerId(""); setFromDate(undefined); setToDate(undefined); }}
+              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setBuyerId(""); setFromDate(undefined); setToDate(undefined); setFilterBulkPay(false); setFilterTreasuryPay(false); }}
               className={`whitespace-nowrap px-4 py-3 text-xs font-medium uppercase tracking-widest transition-colors border-b-2 ${
                 tab === t.id
                   ? "border-primary text-primary"
@@ -1556,6 +1576,33 @@ function ReportsPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+
+            {/* Payment type filter — only for sales-invoices */}
+            {(tab === "sales-invoices") && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground shrink-0">Pay:</span>
+                <button
+                  onClick={() => setFilterBulkPay((p) => !p)}
+                  className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-widest transition-colors ${
+                    filterBulkPay
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  }`}
+                >
+                  Bulk Pay
+                </button>
+                <button
+                  onClick={() => setFilterTreasuryPay((p) => !p)}
+                  className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-widest transition-colors ${
+                    filterTreasuryPay
+                      ? "bg-primary text-primary-foreground"
+                      : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  }`}
+                >
+                  Treasury Pay
+                </button>
               </div>
             )}
           </>

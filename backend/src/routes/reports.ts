@@ -127,6 +127,18 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
       filtered = applyStatusFilter(filtered, statusFilter, SALES_OPEN_STATUSES, SALES_CLOSED_STATUSES);
     }
 
+    // Server-side payment_type filter
+    const paymentTypeFilter = (req.query.payment_type as string) || "";
+    if (paymentTypeFilter) {
+      const types = paymentTypeFilter.split(",").map((t) => t.trim()).filter(Boolean);
+      if (types.length > 0) {
+        filtered = filtered.filter((inv) => {
+          const pt = inv.payment_type ?? "manual_pay";
+          return types.includes(pt);
+        });
+      }
+    }
+
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
     if (hasPagination) {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);

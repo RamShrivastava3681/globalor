@@ -716,6 +716,7 @@ router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), as
           short_payment: shortPayment,
           late_days: lateDays,
           paid_note: note,
+          payment_type: "treasury_pay",
           updated_at: now,
         };
 

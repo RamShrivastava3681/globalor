@@ -136,7 +136,7 @@ export interface Invoice {
   late_days: number | null;
   paid_note: string | null;
   status: InvoiceStatus;
-  payment_type?: "manual_pay" | "mass_upload" | "bulk_pay";
+  payment_type?: "manual_pay" | "mass_upload" | "bulk_pay" | "treasury_pay";
   noa_status: NoaStatus;
   noa_token: string | null;
   noa_sent_at: string | null;
