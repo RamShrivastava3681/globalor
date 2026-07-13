@@ -1,11 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Stat, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Activity, Paperclip, X, Link2, TrendingUp, FileText, FileSignature, Wallet, Receipt } from "lucide-react";
+import { Activity, Paperclip, X, Link2, TrendingUp, FileText, FileSignature, Wallet, Receipt, ArrowUpRight, ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import {
@@ -31,6 +38,7 @@ function Dashboard() {
   const { isAdmin, isTreasury, user } = useAuth();
   const [viewingExpense, setViewingExpense] = useState<any | null>(null);
   const [advanceTab, setAdvanceTab] = useState<"sales" | "purchase">("sales");
+  const [shortPaymentsOpen, setShortPaymentsOpen] = useState(false);
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
@@ -96,6 +104,7 @@ function Dashboard() {
   const collectedAmount = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
   const totalShortPayment = paidInvoices.reduce((s: number, i: any) => s + Number(i.short_payment ?? 0), 0);
+  const shortPaidInvoices = paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0);
 
   const paidSalesInvoices = invoices.filter((i: any) => i.status === "paid" && i.issue_date && i.paid_date);
   const avgSalesPayDays = paidSalesInvoices.length > 0
@@ -175,7 +184,10 @@ function Dashboard() {
         <div className="grid gap-4 md:grid-cols-4">
           <Stat label="Outstanding (AR)" value={fmtMoney(Math.round(totalOutstanding))} animate numValue={Math.round(totalOutstanding)} delta={`${invoices.filter(i => i.status !== "paid" && i.status !== "rejected").length} invoices`} />
           <Stat label="Collection rate" value={`${collectionRate}%`} delta="Lifetime" tone={collectionRate >= 90 ? "good" : "warn"} />
-          <Stat label="Short payments" value={fmtMoney(totalShortPayment)} animate numValue={totalShortPayment} delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`} tone={totalShortPayment > 0 ? "bad" : "good"} />
+          <ShortPaymentsCard
+            totalShortPayment={totalShortPayment}
+            shortPaidInvoices={shortPaidInvoices}
+          />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -560,6 +572,132 @@ function Dashboard() {
         <ExpenseDetailModal expense={viewingExpense} onClose={() => setViewingExpense(null)} />
       )}
     </div>
+  );
+}
+
+function ShortPaymentsCard({ totalShortPayment, shortPaidInvoices }: { totalShortPayment: number; shortPaidInvoices: any[] }) {
+  const [open, setOpen] = useState(false);
+  const count = shortPaidInvoices.length;
+  const hasShortPayments = count > 0;
+  const tone = totalShortPayment > 0 ? "bad" : "good";
+  const toneCls = {
+    neutral: "text-[#64748B]",
+    good: "text-[#16A34A]",
+    warn: "text-[#F59E0B]",
+    bad: "text-[#DC2626]",
+  }[tone];
+  const dotCls = {
+    neutral: "bg-[#64748B]",
+    good: "bg-[#16A34A]",
+    warn: "bg-[#F59E0B]",
+    bad: "bg-[#DC2626]",
+  }[tone];
+
+  const cardClasses = hasShortPayments
+    ? "w-full text-left bg-card border border-border rounded-xl p-4 md:p-5 shadow-card hover:shadow-card-hover hover:border-destructive/30 transition-all duration-200 min-w-0 group cursor-pointer"
+    : "w-full text-left bg-card border border-border rounded-xl p-4 md:p-5 shadow-card min-w-0";
+
+  const handleClick = hasShortPayments ? () => setOpen(true) : undefined;
+  const Comp = hasShortPayments ? "button" : "div";
+
+  return (
+    <>
+      <Comp
+        onClick={handleClick}
+        className={cardClasses}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+            {hasShortPayments && <span className={`h-1.5 w-1.5 rounded-full ${dotCls}`} />}
+            Short payments
+          </div>
+          {hasShortPayments && (
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-muted-foreground group-hover:translate-x-px group-hover:-translate-y-px transition-all" />
+          )}
+        </div>
+        <div className="mt-2 num num-lg font-bold tracking-tight text-card-foreground">
+          <AnimatedMoney value={totalShortPayment} />
+        </div>
+        {hasShortPayments && (
+          <div className={`mt-1.5 text-sm font-medium ${toneCls}`}>
+            {count} {count === 1 ? "invoice" : "invoices"} short paid
+          </div>
+        )}
+      </Comp>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Short-paid invoices
+              <span className="rounded-full bg-destructive/10 text-destructive text-xs font-semibold px-2.5 py-0.5 ml-2">
+                {count} {count === 1 ? "invoice" : "invoices"}
+              </span>
+            </DialogTitle>
+            <DialogDescription>
+              Invoices that were paid less than the full amount. Total short payments: {fmtMoney(totalShortPayment)}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="overflow-y-auto -mx-6 -mb-6 mt-2">
+            {shortPaidInvoices.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground">
+                <Wallet className="mb-3 h-6 w-6 text-border" />
+                No short payments
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="sticky top-0 z-10">
+                    <th className="px-6 py-3 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Invoice</th>
+                    <th className="px-6 py-3 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Debtor</th>
+                    <th className="px-6 py-3 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Amount</th>
+                    <th className="px-6 py-3 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Received</th>
+                    <th className="px-6 py-3 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Short payment</th>
+                    <th className="px-6 py-3 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Due</th>
+                    <th className="px-6 py-3 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Paid</th>
+                    <th className="px-6 py-3 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm">Late days</th>
+                    <th className="px-6 py-3 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-sm" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shortPaidInvoices.map((i: any) => (
+                    <tr key={i.id} className="border-b border-border/60 hover:bg-muted/50 transition-colors">
+                      <td className="px-6 py-3.5 font-mono text-xs font-medium text-foreground">{i.invoice_number}</td>
+                      <td className="px-6 py-3.5 text-muted-foreground">{i.debtor?.name ?? "—"}</td>
+                      <td className="px-6 py-3.5 text-right num font-medium">{fmtMoney(i.amount)}</td>
+                      <td className="px-6 py-3.5 text-right num text-muted-foreground">{fmtMoney(Number(i.amount) - Number(i.short_payment))}</td>
+                      <td className="px-6 py-3.5 text-right num text-destructive font-semibold">{fmtMoney(i.short_payment)}</td>
+                      <td className="px-6 py-3.5 text-muted-foreground">{fmtDate(i.due_date)}</td>
+                      <td className="px-6 py-3.5 text-muted-foreground">{fmtDate(i.paid_date)}</td>
+                      <td className={`px-6 py-3.5 text-right num ${Number(i.late_days) > 0 ? "text-warning font-medium" : "text-muted-foreground"}`}>{i.late_days ?? "—"}</td>
+                      <td className="px-6 py-3.5 text-right">
+                        <Link
+                          to="/app/invoices"
+                          search={{ view: undefined }}
+                          onClick={() => setOpen(false)}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border px-6 py-3 bg-card">
+            <span className="text-xs text-muted-foreground">{count} {count === 1 ? "invoice" : "invoices"}</span>
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-muted-foreground">Total short:</span>
+              <span className="num font-bold text-destructive">{fmtMoney(totalShortPayment)}</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
