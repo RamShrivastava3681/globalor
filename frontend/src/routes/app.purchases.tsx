@@ -1222,7 +1222,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
     mutationFn: async () => {
       if (!form.vendor_id) throw new Error("Add a supplier first.");
       if (!form.invoice_number.trim()) throw new Error("Invoice number required");
-      if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
+      if (!form.amount || isNaN(Number(form.amount))) throw new Error("Amount is required");
       const payload: any = {
         vendor_id: form.vendor_id,
         invoice_number: form.invoice_number.trim(),
@@ -1333,7 +1333,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </L>
-            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
             <L label="BL date"><input type="date" className="inp" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} /></L>
             <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></L>
@@ -1733,7 +1733,7 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
             amount: isNaN(amt) ? 0 : amt,
             issue_date: dateStr,
           };
-        }).filter((r) => r.invoice_number && r.amount > 0 && r.issue_date);
+        }).filter((r) => r.invoice_number && r.amount !== 0 && r.issue_date);
 
         if (parsed.length === 0) {
           toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");

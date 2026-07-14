@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
@@ -96,7 +96,7 @@ const datePresets = [
 
 const statusFilters = ["all", "draft", "submitted", "approved", "advanced", "paid", "overdue", "rejected"];
 
-// ── Main Page Component ──
+// â”€â”€ Main Page Component â”€â”€
 
 function InvoicesPage() {
   const { tab, view } = Route.useSearch();
@@ -210,7 +210,7 @@ function InvoicesPage() {
   );
 }
 
-// ── Page 1: Sales Dashboard ──
+// â”€â”€ Page 1: Sales Dashboard â”€â”€
 
 function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const { isAdmin } = useAuth();
@@ -580,7 +580,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                      <td className="px-6 py-3">{i.debtor?.name ?? "â€”"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -627,7 +627,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                  <td className="px-6 py-3">{i.debtor?.name ?? "â€”"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
@@ -641,7 +641,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   );
 }
 
-// ── Page 2: Create Invoice ──
+// â”€â”€ Page 2: Create Invoice â”€â”€
 
 function CreateInvoiceView() {
   const navigate = useNavigate();
@@ -841,7 +841,7 @@ function CreateInvoiceView() {
               if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
               return (
                 <div className="space-y-1">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "â€”"}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
                 </div>
@@ -857,7 +857,7 @@ function CreateInvoiceView() {
             {debtorsQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </Field>
-        <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+        <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
           <Field label="BL date"><input type="date" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} className="inp" /></Field>
@@ -888,9 +888,9 @@ function CreateInvoiceView() {
           </Field>
           <Field label="Link to purchase invoice (optional)">
             <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-              <option value="">— No link —</option>
+              <option value="">â€” No link â€”</option>
               {purchasesQ.data?.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
+                <option key={p.id} value={p.id}>{p.invoice_number} Â· {fmtMoney(p.amount)}</option>
               ))}
             </select>
           </Field>
@@ -921,7 +921,7 @@ function CreateInvoiceView() {
                             <span className="font-mono text-primary">{avail.sku || avail.item_name}</span>
                             <span className="text-muted-foreground">{avail.item_name}</span>
                           </div>
-                          <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand · {fmtMoney(avail.qty > 0 ? avail.value / avail.qty : 0)}/unit</span>
+                          <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand Â· {fmtMoney(avail.qty > 0 ? avail.value / avail.qty : 0)}/unit</span>
                         </button>
                       ))}
                     </div>
@@ -939,7 +939,7 @@ function CreateInvoiceView() {
                   </button>
                   <div className="mb-2 flex items-center gap-2">
                     <span className="font-mono text-xs text-primary">{item.sku}</span>
-                    <span className="text-xs text-muted-foreground">{item.item_name} · {item.unit}</span>
+                    <span className="text-xs text-muted-foreground">{item.item_name} Â· {item.unit}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Qty to sell *">
@@ -989,7 +989,7 @@ function CreateInvoiceView() {
   );
 }
 
-// ── Page 3: All Invoices ──
+// â”€â”€ Page 3: All Invoices â”€â”€
 
 function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { isAdmin: boolean; canEdit: boolean; canCreate: boolean; qc: any; viewParam?: string; navigate: any }) {
   const { canWrite } = useAuth();
@@ -1203,7 +1203,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               <ArrowUpDown className="h-3 w-3" />
               {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "ERP Due date"}
               {sortField === field && (
-                <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                <span className="text-[10px]">{sortOrder === "asc" ? "â†‘" : "â†“"}</span>
               )}
             </button>
           ))}
@@ -1212,7 +1212,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
 
       <Card>
         {invoicesQ.isLoading ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
+          <div className="py-10 text-center text-sm text-muted-foreground">Loadingâ€¦</div>
         ) : filtered.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
         ) : (
@@ -1249,21 +1249,21 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
                       <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={i.id}>#{i.id.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-3">
                         <div className="font-mono text-xs">{i.invoice_number}</div>
-                        {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
+                        {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` Â· ${fmtDate(i.po_date)}` : ""}</div>}
                         {i.purchase && (
                           <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-                            <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
+                            <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} Â· {i.purchase.vendor?.name ?? ""}
                           </Link>
                         )}
                       </td>
-                      {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
-                      <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                      {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "â€”"}</td>}
+                      <td className="px-5 py-3">{i.debtor?.name ?? "â€”"}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
-                      <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
-                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "—"}</td>
+                      <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "â€”"}</td>
+                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "â€”"}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
-                      <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
+                      <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">â€”</span>}</td>
                       <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                       <td className="px-5 py-3"><StatusPill status={i.status} /></td>
                       <td className="px-5 py-3">
@@ -1324,7 +1324,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
                           {/* Admin checker actions */}
                           {isAdmin && isSubmitted && (isAdmin || canWrite("checker-desk")) && (
                             <Link to="/app/checker" className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
-                              <CheckCircle className="h-3 w-3" /> Review →
+                              <CheckCircle className="h-3 w-3" /> Review â†’
                             </Link>
                           )}
 
@@ -1350,7 +1350,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-4">
           <div className="text-xs text-muted-foreground">
-            {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
+            {totalInvoices.toLocaleString()} total invoices Â· Page {page} of {totalPages}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1358,7 +1358,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               disabled={page <= 1}
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              ← Previous
+              â† Previous
             </button>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
@@ -1392,7 +1392,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               disabled={page >= totalPages}
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Next →
+              Next â†’
             </button>
           </div>
         </div>
@@ -1421,7 +1421,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
   );
 }
 
-// ── Shared Components ──
+// â”€â”€ Shared Components â”€â”€
 
 function NoaBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -1548,7 +1548,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                 if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
                 return (
                   <div className="space-y-1">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "â€”"}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
                   </div>
@@ -1564,7 +1564,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
               {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
-          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+          <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Issue date"><input required type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="inp" /></Field>
             <Field label="BL date"><input type="date" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} className="inp" /></Field>
@@ -1595,9 +1595,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
             </Field>
             <Field label="Link to purchase invoice (optional)">
               <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-                <option value="">— No link —</option>
+                <option value="">â€” No link â€”</option>
                 {purchases.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
+                  <option key={p.id} value={p.id}>{p.invoice_number} Â· {fmtMoney(p.amount)}</option>
                 ))}
               </select>
             </Field>
@@ -1668,13 +1668,13 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Invoice details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
-              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
+              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "â€”"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="ERP Due date" value={fmtDate(invoice.due_date)} />
-              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
+              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "â€”"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
-              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
-              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "—"} />
+              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "â€”"} />
+              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "â€”"} />
               <Detail label="Created" value={fmtDate(invoice.created_at)} />
               <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
               {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
@@ -1699,10 +1699,10 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                 <Detail label="Name" value={debtor.name} />
-                <Detail label="Contact" value={debtor.contact_name || "—"} />
-                <Detail label="Email" value={debtor.contact_email || "—"} />
-                <Detail label="Phone" value={debtor.contact_phone || "—"} />
-                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Contact" value={debtor.contact_name || "â€”"} />
+                <Detail label="Email" value={debtor.contact_email || "â€”"} />
+                <Detail label="Phone" value={debtor.contact_phone || "â€”"} />
+                <Detail label="Industry" value={debtor.industry || "â€”"} />
                 {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
                 {debtor.website && <Detail label="Website" value={debtor.website} />}
               </div>
@@ -1728,8 +1728,8 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                 {purchase.vendor && (
                   <>
                     <Detail label="Supplier" value={purchase.vendor.name} />
-                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "—"} />
-                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
+                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "â€”"} />
+                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "â€”"} />
                   </>
                 )}
                 {purchase.due_date && <Detail label="ERP Due date" value={fmtDate(purchase.due_date)} />}
@@ -1745,9 +1745,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                 <User className="mr-1 inline h-3.5 w-3.5" />Client
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
-                <Detail label="Company" value={invoice.client.company_name || "—"} />
-                <Detail label="Contact" value={invoice.client.contact_name || "—"} />
-                <Detail label="Email" value={invoice.client.email || "—"} />
+                <Detail label="Company" value={invoice.client.company_name || "â€”"} />
+                <Detail label="Contact" value={invoice.client.contact_name || "â€”"} />
+                <Detail label="Email" value={invoice.client.email || "â€”"} />
               </div>
             </div>
           )}
@@ -1802,10 +1802,10 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                     {inventory.map((m: any) => (
                       <tr key={m.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5">{m.item_name}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "â€”"}</td>
                         <td className="px-4 py-2.5 text-right num">{Number(m.quantity).toLocaleString()}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{m.unit}</td>
-                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
+                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "â€”"}</td>
                         <td className="px-4 py-2.5">{fmtDate(m.movement_date)}</td>
                       </tr>
                     ))}
@@ -1828,7 +1828,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
 }
 
-// ── Mass Import Modal ──
+// â”€â”€ Mass Import Modal â”€â”€
 
 interface ImportRow {
   invoice_number: string;
@@ -1882,7 +1882,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
             amount: isNaN(amt) ? 0 : amt,
             issue_date: dateStr || "",
           };
-        }).filter((r) => r.invoice_number && r.amount > 0);
+        }).filter((r) => r.invoice_number && r.amount !== 0);
 
         if (parsed.length === 0) {
           toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");
@@ -1998,14 +1998,14 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
           <div className="space-y-4 p-5">
             <div className="flex items-center justify-between">
               <div className="text-xs text-muted-foreground">
-                File: <span className="font-mono text-foreground">{fileName}</span> · Found <strong className="text-foreground">{rows.length}</strong> invoices · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+                File: <span className="font-mono text-foreground">{fileName}</span> Â· Found <strong className="text-foreground">{rows.length}</strong> invoices Â· Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
               </div>
               <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
             </div>
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "â€”"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "â€”"}</span></div>
               {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
             </div>
             <div className="-mx-5 overflow-x-auto">

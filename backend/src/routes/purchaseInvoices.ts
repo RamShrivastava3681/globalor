@@ -180,7 +180,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 const createSchema = z.object({
   vendor_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
-  amount: z.number().positive(),
+  amount: z.number(),
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
@@ -335,7 +335,7 @@ const batchPurchaseInvoiceSchema = z.object({
   po_date: z.string().nullable().optional().default(null),
   invoices: z.array(z.object({
     invoice_number: z.string().min(1).max(80),
-    amount: z.number().positive(),
+    amount: z.number(),
     issue_date: z.string().min(1),
   })).min(1),
 });

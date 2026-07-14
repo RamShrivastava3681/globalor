@@ -304,7 +304,7 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
 const createInvoiceSchema = z.object({
   debtor_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
-  amount: z.number().positive(),
+  amount: z.number(),
   advance_rate: z.number().min(0).max(100).optional().default(0),
   fee_rate: z.number().min(0).optional().default(0),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
@@ -579,7 +579,7 @@ const batchInvoiceSchema = z.object({
   fee_rate: z.number().min(0).optional().default(0),
   invoices: z.array(z.object({
     invoice_number: z.string().min(1).max(80),
-    amount: z.number().positive(),
+    amount: z.number(),
     issue_date: z.string().min(1),
   })).min(1),
 });

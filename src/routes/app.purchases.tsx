@@ -889,7 +889,7 @@ function PurchaseInvoiceForm({ editing, vendors, onClose, onDone, isStandalone }
     mutationFn: async () => {
       if (!form.vendor_id) throw new Error("Add a supplier first.");
       if (!form.invoice_number.trim()) throw new Error("Invoice number required");
-      if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
+      if (!form.amount || isNaN(Number(form.amount))) throw new Error("Amount is required");
       const payload: any = {
         vendor_id: form.vendor_id, invoice_number: form.invoice_number.trim(), amount: Number(form.amount),
         po_number: form.po_number || null, po_date: form.po_date || null, issue_date: form.issue_date,
@@ -979,7 +979,7 @@ function PurchaseInvoiceForm({ editing, vendors, onClose, onDone, isStandalone }
                 )}
               </div>
             </L>
-            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
+            <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
             <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
             <L label="BL date"><input type="date" className="inp" value={form.bl_date} onChange={(e) => setForm({ ...form, bl_date: e.target.value })} /></L>
             <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={(e) => setForm({ ...form, payment_terms_days: e.target.value })} /></L>
@@ -1265,7 +1265,7 @@ function MassImportPurchaseModal({ onClose, vendors }: { onClose: () => void; ve
           let issDate = String(row.issue_date ?? row["Issue Date"] ?? "");
           if (typeof row.issue_date === "number" && !isNaN(row.issue_date)) { const d = new Date((row.issue_date - 25569) * 86400 * 1000); issDate = d.toISOString().slice(0, 10); }
           return { invoice_number: String(invNum).trim(), amount: isNaN(amt) ? 0 : amt, issue_date: issDate };
-        }).filter((r) => r.invoice_number && r.amount > 0);
+        }).filter((r) => r.invoice_number && r.amount !== 0);
         if (parsed.length === 0) { toast.error("No valid rows found"); return; }
         setRows(parsed); setStep("preview");
       } catch { toast.error("Could not parse file"); }
