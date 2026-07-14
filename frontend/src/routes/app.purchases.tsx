@@ -5,7 +5,7 @@ import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -13,16 +13,20 @@ import jsPDF from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
 import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+import {
+  ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 export const Route = createFileRoute("/app/purchases")({
   validateSearch: (search: Record<string, unknown>) => ({
+    tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
   }),
   component: PurchasesPage,
 });
 
 function PurchasesPage() {
-  const { view } = Route.useSearch();
+  const { view, tab } = Route.useSearch();
   const navigate = useNavigate();
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
@@ -45,6 +49,56 @@ function PurchasesPage() {
   const limit = 50;
 
   const [duplicateCheckOpen, setDuplicateCheckOpen] = useState(false);
+
+  // All purchase invoices query for dashboard stats
+  const allPiQ = useQuery({
+    queryKey: ["purchase_invoices", "all"],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+  });
+  const allPi = allPiQ.data ?? [];
+
+  // Dashboard stats
+  const dashboardStats = useMemo(() => {
+    const inv = allPi;
+    const total = inv.length;
+    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const draft = inv.filter((p: any) => p.status === "draft");
+    const draftAmount = draft.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const submitted = inv.filter((p: any) => p.status === "submitted");
+    const submittedAmount = submitted.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const inFunding = inv.filter((p: any) => ["approved", "advanced", "funded"].includes(p.status));
+    const fundingAmount = inFunding.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const paid = inv.filter((p: any) => p.status === "paid");
+    const paidAmount = paid.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const overdue = inv.filter((p: any) => p.status === "overdue");
+    const overdueAmount = overdue.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const disputed = inv.filter((p: any) => p.status === "disputed");
+    const disputedAmount = disputed.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const suppliersUsed = new Set(inv.map((p: any) => p.vendor_id).filter(Boolean)).size;
+    const openPayables = inv.filter((p: any) => !["paid", "disputed"].includes(p.status));
+    const openPayablesAmount = openPayables.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    return {
+      total, totalAmount,
+      draftCount: draft.length, draftAmount,
+      submittedCount: submitted.length, submittedAmount,
+      awaitingCheckerCount: draft.length + submitted.length,
+      awaitingCheckerAmount: draftAmount + submittedAmount,
+      fundingCount: inFunding.length, fundingAmount,
+      paidCount: paid.length, paidAmount,
+      overdueCount: overdue.length, overdueAmount,
+      disputedCount: disputed.length, disputedAmount,
+      suppliersUsed,
+      openPayablesCount: openPayables.length, openPayablesAmount,
+    };
+  }, [allPi]);
+
+  const setTab = (t: string) => navigate({ to: "/app/purchases", search: { tab: t, view: undefined }, replace: true });
+
+  const tabs = [
+    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "create", label: "Create Invoice", icon: PenLine },
+    { key: "list", label: "All Invoices", icon: List },
+  ];
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices", searchQuery, issueDateFrom, issueDateTo, createdFrom, createdTo, page, limit, sortField, sortOrder],
@@ -147,7 +201,13 @@ function PurchasesPage() {
       <PageHeader
         eyebrow="Procurement"
         title="Purchase invoices"
-        description="Invoices you receive from suppliers, with PO details and links to the sales they support."
+        description={
+          tab === "dashboard"
+            ? "Overview of all your purchase invoices at a glance."
+            : tab === "create"
+            ? "Create a new purchase invoice to submit for review."
+            : "View, review, and manage all your purchase invoices."
+        }
         actions={
           canCreate ? (
             <div className="flex gap-2">
@@ -169,7 +229,34 @@ function PurchasesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      {/* Tab Navigation */}
+      <div className="border-b border-border bg-white px-6 md:px-10">
+        <div className="flex gap-1">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`relative inline-flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                  active
+                    ? "text-primary after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {tab === "dashboard" && <DashboardView stats={dashboardStats} invoices={allPi} />}
+      {tab === "create" && <CreatePurchaseView />}
+      {tab === "list" && (
+        <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Total purchases"><div className="num num-lg"><AnimatedMoney value={totals.all} /></div></Card>
           <Card title="Open payables"><div className="num num-lg text-warning"><AnimatedMoney value={totals.open} /></div></Card>
@@ -429,6 +516,7 @@ function PurchasesPage() {
           </div>
         )}
       </div>
+      )}
 
       {open && user && (
         <PurchaseInvoiceFormModal
@@ -456,6 +544,381 @@ function PurchasesPage() {
         <DuplicateCheckModal onClose={() => setDuplicateCheckOpen(false)} />
       )}
     </div>
+  );
+}
+
+// ── Page 1: Purchase Dashboard ──
+
+function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
+  const { isAdmin } = useAuth();
+
+  // Supplier/vendor filter
+  const [selectedVendorId, setSelectedVendorId] = useState<string>("");
+
+  const vendors = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    for (const inv of invoices) {
+      if (inv.vendor_id && inv.vendor?.name) map.set(inv.vendor_id, { id: inv.vendor_id, name: inv.vendor.name });
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    if (!selectedVendorId) return invoices;
+    return invoices.filter((i: any) => i.vendor_id === selectedVendorId);
+  }, [invoices, selectedVendorId]);
+
+  const localStats = useMemo(() => {
+    const inv = filteredInvoices;
+    const total = inv.length;
+    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const draft = inv.filter((p: any) => p.status === "draft");
+    const submitted = inv.filter((p: any) => p.status === "submitted");
+    const inFunding = inv.filter((p: any) => ["approved", "advanced", "funded"].includes(p.status));
+    const paid = inv.filter((p: any) => p.status === "paid");
+    const overdue = inv.filter((p: any) => p.status === "overdue");
+    const disputed = inv.filter((p: any) => p.status === "disputed");
+    const openPayables = inv.filter((p: any) => !["paid", "disputed"].includes(p.status));
+    return {
+      total,
+      totalAmount,
+      draftCount: draft.length, draftAmount: draft.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      submittedCount: submitted.length, submittedAmount: submitted.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      awaitingCheckerCount: draft.length + submitted.length,
+      awaitingCheckerAmount: draft.reduce((s, p) => s + Number(p.amount), 0) + submitted.reduce((s, p) => s + Number(p.amount), 0),
+      fundingCount: inFunding.length, fundingAmount: inFunding.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      paidCount: paid.length, paidAmount: paid.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      overdueCount: overdue.length, overdueAmount: overdue.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      disputedCount: disputed.length, disputedAmount: disputed.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      suppliersUsed: new Set(inv.map((p: any) => p.vendor_id).filter(Boolean)).size,
+      openPayablesCount: openPayables.length,
+      openPayablesAmount: openPayables.reduce((s: number, p: any) => s + Number(p.amount), 0),
+    };
+  }, [filteredInvoices]);
+
+  const displayStats = selectedVendorId ? localStats : stats;
+
+  const statusBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const amounts: Record<string, number> = {};
+    const statusFilters = ["all", "draft", "submitted", "approved", "paid", "overdue", "disputed"];
+    for (const status of statusFilters) {
+      if (status === "all") continue;
+      const items = filteredInvoices.filter((i: any) => i.status === status);
+      counts[status] = items.length;
+      amounts[status] = items.reduce((s: number, i: any) => s + Number(i.amount), 0);
+    }
+    return { counts, amounts };
+  }, [filteredInvoices]);
+
+  const topSuppliers = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; total: number }>();
+    for (const inv of filteredInvoices) {
+      const name = inv.vendor?.name || "Unknown";
+      const entry = map.get(name) || { name, count: 0, total: 0 };
+      entry.count++;
+      entry.total += Number(inv.amount);
+      map.set(name, entry);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+  }, [filteredInvoices]);
+
+  const mostOverdue = useMemo(() => {
+    const now = new Date();
+    return filteredInvoices
+      .filter((i: any) => i.status === "overdue" && i.due_date)
+      .map((i: any) => {
+        const due = new Date(i.due_date);
+        const daysPastDue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
+        return { ...i, daysPastDue };
+      })
+      .sort((a: any, b: any) => b.daysPastDue - a.daysPastDue)
+      .slice(0, 5);
+  }, [filteredInvoices]);
+
+  const chartData = useMemo(() => {
+    const months = new Map<string, { month: string; count: number; amount: number }>();
+    for (const inv of filteredInvoices) {
+      const date = inv.issue_date || inv.created_at;
+      if (!date) continue;
+      const key = date.slice(0, 7);
+      const entry = months.get(key) || { month: key, count: 0, amount: 0 };
+      entry.count++;
+      entry.amount += Number(inv.amount) || 0;
+      months.set(key, entry);
+    }
+    return [...months.values()].sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  }, [filteredInvoices]);
+
+  if (filteredInvoices.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
+        <h3 className="text-lg font-medium text-foreground">No purchase invoices yet</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{selectedVendorId ? "No invoices found for this supplier." : "Create your first purchase invoice."}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 md:p-10 space-y-8">
+      {/* Supplier Filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-muted-foreground" />
+          <select value={selectedVendorId} onChange={(e) => setSelectedVendorId(e.target.value)}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30">
+            <option value="">All Suppliers</option>
+            {vendors.map((v) => (<option key={v.id} value={v.id}>{v.name}</option>))}
+          </select>
+        </div>
+        {selectedVendorId && (
+          <button onClick={() => setSelectedVendorId("")} className="text-xs text-muted-foreground hover:text-foreground underline">Clear filter</button>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {selectedVendorId ? <>{filteredInvoices.length} invoices · {fmtMoney(displayStats.totalAmount)}</> : <>{invoices.length} invoices total</>}
+        </span>
+      </div>
+
+      {/* Primary KPI */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Total Purchases" value={String(displayStats.total)} />
+        <Stat label="Total Amount" value={fmtMoney(displayStats.totalAmount)} />
+        <Stat label="Paid Invoices" value={String(displayStats.paidCount)} delta={fmtMoney(displayStats.paidAmount)} tone="good" />
+        <Stat label="Open Payables" value={fmtMoney(displayStats.openPayablesAmount)} delta={`${displayStats.openPayablesCount} invoices`} tone="warn" />
+      </div>
+
+      {/* Secondary KPI */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Awaiting Checker" value={String(displayStats.awaitingCheckerCount)} delta={fmtMoney(displayStats.awaitingCheckerAmount)} tone="warn" />
+        <Stat label="In Funding Queue" value={String(displayStats.fundingCount)} delta={fmtMoney(displayStats.fundingAmount)} tone="neutral" />
+        <Stat label="Overdue" value={String(displayStats.overdueCount)} delta={fmtMoney(displayStats.overdueAmount)} tone={displayStats.overdueCount > 0 ? "bad" : "good"} />
+        <Stat label="Disputed" value={String(displayStats.disputedCount)} delta={fmtMoney(displayStats.disputedAmount)} tone={displayStats.disputedCount > 0 ? "bad" : "good"} />
+      </div>
+
+      {/* Trend Chart */}
+      {chartData.length > 0 && (
+        <Card title={<div className="flex items-center gap-2"><span>Purchase Trend</span><span className="text-xs font-normal text-muted-foreground">Monthly volume &amp; value</span></div>}>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="barGradientP" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(38 92% 50%)" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="hsl(38 92% 50%)" stopOpacity={0.3} />
+                  </linearGradient>
+                  <linearGradient id="areaGradientP" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(262 80% 50%)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="hsl(262 80% 50%)" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8}
+                  tickFormatter={(v) => { const d = new Date(v + "-01"); return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }); }} className="text-xs text-muted-foreground" />
+                <YAxis yAxisId="left" tickLine={false} axisLine={false} tickMargin={8}
+                  tickFormatter={(v) => "$" + (v >= 1000000 ? (v / 1000000).toFixed(1) + "M" : v >= 1000 ? (v / 1000).toFixed(0) + "K" : v)}
+                  className="text-xs text-muted-foreground" domain={[0, (max: number) => Math.ceil(max * 1.15 / 100000) * 100000]} />
+                <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} tickMargin={8}
+                  className="text-xs text-muted-foreground" domain={[0, (max: number) => Math.ceil(max * 1.15 / 5) * 5]} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = new Date(label + "-01");
+                  const monthLabel = d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                  const amount = payload.find(p => p.dataKey === "amount")?.value as number || 0;
+                  const count = payload.find(p => p.dataKey === "count")?.value as number || 0;
+                  return (
+                    <div className="rounded-lg border border-border/50 bg-background px-3 py-2 text-xs shadow-xl">
+                      <div className="font-medium mb-1">{monthLabel}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(38 92% 50%)" }} />
+                        <span className="text-muted-foreground">Amount:</span>
+                        <span className="font-mono font-medium tabular-nums">{fmtMoney(amount)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(262 80% 50%)" }} />
+                        <span className="text-muted-foreground">Invoices:</span>
+                        <span className="font-mono font-medium tabular-nums">{count}</span>
+                      </div>
+                    </div>
+                  );
+                }} />
+                <Bar yAxisId="left" dataKey="amount" fill="url(#barGradientP)" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                <Area yAxisId="right" dataKey="count" fill="url(#areaGradientP)" stroke="hsl(262 80% 50%)" strokeWidth={2} dot={false}
+                  activeDot={{ r: 5, strokeWidth: 1, stroke: "hsl(var(--background))", fill: "hsl(262 80% 50%)" }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+
+      {/* Status Breakdown & Top Suppliers */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title="Status Breakdown">
+          <div className="space-y-3">
+            {["draft", "submitted", "approved", "paid", "overdue", "disputed"].map((status) => {
+              const count = statusBreakdown.counts[status] ?? 0;
+              const amount = statusBreakdown.amounts[status] ?? 0;
+              if (count === 0) return null;
+              return (
+                <div key={status} className="flex items-center justify-between">
+                  <StatusPill status={status} />
+                  <div className="text-right">
+                    <div className="text-sm font-medium">{count}</div>
+                    <div className="text-xs text-muted-foreground">{fmtMoney(amount)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+        <Card title="Top Suppliers by Volume">
+          <div className="space-y-3">
+            {topSuppliers.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No supplier data yet.</div>
+            ) : (
+              topSuppliers.map((s) => (
+                <div key={s.name} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm">{s.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-medium num">{fmtMoney(s.total)}</div>
+                    <div className="text-[10px] text-muted-foreground">{s.count} invoice{s.count !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Overdue Alerts */}
+      {mostOverdue.length > 0 && (
+        <Card title={<div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" /><span>Overdue Alerts</span><span className="inline-flex items-center rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">{displayStats.overdueCount} overdue</span></div>}>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">The following {mostOverdue.length} invoice{mostOverdue.length !== 1 ? "s are" : " is"} past due and require attention.</p>
+            <div className="-mx-6 -mb-6">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-6 py-3 text-left font-normal">Invoice</th><th className="px-6 py-3 text-left font-normal">Supplier</th>
+                    <th className="px-6 py-3 text-right font-normal">Amount</th><th className="px-6 py-3 text-right font-normal">Days Overdue</th>
+                    <th className="px-6 py-3 text-left font-normal">Due Date</th><th className="px-6 py-3 text-left font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mostOverdue.map((i: any) => (
+                    <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
+                      <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                      <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
+                      <td className="px-6 py-3 text-right">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${i.daysPastDue > 60 ? "bg-destructive/15 text-destructive" : i.daysPastDue > 30 ? "bg-warning/15 text-warning" : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"}`}>
+                          <AlertCircle className="h-3 w-3" />{i.daysPastDue}d
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.due_date)}</td>
+                      <td className="px-6 py-3"><StatusPill status={i.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {displayStats.overdueCount > 5 && (
+              <div className="pt-2 text-center text-xs text-muted-foreground">+ {displayStats.overdueCount - 5} more overdue invoice{(displayStats.overdueCount - 5) !== 1 ? "s" : ""} not shown</div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Recent Invoices */}
+      <Card title="Recent Purchase Invoices">
+        <div className="-mx-6 -mb-6">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-6 py-3 text-left font-normal">Invoice</th><th className="px-6 py-3 text-left font-normal">Supplier</th>
+                <th className="px-6 py-3 text-right font-normal">Amount</th><th className="px-6 py-3 text-left font-normal">Status</th><th className="px-6 py-3 text-left font-normal">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredInvoices.slice(0, 10).map((i: any) => (
+                <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                  <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
+                  <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                  <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
+                  <td className="px-6 py-3"><StatusPill status={i.status} /></td>
+                  <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Page 2: Create Purchase Invoice ──
+
+function CreatePurchaseView() {
+  const navigate = useNavigate();
+  const { canWrite } = useAuth();
+  const canCreate = canWrite("purchase-invoices");
+  const qc = useQueryClient();
+  const [importOpen, setImportOpen] = useState(false);
+
+  const vendorsQ = useQuery({
+    queryKey: ["vendors-min"],
+    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+  });
+
+  if (!canCreate) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <Lock className="mb-4 h-12 w-12 text-muted-foreground/30" />
+        <h3 className="text-lg font-medium">No permission</h3>
+        <p className="mt-1 text-sm text-muted-foreground">You don't have permission to create purchase invoices.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6 p-6 md:p-10">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-xl font-semibold">New Purchase Invoice</h2>
+        <button onClick={() => setImportOpen(true)}
+          className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5">
+          <Upload className="h-3.5 w-3.5" /> Mass import
+        </button>
+      </div>
+      <PurchaseInvoiceForm
+        editing={null}
+        vendors={vendorsQ.data ?? []}
+        onClose={() => navigate({ to: "/app/purchases", search: { tab: "list" }, replace: true })}
+        onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
+        isStandalone
+      />
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} vendors={vendorsQ.data ?? []} />}
+    </div>
+  );
+}
+
+// Shared Purchase Invoice Form (standalone and modal)
+function PurchaseInvoiceForm({ editing, vendors, onClose, onDone, isStandalone }: {
+  editing: any | null; vendors: any[]; onClose: () => void; onDone: () => void; isStandalone?: boolean;
+}) {
+  // This replicates the original PurchaseInvoiceFormModal logic but renders inline instead of as a modal
+  return (
+    <PurchaseInvoiceFormModal
+      editing={editing}
+      vendors={vendors}
+      invoices={[]}
+      linkedSales={[]}
+      onClose={onClose}
+      onDone={onDone}
+    />
   );
 }
 
