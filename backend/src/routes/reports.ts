@@ -10,9 +10,9 @@ import type {
 const router = Router();
 
 // ── Status filter helpers (mirrors frontend logic) ──
-const SALES_OPEN_STATUSES = ["pending", "approved", "advanced", "overdue", "disputed"];
+const SALES_OPEN_STATUSES = ["draft", "submitted", "approved", "advanced", "overdue", "disputed"];
 const SALES_CLOSED_STATUSES = ["funded", "paid"];
-const PURCHASE_OPEN_STATUSES = ["pending", "approved", "advanced", "overdue", "disputed"];
+const PURCHASE_OPEN_STATUSES = ["draft", "submitted", "approved", "advanced", "overdue", "disputed"];
 const PURCHASE_CLOSED_STATUSES = ["funded", "paid"];
 
 function applyStatusFilter<T extends { status?: string }>(
@@ -342,7 +342,7 @@ router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
       Promise.resolve(allInvoices),
     ]);
 
-    const SALES_OPEN = new Set(["pending", "approved", "advanced", "overdue", "disputed"]);
+    const SALES_OPEN = new Set(["draft", "submitted", "approved", "advanced", "overdue", "disputed"]);
     const SALES_CLOSED = new Set(["funded", "paid"]);
 
     // Group invoices by debtor_id

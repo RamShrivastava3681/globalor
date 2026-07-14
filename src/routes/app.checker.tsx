@@ -43,7 +43,7 @@ function CheckerPage() {
     queryKey: ["checker-sales"],
     queryFn: async () => {
       const data = await api.get<any[]>("/invoices") ?? [];
-      return data.filter((i: any) => i.status === "pending");
+      return data.filter((i: any) => i.status === "submitted");
     },
   });
 
@@ -51,7 +51,7 @@ function CheckerPage() {
     queryKey: ["checker-purchases"],
     queryFn: async () => {
       const data = await api.get<any[]>("/purchase-invoices") ?? [];
-      return data.filter((p: any) => p.status === "pending");
+      return data.filter((p: any) => p.status === "submitted");
     },
   });
 

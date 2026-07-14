@@ -194,7 +194,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // Status filter (all / open / close)
     const statusFilter = (req.query.filter as string) || "all";
     if (statusFilter === "open") {
-      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "pending" || inv.status === "approved");
+      filteredInvoices = filteredInvoices.filter((inv) => inv.status === "draft" || inv.status === "submitted" || inv.status === "approved");
     } else if (statusFilter === "close") {
       filteredInvoices = filteredInvoices.filter((inv) => inv.status === "funded" || inv.status === "paid");
     }
@@ -361,7 +361,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       short_payment: null,
       late_days: null,
       paid_note: null,
-      status: "pending",
+      status: "draft",
       payment_type: "manual_pay",
       noa_status: "not_sent",
       noa_token,
@@ -471,6 +471,38 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     res.json({ ...invoice, debtor, client, purchases });
   } catch (err) {
     console.error("Get invoice error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/invoices/:id/submit ── (draft → submitted, sends to checker)
+router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+    if (invoice.status !== "draft") {
+      res.status(400).json({ error: `Cannot submit invoice with status "${invoice.status}". Only draft invoices can be submitted.` });
+      return;
+    }
+
+    const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, {
+      status: "submitted",
+      updated_at: nowISO(),
+    });
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      debtor_id: invoice.debtor_id,
+      invoice_id: invoice.id,
+      type: "invoice_created",
+      severity: "info",
+      message: `Invoice ${invoice.invoice_number} submitted for checker review — $${invoice.amount.toLocaleString()}`,
+      created_by: req.user!.id,
+    });
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Submit invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -591,7 +623,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           short_payment: null,
           late_days: null,
           paid_note: null,
-          status: "pending",
+          status: "draft",
           payment_type: "mass_upload",
           noa_status: "not_sent",
           noa_token,

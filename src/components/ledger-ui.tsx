@@ -60,6 +60,8 @@ export function Card({ title, action, children, className = "" }: { title?: Reac
 
 export function StatusPill({ status }: { status: string }) {
   const map: Record<string, string> = {
+    draft: "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]",
+    submitted: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]",
     pending: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]",
     approved: "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
     advanced: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
@@ -83,6 +85,8 @@ export function StatusPill({ status }: { status: string }) {
   const cls = map[status] ?? "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]";
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${cls}`}>
+      {status === "draft" && <span className="h-1.5 w-1.5 rounded-full bg-[#6B7280]" />}
+      {status === "submitted" && <span className="h-1.5 w-1.5 rounded-full bg-[#C2410C]" />}
       {status === "pending" && <span className="h-1.5 w-1.5 rounded-full bg-[#C2410C]" />}
       {status === "approved" && <span className="h-1.5 w-1.5 rounded-full bg-[#2563EB]" />}
       {(status === "paid" || status === "advanced" || status === "funded" || status === "invoiced") && <span className="h-1.5 w-1.5 rounded-full bg-[#16A34A]" />}
@@ -91,7 +95,7 @@ export function StatusPill({ status }: { status: string }) {
       {status === "accepted" && <span className="h-1.5 w-1.5 rounded-full bg-[#16A34A]" />}
       {(status === "info" || status === "commented" || status === "approved") && <span className="h-1.5 w-1.5 rounded-full bg-[#2563EB]" />}
       {status === "not_sent" && <span className="h-1.5 w-1.5 rounded-full bg-[#6B7280]" />}
-      {status && !["pending","approved","paid","advanced","overdue","rejected","critical","warning","info","funded","cancelled","disputed","not_sent","sent","accepted","commented","pending_review","proforma","invoiced"].includes(status) && <span className="h-1.5 w-1.5 rounded-full bg-[#6B7280]" />}
+      {status && !["draft","submitted","pending","approved","paid","advanced","overdue","rejected","critical","warning","info","funded","cancelled","disputed","not_sent","sent","accepted","commented","pending_review","proforma","invoiced"].includes(status) && <span className="h-1.5 w-1.5 rounded-full bg-[#6B7280]" />}
       {status.replace(/_/g, " ")}
     </span>
   );

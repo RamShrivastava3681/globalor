@@ -237,7 +237,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       due_date_source: parsed.due_date_source,
       has_contractual_due_date: parsed.has_contractual_due_date || false,
       notes: parsed.notes || null,
-      status: "pending",
+      status: "draft",
       documents: parsed.documents as DocMeta[],
       purchase_order_id: null,
       linked_sales_invoice_ids: parsed.linked_sales_invoice_ids || [],
@@ -380,7 +380,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
           due_date_source: parsed.due_date_source,
           has_contractual_due_date: parsed.has_contractual_due_date || false,
           notes: null,
-          status: "pending",
+          status: "draft",
           documents: [],
           purchase_order_id: null,
           linked_sales_invoice_ids: [],
@@ -457,7 +457,7 @@ router.post("/batch-close", requireAuth, requireWriteAccess("purchase-invoices")
       invoiceByNumber.set(inv.invoice_number, inv);
     }
 
-    const eligibleStatuses = new Set(["pending", "approved", "advanced", "funded", "overdue"]);
+    const eligibleStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
     const closed: Array<{ invoice_number: string; amount_received: number }> = [];
     const not_found: string[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
@@ -501,6 +501,23 @@ router.post("/batch-close", requireAuth, requireWriteAccess("purchase-invoices")
       return;
     }
     console.error("Batch close purchase invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/purchase-invoices/:id/submit ── (draft → submitted)
+router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
+    if (invoice.status !== "draft") {
+      res.status(400).json({ error: `Cannot submit invoice with status "${invoice.status}". Only draft invoices can be submitted.` });
+      return;
+    }
+    const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, { status: "submitted", updated_at: nowISO() });
+    res.json(updated);
+  } catch (err) {
+    console.error("Submit purchase invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
