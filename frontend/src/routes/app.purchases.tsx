@@ -11,12 +11,11 @@ import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
-applyPlugin(jsPDF);
-import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+applyPlugin(jsPDF);import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+import { BulkSearchModal } from "@/components/bulk-search-modal";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-
 export const Route = createFileRoute("/app/purchases")({
   validateSearch: (search: Record<string, unknown>) => ({
     tab: (search.tab as string) || "dashboard",
