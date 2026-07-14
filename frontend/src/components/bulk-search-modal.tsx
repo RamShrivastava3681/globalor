@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 export interface BulkSearchResult {
   found: any[];
   notFoundInPlatform: string[];
-  notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name: string | null }>;
+  notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name?: string | null; vendor_name?: string | null }>;
   notInExcelTotal: number;
   summary: {
     excelCount: number;
@@ -50,7 +50,7 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
   );
 }
 
-export function BulkSearchModal({ onClose }: { onClose: () => void }) {
+export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => void; mode?: "sales" | "purchase" }) {
   const [step, setStep] = useState<"upload" | "results">("upload");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BulkSearchResult | null>(null);
@@ -120,7 +120,8 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
   const performSearch = async (numbers: string[]) => {
     setLoading(true);
     try {
-      const res = await api.post<BulkSearchResult>("/invoices/bulk-search", { invoiceNumbers: numbers });
+      const endpoint = mode === "purchase" ? "/purchase-invoices/bulk-search" : "/invoices/bulk-search";
+      const res = await api.post<BulkSearchResult>(endpoint, { invoiceNumbers: numbers });
       setResult(res);
       setStep("results");
       setActiveTab(res.found.length > 0 ? "found" : "missingPlatform");
@@ -137,7 +138,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
             <Search className="mr-1.5 inline h-5 w-5 text-primary" />
-            Bulk invoice search
+            Bulk {mode === "purchase" ? "purchase invoice" : "invoice"} search
           </h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
@@ -147,7 +148,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
             <div className="space-y-4">
               <div className="rounded-md border border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
                 <strong className="text-primary">How it works:</strong> Upload an Excel or CSV file containing invoice numbers.
-                The system will search your sales invoices and show:
+                The system will search your {mode === "purchase" ? "purchase" : "sales"} invoices and show:
                 <ul className="mt-2 list-disc pl-4 space-y-1">
                   <li>Invoices that match your file</li>
                   <li>Invoice numbers from your file that are <strong>not</strong> in the platform</li>
@@ -238,7 +239,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr className="border-b border-border">
                           <th className="px-5 py-2 text-left font-normal">Invoice #</th>
-                          <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Debtor"}</th>
                           <th className="px-5 py-2 text-left font-normal">Issue date</th>
                           <th className="px-5 py-2 text-right font-normal">Amount</th>
                           <th className="px-5 py-2 text-right font-normal">Received</th>
@@ -250,7 +251,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
                         {result.found.map((inv: any) => (
                           <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
                             <td className="px-5 py-3 font-mono text-xs font-medium">{inv.invoice_number}</td>
-                            <td className="px-5 py-3">{inv.debtor?.name ?? "—"}</td>
+                            <td className="px-5 py-3">{mode === "purchase" ? (inv.vendor?.name ?? "—") : (inv.debtor?.name ?? "—")}</td>
                             <td className="px-5 py-3 text-sm">{fmtDate(inv.issue_date)}</td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(inv.amount)}</td>
                             <td className="px-5 py-3 text-right num text-muted-foreground">{inv.amount_received != null ? fmtMoney(inv.amount_received) : "—"}</td>
@@ -311,7 +312,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr className="border-b border-border">
                           <th className="px-5 py-2 text-left font-normal">Invoice #</th>
-                          <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Debtor"}</th>
                           <th className="px-5 py-2 text-left font-normal">Issue date</th>
                           <th className="px-5 py-2 text-right font-normal">Amount</th>
                         </tr>
@@ -320,7 +321,7 @@ export function BulkSearchModal({ onClose }: { onClose: () => void }) {
                         {result.notInExcel.map((item) => (
                           <tr key={item.id} className="border-b border-border/60 hover:bg-muted/30">
                             <td className="px-5 py-3 font-mono text-xs">{item.invoice_number}</td>
-                            <td className="px-5 py-3">{item.debtor_name ?? "—"}</td>
+                            <td className="px-5 py-3">{mode === "purchase" ? (item.vendor_name ?? "—") : (item.debtor_name ?? "—")}</td>
                             <td className="px-5 py-3 text-sm">{fmtDate(item.issue_date)}</td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(item.amount)}</td>
                           </tr>

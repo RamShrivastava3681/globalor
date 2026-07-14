@@ -548,7 +548,7 @@ function PurchasesPage() {
       )}
 
       {bulkSearchOpen && (
-        <BulkSearchModal onClose={() => setBulkSearchOpen(false)} />
+        <BulkSearchModal mode="purchase" onClose={() => setBulkSearchOpen(false)} />
       )}
     </div>
   );
