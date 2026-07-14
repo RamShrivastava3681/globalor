@@ -505,6 +505,93 @@ router.post("/batch-close", requireAuth, requireWriteAccess("purchase-invoices")
   }
 });
 
+// ── POST /api/purchase-invoices/bulk-search ── (search purchase invoices by uploaded Excel invoice numbers)
+router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { invoiceNumbers } = z.object({
+      invoiceNumbers: z.array(z.string().min(1)).min(1).max(10000),
+    }).parse(req.body);
+
+    // Normalize input invoice numbers for case-insensitive matching
+    const searchSet = new Set(invoiceNumbers.map((n) => n.toLowerCase().trim()));
+
+    // Preload all purchase invoices, vendors, and profiles
+    const [allPi, allVendors, allProfiles] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES),
+      scanTable<Vendor>(TABLES.VENDORS),
+      scanTable<Profile>(TABLES.PROFILES),
+    ]);
+
+    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
+
+    // Separate invoices into found vs not-in-excel
+    const found: Array<PurchaseInvoice & { vendor?: Vendor; client?: Profile }> = [];
+    const platformInvoiceNumbers = new Set<string>();
+    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; vendor_id: string | null }> = [];
+
+    for (const inv of allPi) {
+      const normalized = inv.invoice_number.toLowerCase().trim();
+      platformInvoiceNumbers.add(normalized);
+      platformInvoices.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: inv.amount,
+        issue_date: inv.issue_date,
+        vendor_id: inv.vendor_id,
+      });
+
+      if (searchSet.has(normalized)) {
+        found.push({
+          ...inv,
+          vendor: inv.vendor_id ? vendorMap.get(inv.vendor_id) : undefined,
+          client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
+        });
+      }
+    }
+
+    // Invoice numbers in the Excel that were NOT found in the platform
+    const notFoundInPlatform = invoiceNumbers.filter((n) => !platformInvoiceNumbers.has(n.toLowerCase().trim()));
+
+    // Platform invoices NOT in the Excel (limit to 500 for performance)
+    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; vendor_name: string | null }> = [];
+    let notInExcelTotal = 0;
+
+    for (const pi of platformInvoices) {
+      if (!searchSet.has(pi.invoice_number.toLowerCase().trim())) {
+        notInExcelTotal++;
+        if (notInExcel.length < 500) {
+          notInExcel.push({
+            ...pi,
+            vendor_name: pi.vendor_id ? (vendorMap.get(pi.vendor_id)?.name ?? null) : null,
+          });
+        }
+      }
+    }
+
+    res.json({
+      found,
+      notFoundInPlatform,
+      notInExcel,
+      notInExcelTotal,
+      summary: {
+        excelCount: invoiceNumbers.length,
+        foundCount: found.length,
+        notFoundCount: notFoundInPlatform.length,
+        platformCount: platformInvoiceNumbers.size,
+        notInExcelCount: notInExcelTotal,
+      },
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Bulk purchase invoice search error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/purchase-invoices/:id/submit ── (draft → submitted)
 router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
   try {

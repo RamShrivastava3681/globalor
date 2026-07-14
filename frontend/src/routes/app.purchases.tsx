@@ -5,7 +5,7 @@ import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -49,6 +49,7 @@ function PurchasesPage() {
   const limit = 50;
 
   const [duplicateCheckOpen, setDuplicateCheckOpen] = useState(false);
+  const [bulkSearchOpen, setBulkSearchOpen] = useState(false);
 
   // All purchase invoices query for dashboard stats
   const allPiQ = useQuery({
@@ -219,6 +220,9 @@ function PurchasesPage() {
               </button>
               <button onClick={() => setDuplicateCheckOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-warning/50 px-4 py-2 text-sm font-medium text-warning hover:bg-warning/5">
                 <AlertTriangle className="h-4 w-4" /> Check duplicates
+              </button>
+              <button onClick={() => setBulkSearchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
+                <Search className="h-4 w-4" /> Bulk search
               </button>
             </div>
           ) : (
@@ -542,6 +546,10 @@ function PurchasesPage() {
 
       {duplicateCheckOpen && (
         <DuplicateCheckModal onClose={() => setDuplicateCheckOpen(false)} />
+      )}
+
+      {bulkSearchOpen && (
+        <BulkSearchModal onClose={() => setBulkSearchOpen(false)} />
       )}
     </div>
   );
