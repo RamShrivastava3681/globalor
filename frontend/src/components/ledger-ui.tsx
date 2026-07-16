@@ -73,30 +73,42 @@ export function Card({ title, action, children, className = "" }: { title?: Reac
 }
 
 export function StatusPill({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    pending: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]",
-    approved: "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
-    advanced: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
-    paid: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
-    overdue: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
-    rejected: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
-    critical: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
-    warning: "bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]",
-    info: "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
-    funded: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
-    cancelled: "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]",
-    disputed: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
-    not_sent: "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]",
-    sent: "bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]",
-    accepted: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
-    commented: "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
-    pending_review: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA]",
-    proforma: "bg-[#F5F3FF] text-[#7C3AED] border-[#DDD6FE]",
-    invoiced: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
-  };
-  const cls = map[status] ?? "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]";
+  const variant = (() => {
+    switch (status) {
+      case "pending":
+      case "pending_review":
+      case "proforma":
+        return "pending";
+      case "approved":
+      case "info":
+      case "commented":
+        return "approved";
+      case "advanced":
+      case "paid":
+      case "funded":
+      case "accepted":
+      case "invoiced":
+        return "success";
+      case "overdue":
+      case "rejected":
+      case "critical":
+      case "disputed":
+        return "destructive";
+      case "warning":
+      case "sent":
+        return "warning";
+      case "cancelled":
+      case "not_sent":
+      default:
+        return "neutral";
+    }
+  })();
+
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${cls}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]
+        bg-[var(--status-${variant}-bg)] text-[var(--status-${variant}-text)] border-[var(--status-${variant}-border)]`}
+    >
       {status.replace(/_/g, " ")}
     </span>
   );

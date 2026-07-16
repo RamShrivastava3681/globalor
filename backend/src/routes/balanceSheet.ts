@@ -157,11 +157,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Receivable",
           total: accountsReceivable,
-          accounts: outstandingInvoices.map((inv: any) => ({
-            id: inv.id,
-            name: `Invoice ${inv.invoice_number}`,
-            balance: Number(inv.amount) - (Number(inv.amount_received) || 0),
-          })),
+          accounts: [],
         },
         {
           label: "Other Current Assets",
@@ -231,11 +227,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Payable",
           total: accountsPayable,
-          accounts: outstandingPurchases.map((pi: any) => ({
-            id: pi.id,
-            name: `Purchase Invoice ${pi.invoice_number}`,
-            balance: Number(pi.amount),
-          })),
+          accounts: [],
         },
         {
           label: "Advance received from Customers",

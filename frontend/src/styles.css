@@ -131,6 +131,29 @@
   --glow-warning: transparent;
   --glow-destructive: transparent;
 
+  /* Status badge — light mode semantic colors */
+  --status-pending-bg: #FFF7ED;
+  --status-pending-text: #C2410C;
+  --status-pending-border: #FED7AA;
+  --status-approved-bg: #EFF6FF;
+  --status-approved-text: #2563EB;
+  --status-approved-border: #BFDBFE;
+  --status-success-bg: #F0FDF4;
+  --status-success-text: #16A34A;
+  --status-success-border: #BBF7D0;
+  --status-destructive-bg: #FEF2F2;
+  --status-destructive-text: #DC2626;
+  --status-destructive-border: #FECACA;
+  --status-warning-bg: #FFFBEB;
+  --status-warning-text: #D97706;
+  --status-warning-border: #FDE68A;
+  --status-info-bg: #EFF6FF;
+  --status-info-text: #2563EB;
+  --status-info-border: #BFDBFE;
+  --status-neutral-bg: #F8F9FA;
+  --status-neutral-text: #6B7280;
+  --status-neutral-border: #E5E7EB;
+
   /* Shadows */
   --shadow-card-value: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-card-hover-value: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
@@ -208,6 +231,29 @@
   --glow-success: 0 0 24px rgba(74, 222, 128, 0.12);
   --glow-warning: 0 0 24px rgba(251, 191, 36, 0.12);
   --glow-destructive: 0 0 24px rgba(248, 113, 113, 0.12);
+
+  /* Status badge — dark mode semantic colors */
+  --status-pending-bg: rgba(234, 88, 12, 0.12);
+  --status-pending-text: #FB923C;
+  --status-pending-border: rgba(234, 88, 12, 0.25);
+  --status-approved-bg: rgba(37, 99, 235, 0.12);
+  --status-approved-text: #60A5FA;
+  --status-approved-border: rgba(37, 99, 235, 0.25);
+  --status-success-bg: rgba(22, 163, 74, 0.12);
+  --status-success-text: #4ADE80;
+  --status-success-border: rgba(22, 163, 74, 0.25);
+  --status-destructive-bg: rgba(220, 38, 38, 0.12);
+  --status-destructive-text: #F87171;
+  --status-destructive-border: rgba(220, 38, 38, 0.25);
+  --status-warning-bg: rgba(217, 119, 6, 0.12);
+  --status-warning-text: #FBBF24;
+  --status-warning-border: rgba(217, 119, 6, 0.25);
+  --status-info-bg: rgba(37, 99, 235, 0.12);
+  --status-info-text: #60A5FA;
+  --status-info-border: rgba(37, 99, 235, 0.25);
+  --status-neutral-bg: rgba(107, 114, 128, 0.1);
+  --status-neutral-text: #9CA3AF;
+  --status-neutral-border: rgba(107, 114, 128, 0.2);
 
   /* Premium dark shadows — inset highlight + colored glow */
   --shadow-card-value:
@@ -571,5 +617,494 @@
 
   .dark .alert-item-info {
     border-left-color: var(--color-primary);
+  }
+
+  /* --- Focus ring enhancement for dark mode --- */
+  .dark :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring);
+  }
+
+  /* --- Selection color for dark mode --- */
+  .dark ::selection {
+    background: rgba(56, 189, 248, 0.25);
+    color: var(--color-foreground);
+  }
+
+  /* --- Input/select focus glow enhancement --- */
+  .dark input:focus-visible,
+  .dark select:focus-visible,
+  .dark textarea:focus-visible {
+    outline: none;
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15), 0 0 16px rgba(56, 189, 248, 0.08) !important;
+  }
+
+  /* --- Premium card hover lift for dark mode --- */
+  .dark .card-hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+  .dark .card-hover-lift:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 25%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
+  }
+
+  /* --- Button hover glow for dark mode --- */
+  .dark button:not(:disabled):hover .btn-glow-effect {
+    box-shadow: var(--shadow-glow-value);
+  }
+
+  /* --- Badge/pill glow for active states --- */
+  .dark .pill-glow {
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.1);
+  }
+
+  /* --- Modal backdrop enchantment --- */
+  .dark .modal-backdrop {
+    background: rgba(7, 11, 20, 0.7);
+    backdrop-filter: blur(8px);
+  }
+
+  /* --- Gradient overlays for empty states --- */
+  .dark .empty-state-glow {
+    background: radial-gradient(circle at center, rgba(56, 189, 248, 0.04) 0%, transparent 70%);
+  }
+
+  /* --- Stat item dark mode hover --- */
+  .dark .stat-card {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .dark .stat-card:hover {
+    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 20%);
+    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
+  }
+
+  /* --- Table row dark mode premium hover --- */
+  .dark tbody tr {
+    transition: background-color 0.15s ease;
+  }
+
+  .dark tbody tr:hover td {
+    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.06)) !important;
+  }
+
+  .dark tbody tr:nth-child(even):hover td {
+    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.06)) !important;
+  }
+
+  /* --- Sidebar nav item active glow --- */
+  .dark .sidebar-nav-active {
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.1) 0%, transparent 100%);
+    border-right: 2px solid var(--color-primary);
+  }
+
+  /* --- Heading gradient accent for dark mode pages --- */
+  .dark .heading-accent {
+    background: linear-gradient(135deg, var(--color-foreground) 60%, var(--color-primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* --- Progress/bar fill glow --- */
+  .dark .progress-glow {
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* --- Card inner border accent --- */
+  .dark .card-inner-border {
+    border: 1px solid color-mix(in srgb, var(--color-border), transparent 50%);
+  }
+
+  /* ============================================================
+     BADGE UTILITY CLASSES — Dark mode semantic badges
+     ============================================================ */
+
+  /* Semantic badge base — reusable pill for status/category labels */
+  .badge-semantic {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.625rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+    border: 1px solid;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+
+  .badge-pending {
+    background: var(--status-pending-bg);
+    color: var(--status-pending-text);
+    border-color: var(--status-pending-border);
+  }
+
+  .badge-approved {
+    background: var(--status-approved-bg);
+    color: var(--status-approved-text);
+    border-color: var(--status-approved-border);
+  }
+
+  .badge-success {
+    background: var(--status-success-bg);
+    color: var(--status-success-text);
+    border-color: var(--status-success-border);
+  }
+
+  .badge-destructive {
+    background: var(--status-destructive-bg);
+    color: var(--status-destructive-text);
+    border-color: var(--status-destructive-border);
+  }
+
+  .badge-warning {
+    background: var(--status-warning-bg);
+    color: var(--status-warning-text);
+    border-color: var(--status-warning-border);
+  }
+
+  .badge-info {
+    background: var(--status-info-bg);
+    color: var(--status-info-text);
+    border-color: var(--status-info-border);
+  }
+
+  .badge-neutral {
+    background: var(--status-neutral-bg);
+    color: var(--status-neutral-text);
+    border-color: var(--status-neutral-border);
+  }
+
+  /* Badge with subtle dot indicator */
+  .badge-dot {
+    position: relative;
+    padding-left: 0.875rem;
+  }
+
+  .badge-dot::before {
+    content: "";
+    position: absolute;
+    left: 0.375rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+  }
+
+  /* Dark mode: badge hover glow effect */
+  .dark .badge-semantic:hover {
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* Dark mode: badge with colored glow */
+  .dark .badge-glow-pending {
+    box-shadow: 0 0 10px rgba(234, 88, 12, 0.2);
+  }
+
+  .dark .badge-glow-approved {
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.2);
+  }
+
+  .dark .badge-glow-success {
+    box-shadow: 0 0 10px rgba(22, 163, 74, 0.2);
+  }
+
+  .dark .badge-glow-destructive {
+    box-shadow: 0 0 10px rgba(220, 38, 38, 0.2);
+  }
+
+  .dark .badge-glow-warning {
+    box-shadow: 0 0 10px rgba(217, 119, 6, 0.2);
+  }
+
+  /* Badge with transparent background (subtle variant for inline use) */
+  .badge-ghost {
+    background: transparent;
+    border-color: transparent;
+    opacity: 0.85;
+  }
+
+  .badge-ghost:hover {
+    opacity: 1;
+  }
+
+  /* ============================================================
+     TOOLTIP UTILITY CLASSES — Dark mode enhanced
+     ============================================================ */
+
+  /* Tooltip arrow — works with Radix tooltip */
+  .dark .tooltip-arrow {
+    fill: var(--color-popover);
+  }
+
+  /* Enhanced dark mode tooltip content */
+  .dark .tooltip-content-premium {
+    background: var(--color-popover);
+    border: 1px solid var(--color-border);
+    color: var(--color-popover-foreground);
+    box-shadow: var(--shadow-card-value), var(--shadow-glow-value);
+    backdrop-filter: blur(8px);
+  }
+
+  /* Tooltip with colored variants */
+  .dark .tooltip-info {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.25);
+    color: var(--color-primary);
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.1);
+  }
+
+  .dark .tooltip-success {
+    background: rgba(74, 222, 128, 0.12);
+    border-color: rgba(74, 222, 128, 0.25);
+    color: var(--color-success);
+    box-shadow: 0 0 16px rgba(74, 222, 128, 0.1);
+  }
+
+  .dark .tooltip-warning {
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.25);
+    color: var(--color-warning);
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.1);
+  }
+
+  .dark .tooltip-destructive {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.25);
+    color: var(--color-destructive);
+    box-shadow: 0 0 16px rgba(248, 113, 113, 0.1);
+  }
+
+  /* Tooltip with keybinding hint text */
+  .tooltip-kbd {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .tooltip-kbd kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.125rem;
+    padding: 0 0.25rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    line-height: 1;
+  }
+
+  .dark .tooltip-kbd kbd {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* ============================================================
+     NOTIFICATION / TOAST UTILITY CLASSES — Dark mode premium
+     ============================================================ */
+
+  /* Toast/notification card with premium dark styling */
+  .dark .notification-toast {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px rgba(0, 0, 0, 0.3),
+      var(--shadow-glow-value);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  /* Notification toast with left accent border */
+  .dark .notification-toast-accent {
+    border-left: 3px solid var(--color-primary);
+  }
+
+  .dark .notification-toast-accent-success {
+    border-left: 3px solid var(--color-success);
+  }
+
+  .dark .notification-toast-accent-warning {
+    border-left: 3px solid var(--color-warning);
+  }
+
+  .dark .notification-toast-accent-destructive {
+    border-left: 3px solid var(--color-destructive);
+  }
+
+  /* Notification icon container with colored background */
+  .dark .notification-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-md);
+  }
+
+  .dark .notification-icon-info {
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--color-primary);
+  }
+
+  .dark .notification-icon-success {
+    background: rgba(74, 222, 128, 0.12);
+    color: var(--color-success);
+  }
+
+  .dark .notification-icon-warning {
+    background: rgba(251, 191, 36, 0.12);
+    color: var(--color-warning);
+  }
+
+  .dark .notification-icon-destructive {
+    background: rgba(248, 113, 113, 0.12);
+    color: var(--color-destructive);
+  }
+
+  /* Notification panel container */
+  .dark .notification-panel {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.4),
+      0 4px 12px rgba(0, 0, 0, 0.2),
+      var(--shadow-glow-lg-value);
+  }
+
+  /* Notification item row */
+  .dark .notification-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    transition: background-color 0.15s ease;
+  }
+
+  .dark .notification-item:hover {
+    background: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
+  }
+
+  .dark .notification-item:last-child {
+    border-bottom: none;
+  }
+
+  /* Notification dot — unread indicator */
+  .dark .notification-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--color-primary);
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
+  }
+
+  .dark .notification-dot-warning {
+    background: var(--color-warning);
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+  }
+
+  .dark .notification-dot-destructive {
+    background: var(--color-destructive);
+    box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
+  }
+
+  .dark .notification-dot-success {
+    background: var(--color-success);
+    box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
+  }
+
+  /* Notification count badge */
+  .dark .notification-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+  }
+
+  .dark .notification-count-warning {
+    background: var(--color-warning);
+    color: var(--color-warning-foreground);
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
+  }
+
+  .dark .notification-count-destructive {
+    background: var(--color-destructive);
+    color: var(--color-destructive-foreground);
+    box-shadow: 0 0 10px rgba(248, 113, 113, 0.3);
+  }
+
+  /* Notification slide-in animation */
+  @keyframes notification-slide-in {
+    0% {
+      opacity: 0;
+      transform: translateX(100%) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  @keyframes notification-slide-out {
+    0% {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(100%) scale(0.95);
+    }
+  }
+
+  .notification-enter {
+    animation: notification-slide-in 0.3s ease-out;
+  }
+
+  .notification-exit {
+    animation: notification-slide-out 0.2s ease-in forwards;
+  }
+
+  /* Sonner toast custom dark mode overrides */
+  .dark .sonner-toast-custom {
+    background: var(--color-card) !important;
+    border: 1px solid var(--color-border) !important;
+    color: var(--color-foreground) !important;
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px rgba(0, 0, 0, 0.2),
+      var(--shadow-glow-value) !important;
+  }
+
+  /* Bell/notification icon with pulse */
+  @keyframes bell-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+  }
+
+  .dark .bell-ring {
+    animation: bell-pulse 1.5s ease-in-out infinite;
+    color: var(--color-primary);
   }
 }

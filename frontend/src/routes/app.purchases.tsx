@@ -233,7 +233,7 @@ function PurchasesPage() {
       />
 
       {/* Tab Navigation */}
-      <div className="border-b border-border bg-white px-6 md:px-10">
+      <div className="border-b border-border bg-card px-6 md:px-10">
         <div className="flex gap-1">
           {tabs.map((t) => {
             const Icon = t.icon;
