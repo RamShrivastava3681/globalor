@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft, Sun, Moon
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft, Sun, Moon, BookOpen
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -78,6 +78,7 @@ function AppLayout() {
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
+        { to: "/app/accounting", label: "Accounting", icon: BookOpen },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : isChecker && !isAdmin
@@ -90,6 +91,7 @@ function AppLayout() {
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
+        { to: "/app/accounting", label: "Accounting", icon: BookOpen },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : isViewer
@@ -107,6 +109,7 @@ function AppLayout() {
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
+        { to: "/app/accounting", label: "Accounting", icon: BookOpen },
         { to: "/app/settings", label: "Settings", icon: Settings },
       ]
     : [
@@ -125,6 +128,7 @@ function AppLayout() {
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
+        { to: "/app/accounting", label: "Accounting", icon: BookOpen },
         ...(isAdmin ? [{ to: "/app/admin", label: "Operations", icon: Shield }] : []),
         { to: "/app/settings", label: "Settings", icon: Settings },
       ];

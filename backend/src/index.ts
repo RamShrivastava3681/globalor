@@ -88,8 +88,19 @@ app.use("/api/bulk-payments", bulkPaymentRoutes);
 import paymentRoutes from "./routes/payments.js";
 app.use("/api/payments", paymentRoutes);
 
+// Accounting
+import accountRoutes from "./routes/accounts.js";
+app.use("/api/accounts", accountRoutes);
+
+import journalEntryRoutes from "./routes/journalEntries.js";
+app.use("/api/journal-entries", journalEntryRoutes);
+
 // Reports
 app.use("/api/reports", requireAuth, reportRoutes);
+
+// Balance Sheet (separate router for compute-heavy endpoint)
+import balanceSheetRoutes from "./routes/balanceSheet.js";
+app.use("/api/reports/balance-sheet", balanceSheetRoutes);
 
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {

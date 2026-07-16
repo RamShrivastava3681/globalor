@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2 } from "lucide-react";
+import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2, Scale } from "lucide-react";
+import { BalanceSheetView } from "@/components/balance-sheet";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -19,9 +20,10 @@ export const Route = createFileRoute("/app/reports")({
 
 // ── Types ──
 
-type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking";
+type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
 
 const TABS: { id: ReportTab; label: string }[] = [
+  { id: "balance-sheet", label: "Balance Sheet" },
   { id: "portfolio", label: "Portfolio Summary" },
   { id: "profit-loss", label: "Profit & Loss" },
   { id: "proformas", label: "Proforma invoices" },
@@ -37,6 +39,7 @@ const TABS: { id: ReportTab; label: string }[] = [
 
 // ── Status filter options ──
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
+  "balance-sheet": ["all"],
   "portfolio": ["all"],
   "profit-loss": ["all"],
   "proformas": ["all", "open", "closed", "proforma", "invoiced", "cancelled"],
@@ -52,13 +55,13 @@ const STATUS_FILTERS: Record<ReportTab, string[]> = {
 
 // ── Tab-specific open/closed statuses ──
 function getOpenStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
+  if (tab === "balance-sheet" || tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["pending", "approved", "advanced", "overdue", "disputed"];
   return ["pending", "approved", "advanced", "overdue", "funded", "proforma"];
 }
 
 function getClosedStatuses(tab: ReportTab): string[] {
-  if (tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
+  if (tab === "balance-sheet" || tab === "profit-loss" || tab === "portfolio" || tab === "inventory-tracking") return [];
   if (tab === "sales-invoices" || tab === "purchase-invoices") return ["funded", "paid"];
   return ["paid", "rejected", "cancelled", "disputed"];
 }
@@ -236,6 +239,8 @@ function getColumns(tab: ReportTab): { key: string; label: string; render: (row:
         { key: "invoice_link", label: "Linked Invoice", render: (r: any) => r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? "—" },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
       ];
+    case "balance-sheet":
+      return [];
     case "profit-loss":
       return [];
     case "inventory-tracking":
@@ -419,6 +424,7 @@ function ReportsPage() {
   const [toOpen, setToOpen] = useState(false);
 
   // P&L state
+  const isBalanceSheet = tab === "balance-sheet";
   const isPnL = tab === "profit-loss";
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("this-month");
   const [pnlData, setPnlData] = useState<PnLReport | null>(null);
@@ -475,7 +481,12 @@ function ReportsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      if (isPnL) {
+      if (isBalanceSheet) {
+        // Balance sheet is handled by its own component via useQuery
+        setData([]);
+        setLoading(false);
+        return;
+      } else if (isPnL) {
         // Fetch P&L report
         let fromStr: string | undefined;
         let toStr: string | undefined;
@@ -539,7 +550,7 @@ function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, buyerId, filterBulkPay, filterTreasuryPay]);
+  }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay]);
 
   useEffect(() => {
     fetchData();
@@ -854,6 +865,14 @@ function ReportsPage() {
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.3);
     doc.line(14, 31, pw - 14, 31);
+  };
+
+  // ── Helper: format negative money for PDF (parentheses for negatives) ──
+  const pdfNeg = (val: number | null | undefined): string => {
+    if (val == null) return "—";
+    return val < 0
+      ? `($${Math.abs(val).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
+      : `$${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   // ── Helper: format money for PDF ──
@@ -1271,6 +1290,162 @@ function ReportsPage() {
     toast.success(`Debtors report downloaded as PDF \u00b7 ${data.length} debtors`);
   };
 
+  // ── Specialized: Balance Sheet PDF ──
+  const exportBalanceSheetPdf = async (bsData: BalanceSheetData, from?: string, to?: string, logoBase64?: string) => {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pw = doc.internal.pageSize.width;
+    const periodLabel = from && to ? `${from} \u2014 ${to}` : `As of ${bsData.report_date}`;
+
+    // ── Header ──
+    drawPdfHeaderBar(doc, "Balance Sheet", `${periodLabel} · Generated ${new Date().toLocaleDateString()}`, logoBase64);
+
+    // ── Verification row ──
+    const vStartY = 42;
+    doc.setFontSize(8);
+    if (bsData.verification.isBalanced) {
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(16, 185, 129);
+      doc.text(`\u2713 In balance`, 14, vStartY);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Assets ${pdfMoney(bsData.verification.totalAssets)} = Liabilities ${pdfMoney(bsData.verification.totalLiabilities)} + Equity ${pdfMoney(bsData.verification.totalEquity)}`, 40, vStartY);
+    } else {
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(239, 68, 68);
+      doc.text(`! Out of balance by ${pdfMoney(Math.abs(bsData.verification.difference))}`, 14, vStartY);
+    }
+
+    // ── Build table body ──
+    const rows: Array<{ label: string; amount: string; depth: number; style: "header" | "section" | "subsection" | "account" | "total" | "computed" }> = [];
+
+    const pushRow = (label: string, amount: string | null, depth: number, style: "header" | "section" | "subsection" | "account" | "total" | "computed") => {
+      rows.push({ label, amount: amount ?? "", depth, style });
+    };
+
+    // Helper to render a section
+    const renderSection = (section: any, isCapital?: boolean) => {
+      pushRow(section.label, pdfNeg(section.total), 0, "section");
+      for (const sub of section.subsections) {
+        if (sub.accounts && sub.accounts.length > 0) {
+          pushRow(sub.label, pdfNeg(sub.total), 1, "subsection");
+          for (const acc of sub.accounts) {
+            const balance = acc.debit_balance !== undefined && acc.debit_balance > 0
+              ? acc.debit_balance
+              : acc.credit_balance !== undefined && acc.credit_balance > 0
+              ? acc.credit_balance
+              : acc.balance;
+            const label = acc.code ? `${acc.code} ${acc.name}` : acc.name;
+            pushRow(label, pdfNeg(balance), 2, "account");
+          }
+        } else {
+          pushRow(sub.label, pdfNeg(sub.total), 1, "subsection");
+        }
+      }
+      if (!isCapital) {
+        pushRow(`Total ${section.label}`, pdfNeg(section.total), 0, "total");
+      }
+    };
+
+    // Render all sections in order
+    const fixedAssets = bsData.sections.find(s => s.label === "Fixed Assets");
+    if (fixedAssets) renderSection(fixedAssets);
+
+    const currentAssets = bsData.sections.find(s => s.label === "Current Assets");
+    if (currentAssets) renderSection(currentAssets);
+
+    const creditors = bsData.sections.find(s => s.label === "Creditors: amounts falling due within one year");
+    if (creditors) renderSection(creditors);
+
+    // Computed rows
+    pushRow("Net Current Assets (Liabilities)", pdfNeg(bsData.computed.netCurrentAssets), 0, "computed");
+    pushRow("Total Assets less Current Liabilities", pdfNeg(bsData.computed.totalAssetsLessCurrentLiabilities), 0, "computed");
+    pushRow("Net Assets", pdfNeg(bsData.computed.netAssets), 0, "computed");
+
+    // Capital and Reserves
+    if (bsData.capitalAndReserves) {
+      renderSection(bsData.capitalAndReserves, true);
+      pushRow("Total Capital and Reserves", pdfNeg(bsData.capitalAndReserves.total), 0, "total");
+    }
+
+    // ── Render table ──
+    const autoTableBS = (doc as any).autoTable;
+    if (typeof autoTableBS !== "function") {
+      toast.error("PDF export plugin not available");
+      return;
+    }
+
+    autoTableBS.call(doc, {
+      startY: vStartY + 5,
+      head: [["", "Amount (USD)"]],
+      body: rows.map((r) => [
+        { content: r.label, styles: { textColor: r.style === "section" || r.style === "total" || r.style === "computed" ? [30, 41, 59] : r.style === "subsection" ? [100, 116, 139] : [71, 85, 105] } },
+        { content: r.amount, styles: { halign: "right", textColor: r.style === "section" || r.style === "total" || r.style === "computed" ? [30, 41, 59] : [71, 85, 105] } },
+      ]),
+      columns: [
+        { header: "", dataKey: "label" },
+        { header: "Amount (USD)", dataKey: "amount" },
+      ],
+      theme: "plain",
+      styles: {
+        fontSize: 8,
+        cellPadding: { top: 1.5, right: 3, bottom: 1.5, left: 3 },
+        fontStyle: "normal",
+        lineColor: [226, 232, 240],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [30, 64, 175],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 7,
+        halign: "right" as const,
+        cellPadding: { top: 2.5, right: 3, bottom: 2.5, left: 3 },
+      },
+      columnStyles: {
+        0: { cellPadding: (c: any) => {
+            const r = rows[c.row.index];
+            return { top: 1.5, right: 3, bottom: 1.5, left: 6 + r.depth * 6 };
+          }, fontStyle: (c: any) => {
+            const r = rows[c.row.index];
+            return (r.style === "section" || r.style === "total" || r.style === "computed") ? "bold" : "normal";
+          },
+          fontSize: (c: any) => {
+            const r = rows[c.row.index];
+            return r.style === "section" ? 8 : r.style === "subsection" ? 7 : 7.5;
+          },
+        },
+      },
+      margin: { left: 14, right: 14, bottom: 20 },
+      didParseCell: (data: any) => {
+        const r = rows[data.row.index];
+        if (!r) return;
+        // Section/total rows: top border
+        if (r.style === "section" || r.style === "total" || r.style === "computed") {
+          data.cell.styles.lineColor = [203, 213, 225];
+          data.cell.styles.lineWidth = 0.3;
+        }
+        // Double line before computed rows
+        if (r.style === "computed") {
+          data.cell.styles.lineColor = [148, 163, 184];
+          data.cell.styles.lineWidth = 0.6;
+          data.cell.styles.fillColor = [248, 250, 252];
+        }
+        // Section header fill
+        if (r.style === "section") {
+          data.cell.styles.fillColor = [241, 245, 249];
+        }
+        // Total fill
+        if (r.style === "total") {
+          data.cell.styles.fillColor = [248, 250, 252];
+        }
+      },
+    });
+
+    drawPdfFooter(doc);
+    doc.save("balance-sheet.pdf");
+    toast.success(`Balance Sheet downloaded as PDF`);
+  };
+
   // ── High-quality PDF Export (handles all report types) ──
   const exportPdf = async () => {
     try {
@@ -1354,6 +1529,15 @@ function ReportsPage() {
       // ── Specialized PDF exports for portfolio, aging, and debtors ──
       const logoBase64 = await getLogoBase64().catch(() => undefined);
 
+      if (tab === "balance-sheet") {
+        const bsUrl = fromDate && toDate
+          ? `/reports/balance-sheet?from=${toISODateString(fromDate)}&to=${toISODateString(toDate)}`
+          : `/reports/balance-sheet`;
+        const bsData = await api.get<import("@/components/balance-sheet").BalanceSheetData>(bsUrl);
+        if (!bsData) { toast.error("No balance sheet data to export"); return; }
+        await exportBalanceSheetPdf(bsData, fromDate ? toISODateString(fromDate) : undefined, toDate ? toISODateString(toDate) : undefined, logoBase64);
+        return;
+      }
       if (tab === "portfolio") {
         await exportPortfolioPdf(allData, logoBase64);
         return;
@@ -1430,14 +1614,14 @@ function ReportsPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={exportExcel}
-              disabled={isPnL ? !pnlData : filtered.length === 0}
+              disabled={isPnL ? !pnlData : isBalanceSheet ? false : filtered.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
             >
               <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
             </button>
             <button
               onClick={exportPdf}
-              disabled={isPnL ? !pnlData : filtered.length === 0}
+              disabled={isPnL ? !pnlData : isBalanceSheet ? false : filtered.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               <FileText className="h-3.5 w-3.5" /> PDF
@@ -1469,8 +1653,8 @@ function ReportsPage() {
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3 md:px-10">
         <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 
-        {isPnL ? (
-          /* ── P&L Period presets + Year/Quarter/Month dropdowns ── */
+        {isPnL || isBalanceSheet ? (
+          /* ── Period presets + Year/Quarter/Month dropdowns ── */
           <div className="flex flex-wrap items-center gap-1.5">
             {/* Quick presets */}
             {PERIOD_PRESETS.map((p) => (
@@ -1769,6 +1953,11 @@ function ReportsPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : isBalanceSheet ? (
+          <BalanceSheetView
+            fromDate={fromDate ? toISODateString(fromDate) : undefined}
+            toDate={toDate ? toISODateString(toDate) : undefined}
+          />
         ) : isPnL ? (
           pnlData ? (
             <PnLStatement data={pnlData} />

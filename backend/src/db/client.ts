@@ -48,6 +48,8 @@ export const TABLES = {
   ALERTS: `${p()}_alerts`,
   CREDIT_DEBIT_NOTES: `${p()}_credit_debit_notes`,
   PAYMENTS: `${p()}_payments`,
+  CHART_OF_ACCOUNTS: `${p()}_chart_of_accounts`,
+  JOURNAL_ENTRIES: `${p()}_journal_entries`,
 } as const;
 
 // ── Generic helpers ──

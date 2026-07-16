@@ -31,6 +31,7 @@ import { Route as AppBulkPaymentsRouteImport } from './routes/app.bulk-payments'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
+import { Route as AppAccountingRouteImport } from './routes/app.accounting'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -142,11 +143,17 @@ const AppAdminRoute = AppAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAccountingRoute = AppAccountingRouteImport.update({
+  id: '/accounting',
+  path: '/accounting',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/auth'
+    | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
@@ -246,6 +256,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/auth'
+    | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
@@ -270,6 +281,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/auth'
+    | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
@@ -454,10 +466,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/accounting': {
+      id: '/app/accounting'
+      path: '/accounting'
+      fullPath: '/app/accounting'
+      preLoaderRoute: typeof AppAccountingRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAccountingRoute: typeof AppAccountingRoute
   AppAdminRoute: typeof AppAdminRoute
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
@@ -479,6 +499,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAccountingRoute: AppAccountingRoute,
   AppAdminRoute: AppAdminRoute,
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
