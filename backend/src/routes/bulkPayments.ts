@@ -320,15 +320,18 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with party names (debtors + suppliers)
+    // Enrich with party names (debtors + vendors)
     const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS);
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d.name]));
+    const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS);
+    const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));
+    // Keep legacy supplier prefix for backward compatibility with old records
     const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS);
     const supplierMap = new Map(allSuppliers.map((s) => [`supplier_${s.id}`, s.company_name]));
 
     const enriched = filtered.map((p) => ({
       ...p,
-      debtor_name: debtorMap.get(p.debtor_id) ?? supplierMap.get(p.debtor_id) ?? "Unknown",
+      debtor_name: debtorMap.get(p.debtor_id) ?? vendorMap.get(p.debtor_id) ?? supplierMap.get(p.debtor_id) ?? "Unknown",
     }));
 
     // Calculate totals
@@ -431,7 +434,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       return;
     }
 
-    const isSupplierPayment = payment.debtor_id?.startsWith("supplier_");
+    const isSupplierPayment = payment.debtor_id?.startsWith("supplier_") || payment.debtor_id?.startsWith("vendor_");
     const reversedInvoices: string[] = [];
     const reversalErrors: Array<{ id: string; error: string }> = [];
     const restoredCreditNotes: string[] = [];
@@ -546,7 +549,7 @@ async function partiallyPayPurchaseInvoice(inv: PurchaseInvoice, amount: number,
 
 // ── POST /api/bulk-payments/process-purchase ──
 const processPurchaseSchema = z.object({
-  supplier_id: z.string().min(1),
+  vendor_id: z.string().min(1),
   payment_date: z.string().min(1),
   amount: z.number().positive(),
   use_balance: z.boolean().optional().default(false),
@@ -560,20 +563,10 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     const parsed = processPurchaseSchema.parse(req.body);
     const now = nowISO();
 
-    // ── 1. Look up supplier and find matching vendor ──
-    const supplier = await getItem(TABLES.SUPPLIERS, { id: parsed.supplier_id }) as Supplier | undefined;
-    if (!supplier) {
-      res.status(404).json({ error: "Supplier not found" });
-      return;
-    }
-
-    // Find vendors whose name matches the supplier's company_name (case-insensitive)
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const matchedVendor = allVendors.find(
-      (v) => v.name.toLowerCase().trim() === supplier.company_name.toLowerCase().trim()
-    );
-    if (!matchedVendor) {
-      res.status(404).json({ error: `No vendor found matching supplier "${supplier.company_name}"` });
+    // ── 1. Look up vendor directly ──
+    const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
+    if (!vendor) {
+      res.status(404).json({ error: "Vendor not found" });
       return;
     }
 
@@ -582,12 +575,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     let consumedOldPayments: PaymentRecord[] = [];
 
     if (parsed.use_balance) {
-      // Supplier balance tracking uses same PAYMENTS table with supplier_id stored in debtor_id field
-      // This allows the same balance tracking infrastructure
+      // Balance tracking uses PAYMENTS table with vendor_id stored in debtor_id field
       const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
         filterExpression: "debtor_id = :did AND #remaining > :zero",
         expressionAttributeNames: { "#remaining": "remaining" },
-        expressionAttributeValues: { ":did": `supplier_${parsed.supplier_id}`, ":zero": 0 },
+        expressionAttributeValues: { ":did": `vendor_${parsed.vendor_id}`, ":zero": 0 },
       });
       consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
@@ -598,7 +590,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
     const eligiblePiStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
     let openPurchaseInvoices = allPurchaseInvoices
-      .filter((pi) => pi.vendor_id === matchedVendor.id && eligiblePiStatuses.has(pi.status))
+      .filter((pi) => pi.vendor_id === vendor.id && eligiblePiStatuses.has(pi.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
 
     // ── 4. Process by mode ──
@@ -725,7 +717,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
-      debtor_id: `supplier_${parsed.supplier_id}`,
+      debtor_id: `vendor_${parsed.vendor_id}`,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
@@ -753,7 +745,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         client_id: req.user!.id,
         type: "payment_received",
         severity: "info",
-        message: `Supplier bulk payment of ${fmtMoneyShort(parsed.amount)} to "${supplier.company_name}" — ${closed.length} purchase invoices closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining: ${fmtMoneyShort(remainingAfterProcessing)}`,
+        message: `Supplier bulk payment of ${fmtMoneyShort(parsed.amount)} to "${vendor.name}" — ${closed.length} purchase invoices closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining: ${fmtMoneyShort(remainingAfterProcessing)}`,
         created_by: req.user!.id,
       });
     }
@@ -762,7 +754,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       payment_id: paymentRecord.id,
       amount: parsed.amount,
       remaining: remainingAfterProcessing,
-      supplier_name: supplier.company_name,
+      supplier_name: vendor.name,
       closed,
       partially_paid: partiallyPaid,
       skipped,
@@ -779,13 +771,13 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
   }
 });
 
-// ── GET /api/bulk-payments/purchase-balance/:supplierId ──
-router.get("/purchase-balance/:supplierId", requireAuth, async (req: AuthRequest, res: Response) => {
+// ── GET /api/bulk-payments/purchase-balance/:vendorId ──
+router.get("/purchase-balance/:vendorId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
       filterExpression: "debtor_id = :did AND #remaining > :zero",
       expressionAttributeNames: { "#remaining": "remaining" },
-      expressionAttributeValues: { ":did": `supplier_${req.params.supplierId}`, ":zero": 0 },
+      expressionAttributeValues: { ":did": `vendor_${req.params.vendorId}`, ":zero": 0 },
     });
     const totalRemaining = payments.reduce((s, p) => s + Number(p.remaining), 0);
     res.json({ total_remaining: totalRemaining, payment_count: payments.length });

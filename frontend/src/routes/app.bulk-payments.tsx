@@ -36,7 +36,7 @@ interface DebtorInfo {
 
 interface SupplierInfo {
   id: string;
-  company_name: string;
+  name: string;
   industry?: string | null;
 }
 
@@ -255,8 +255,8 @@ function BulkPaymentsPage() {
   });
 
   const suppliersQ = useQuery({
-    queryKey: ["suppliers"],
-    queryFn: async () => (await api.get<SupplierInfo[]>("/suppliers")) ?? [],
+    queryKey: ["vendors"],
+    queryFn: async () => (await api.get<SupplierInfo[]>("/vendors")) ?? [],
   });
 
   // ── Payment history (lazy-loaded when card is opened) ──
@@ -318,16 +318,9 @@ function BulkPaymentsPage() {
     enabled: !!selectedSupplierId && isSupplier,
     queryFn: async (): Promise<PurchaseInvoiceInfo[]> => {
       const all = await api.get<any[]>("/purchase-invoices") ?? [];
-      // Find vendor that matches this supplier by name (done on backend, but we filter client-side too)
-      const supplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
-      if (!supplier) return [];
-
+      // Match purchase invoices by vendor_id (direct match, no cross-table lookup needed)
       return all
-        .filter((i: any) => {
-          const vendorName = i.vendor?.name ?? "";
-          const match = vendorName.toLowerCase().trim() === supplier.company_name.toLowerCase().trim();
-          return match && i.status !== "paid" && i.status !== "rejected" && i.status !== "disputed";
-        })
+        .filter((i: any) => i.vendor_id === selectedSupplierId && i.status !== "paid" && i.status !== "rejected" && i.status !== "disputed")
         .map((i: any) => ({
           id: i.id,
           invoice_number: i.invoice_number,
@@ -360,7 +353,7 @@ function BulkPaymentsPage() {
       let partyName: string | undefined;
       if (isSupplier) {
         const supplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
-        partyName = supplier?.company_name;
+        partyName = supplier?.name;
       } else {
         const debtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
         partyName = debtor?.name;
@@ -408,7 +401,7 @@ function BulkPaymentsPage() {
 
   const selectedDebtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
   const selectedSupplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
-  const selectedPartyName = isSupplier ? selectedSupplier?.company_name : selectedDebtor?.name;
+  const selectedPartyName = isSupplier ? selectedSupplier?.name : selectedDebtor?.name;
 
   // ── Handlers ──
   const resetSelections = () => {
@@ -464,7 +457,7 @@ function BulkPaymentsPage() {
 
       if (isSupplier) {
         const res = await api.post<PaymentResult>("/bulk-payments/process-purchase", {
-          supplier_id: selectedSupplierId,
+          vendor_id: selectedSupplierId,
           payment_date: paymentDate,
           amount: numericAmount,
           use_balance: useBalance,
@@ -617,7 +610,7 @@ function BulkPaymentsPage() {
                   <option value="" disabled>Select a supplier…</option>
                   {(suppliersQ.data ?? []).map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.company_name}{s.industry ? ` — ${s.industry}` : ""}
+                      {s.name}{s.industry ? ` — ${s.industry}` : ""}
                     </option>
                   ))}
                 </select>
@@ -1149,7 +1142,7 @@ function BulkPaymentsPage() {
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                   {(suppliersQ.data ?? []).map((s) => (
-                    <option key={s.id} value={`supplier_${s.id}`}>{s.company_name}</option>
+                    <option key={s.id} value={`vendor_${s.id}`}>{s.name}</option>
                   ))}
                 </select>
                 <div className="text-xs text-muted-foreground">
