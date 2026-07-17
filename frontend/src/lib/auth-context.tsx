@@ -81,15 +81,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Heartbeat ping ──
   // Send a periodic ping to update the user's last_seen_at timestamp
+  // Frequent pings give other admins near-real-time online status
+  const sendPing = async () => {
+    try {
+      await api.post("/auth/ping");
+    } catch {
+      // Silently ignore ping failures
+    }
+  };
+
   const startPing = () => {
     stopPing();
-    pingIntervalRef.current = setInterval(async () => {
-      try {
-        await api.post("/auth/ping");
-      } catch {
-        // Silently ignore ping failures
-      }
-    }, 60_000); // Every 60 seconds
+    // Send first ping immediately so the user shows Online right away
+    sendPing();
+    pingIntervalRef.current = setInterval(sendPing, 10_000); // Every 10 seconds
   };
 
   const stopPing = () => {
@@ -139,6 +144,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const handleSignOut = async () => {
+    // Send a final ping so other users see this user as "Offline" instantly
+    try {
+      await api.post("/auth/ping");
+    } catch {
+      // Best-effort
+    }
     stopPing();
     qc.clear();
     clearToken();

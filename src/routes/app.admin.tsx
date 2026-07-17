@@ -33,6 +33,7 @@ function AdminPage() {
       return data ?? [];
     },
     enabled: isAdmin,
+    refetchInterval: 10_000, // Auto-refresh every 10s for live online status
   });
 
   const rolesQ = useQuery({

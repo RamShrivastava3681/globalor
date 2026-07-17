@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { api, getToken, setToken, clearToken } from "./api-client";
@@ -39,6 +39,7 @@ type AuthState = {
   roles: AppRole[];
   loading: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isTreasury: boolean;
   isChecker: boolean;
   isOperations: boolean;
@@ -58,6 +59,7 @@ type MeResponse = {
   company_name: string;
   contact_name: string | null;
   roles: AppRole[];
+  is_super_admin?: boolean;
 };
 
 async function fetchMe(): Promise<MeResponse | null> {
@@ -71,16 +73,43 @@ async function fetchMe(): Promise<MeResponse | null> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const qc = useQueryClient();
   const router = useRouter();
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Heartbeat ping ──
+  // Send a periodic ping to update the user's last_seen_at timestamp
+  const sendPing = async () => {
+    try {
+      await api.post("/auth/ping");
+    } catch {
+      // Silently ignore ping failures
+    }
+  };
+
+  const startPing = () => {
+    stopPing();
+    sendPing(); // Send immediately
+    pingIntervalRef.current = setInterval(sendPing, 10_000);
+  };
+
+  const stopPing = () => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+  };
 
   const loadSession = async () => {
     const token = getToken();
     if (!token) {
       setUser(null);
       setRoles([]);
+      setIsSuperAdmin(false);
       setLoading(false);
+      stopPing();
       return;
     }
 
@@ -88,16 +117,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (me) {
       setUser({ id: me.id, email: me.email });
       setRoles(me.roles);
+      setIsSuperAdmin(!!me.is_super_admin);
+      startPing();
     } else {
       clearToken();
       setUser(null);
       setRoles([]);
+      setIsSuperAdmin(false);
+      stopPing();
     }
     setLoading(false);
   };
 
   useEffect(() => {
     loadSession();
+    return () => stopPing();
   }, []);
 
   const refreshRoles = async () => {
@@ -108,6 +142,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const handleSignOut = async () => {
+    // Send a final ping so other users see this user as offline instantly
+    try {
+      await api.post("/auth/ping");
+    } catch {
+      // Best-effort
+    }
+    stopPing();
     qc.clear();
     clearToken();
     setUser(null);
@@ -142,15 +183,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     roles,
     loading,
     isAdmin,
+    isSuperAdmin,
     isTreasury,
     isChecker,
     isOperations,
     isViewer,
     isClient,
     canWrite,
-  refreshRoles,
-  refreshSession,
-  signOut: handleSignOut,
+    refreshRoles,
+    refreshSession,
+    signOut: handleSignOut,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

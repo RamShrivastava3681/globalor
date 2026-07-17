@@ -10,7 +10,7 @@ export const Route = createFileRoute("/app")({
 });
 
 function AppLayout() {
-  const { user, loading, isAdmin, isTreasury, isChecker, isOperations, isViewer, signOut } = useAuth();
+  const { user, loading, isAdmin, isTreasury, isChecker, isOperations, isViewer, isSuperAdmin, signOut } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -102,7 +102,7 @@ function AppLayout() {
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
-        ...(isAdmin ? [{ to: "/app/admin", label: "Operations", icon: Shield }] : []),
+        ...(isSuperAdmin ? [{ to: "/app/admin", label: "Operations", icon: Shield }] : []),
         { to: "/app/settings", label: "Settings", icon: Settings },
       ];
 

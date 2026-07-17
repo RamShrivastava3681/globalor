@@ -28,6 +28,25 @@ const AVAILABLE_ROLES = [
 ] as const;
 
 // ── Helpers for online status ──
+function formatTime(date: Date): string {
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const isThisYear = date.getFullYear() === now.getFullYear();
+
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+
+  if (isToday) {
+    return time;
+  }
+
+  const dateStr = date.toLocaleDateString([], { month: "short", day: "numeric" });
+  if (isThisYear) {
+    return `${dateStr}, ${time}`;
+  }
+
+  return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}, ${time}`;
+}
+
 function getOnlineStatus(lastSeenAt: string | null): { label: string; color: string; dotColor: string } {
   if (!lastSeenAt) {
     return { label: "Never seen", color: "text-muted-foreground", dotColor: "bg-muted-foreground" };
@@ -37,26 +56,14 @@ function getOnlineStatus(lastSeenAt: string | null): { label: string; color: str
   const lastSeen = new Date(lastSeenAt).getTime();
   const diffMinutes = (now - lastSeen) / (1000 * 60);
 
+  // Show "Online" with green dot for users active in the last 5 minutes
   if (diffMinutes < 5) {
     return { label: "Online", color: "text-emerald-600", dotColor: "bg-emerald-500" };
   }
-  if (diffMinutes < 15) {
-    return { label: "Away", color: "text-amber-600", dotColor: "bg-amber-500" };
-  }
 
-  // Format relative time
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-  let timeAgo: string;
-  if (diffDays > 0) {
-    timeAgo = `${diffDays}d ago`;
-  } else if (diffHours > 0) {
-    timeAgo = `${diffHours}h ago`;
-  } else {
-    timeAgo = `${Math.floor(diffMinutes)}m ago`;
-  }
-
-  return { label: `Seen ${timeAgo}`, color: "text-muted-foreground", dotColor: "bg-muted-foreground/50" };
+  // For everyone else, show the actual last seen timestamp
+  const formatted = formatTime(new Date(lastSeenAt));
+  return { label: `Seen ${formatted}`, color: "text-muted-foreground", dotColor: "bg-muted-foreground/50" };
 }
 
 function AdminPage() {
@@ -93,6 +100,7 @@ function AdminPage() {
       return data ?? [];
     },
     enabled: isAdmin,
+    refetchInterval: 10_000, // Auto-refresh every 10s for live online status
   });
 
   const rolesQ = useQuery({

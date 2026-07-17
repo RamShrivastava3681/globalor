@@ -20,7 +20,7 @@ const ALL_ROLES = [
 ] as const;
 
 function SettingsPage() {
-  const { user, isAdmin, refreshRoles } = useAuth();
+  const { user, isAdmin, isSuperAdmin, refreshRoles } = useAuth();
   const [profile, setProfile] = useState({ company_name: "", contact_name: "" });
   const [loading, setLoading] = useState(false);
 
@@ -39,9 +39,9 @@ function SettingsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isSuperAdmin) return;
     loadUsers();
-  }, [isAdmin]);
+  }, [isSuperAdmin]);
 
   const loadUsers = async () => {
     try {
@@ -137,8 +137,8 @@ function SettingsPage() {
           </div>
         </Card>
 
-        {/* Admin: User management */}
-        {isAdmin && (
+        {/* Super admin: User management */}
+        {isSuperAdmin && (
           <div className="md:col-span-2">
             <Card title="User management">
               <div className="space-y-4">
