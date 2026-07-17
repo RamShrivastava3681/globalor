@@ -157,14 +157,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Receivable",
           total: accountsReceivable,
-          accounts: outstandingInvoices.map((inv: any) => ({
-            id: inv.id,
-            code: inv.invoice_number || `INV-${inv.id.slice(-8)}`,
-            name: inv.buyer_name || `Invoice ${inv.id.slice(-8)}`,
-            balance: Number(inv.amount) - (Number(inv.amount_received) || 0),
-            debit_balance: Number(inv.amount) - (Number(inv.amount_received) || 0),
-            credit_balance: 0,
-          })),
+          accounts: [],
         },
         {
           label: "Other Current Assets",
@@ -234,14 +227,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Payable",
           total: accountsPayable,
-          accounts: outstandingPurchases.map((pi: any) => ({
-            id: pi.id,
-            code: pi.invoice_number || `PI-${pi.id.slice(-8)}`,
-            name: pi.supplier_name || `Purchase Invoice ${pi.id.slice(-8)}`,
-            balance: Number(pi.amount),
-            debit_balance: 0,
-            credit_balance: Number(pi.amount),
-          })),
+          accounts: [],
         },
         {
           label: "Advance received from Customers",
@@ -411,10 +397,16 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // Merge manual items into Current Assets
     mergeManualIntoSubsection(currentAssetsSection, "Cash at bank and in hand", "cash_bank");
     mergeManualIntoSubsection(currentAssetsSection, "Accounts Receivable", "accounts_receivable");
+    // Don't show individual line items for Accounts Receivable
+    const arSub = currentAssetsSection.subsections.find((s: any) => s.label === "Accounts Receivable");
+    if (arSub) arSub.accounts = [];
     mergeManualIntoSubsection(currentAssetsSection, "Other Current Assets", "other_current_asset");
 
     // Merge manual items into Creditors
     mergeManualIntoSubsection(currentLiabilitiesSection, "Accounts Payable", "accounts_payable");
+    // Don't show individual line items for Accounts Payable
+    const apSub = currentLiabilitiesSection.subsections.find((s: any) => s.label === "Accounts Payable");
+    if (apSub) apSub.accounts = [];
     mergeManualIntoSubsection(currentLiabilitiesSection, "Advance received from Customers", "customer_advance");
     mergeManualIntoSubsection(currentLiabilitiesSection, "Rounding", "rounding");
     mergeManualIntoSubsection(currentLiabilitiesSection, "Other Current Liabilities", "other_current_liability");
