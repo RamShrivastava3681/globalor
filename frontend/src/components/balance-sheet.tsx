@@ -905,17 +905,19 @@ function SectionBlock({
               <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
               {sub.label}
             </span>
-            {sub.accounts.length > 0 && (
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                {fmtNeg(sub.total)}
-              </span>
-            )}
+            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+              {fmtNeg(sub.total)}
+            </span>
           </div>
 
           {/* Account Lines */}
           {sub.accounts.length === 0 ? (
             <div className="border-t border-border/10 px-10 py-2.5 text-xs italic text-muted-foreground/40">
-              No accounts in this category
+              {sub.label === "Accounts Receivable"
+                ? "Auto-calculated from outstanding sales invoices"
+                : sub.label === "Accounts Payable"
+                ? "Auto-calculated from outstanding purchase invoices"
+                : "No accounts in this category"}
             </div>
           ) : (
             <div className="divide-y divide-border/5">

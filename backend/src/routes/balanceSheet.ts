@@ -396,14 +396,13 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     // Merge manual items into Current Assets
     mergeManualIntoSubsection(currentAssetsSection, "Cash at bank and in hand", "cash_bank");
-    mergeManualIntoSubsection(currentAssetsSection, "Accounts Receivable", "accounts_receivable");
+    // Accounts Receivable and Accounts Payable are auto-calculated from invoices — no manual items allowed
     // Don't show individual line items for Accounts Receivable
     const arSub = currentAssetsSection.subsections.find((s: any) => s.label === "Accounts Receivable");
     if (arSub) arSub.accounts = [];
     mergeManualIntoSubsection(currentAssetsSection, "Other Current Assets", "other_current_asset");
 
     // Merge manual items into Creditors
-    mergeManualIntoSubsection(currentLiabilitiesSection, "Accounts Payable", "accounts_payable");
     // Don't show individual line items for Accounts Payable
     const apSub = currentLiabilitiesSection.subsections.find((s: any) => s.label === "Accounts Payable");
     if (apSub) apSub.accounts = [];

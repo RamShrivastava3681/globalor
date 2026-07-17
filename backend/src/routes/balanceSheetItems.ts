@@ -9,8 +9,6 @@ const router = Router();
 export const BALANCE_SHEET_SECTIONS = [
   "tangible_asset",
   "cash_bank",
-  "accounts_receivable",
-  "accounts_payable",
   "customer_advance",
   "rounding",
   "share_capital",
@@ -25,8 +23,6 @@ export type BalanceSheetSection = (typeof BALANCE_SHEET_SECTIONS)[number];
 const SECTION_LABELS: Record<BalanceSheetSection, string> = {
   tangible_asset: "Tangible Assets",
   cash_bank: "Cash at bank and in hand",
-  accounts_receivable: "Accounts Receivable",
-  accounts_payable: "Accounts Payable",
   customer_advance: "Advance received from Customers",
   rounding: "Rounding",
   share_capital: "Share Capital",

@@ -13,8 +13,6 @@ import { toast } from "sonner";
 const BALANCE_SHEET_SECTIONS = [
   "tangible_asset",
   "cash_bank",
-  "accounts_receivable",
-  "accounts_payable",
   "customer_advance",
   "rounding",
   "share_capital",
@@ -29,8 +27,6 @@ type BalanceSheetSection = (typeof BALANCE_SHEET_SECTIONS)[number];
 const SECTION_LABELS: Record<BalanceSheetSection, string> = {
   tangible_asset: "Tangible Assets",
   cash_bank: "Cash at bank and in hand",
-  accounts_receivable: "Accounts Receivable",
-  accounts_payable: "Accounts Payable",
   customer_advance: "Advance received from Customers",
   rounding: "Rounding",
   share_capital: "Share Capital",
@@ -66,9 +62,7 @@ interface BalanceSheetItem {
 const SECTION_TO_SUBSECTION: Record<string, { sectionLabel: string; subsectionLabel: string }> = {
   tangible_asset: { sectionLabel: "Fixed Assets", subsectionLabel: "Tangible Assets" },
   cash_bank: { sectionLabel: "Current Assets", subsectionLabel: "Cash at bank and in hand" },
-  accounts_receivable: { sectionLabel: "Current Assets", subsectionLabel: "Accounts Receivable" },
   other_current_asset: { sectionLabel: "Current Assets", subsectionLabel: "Other Current Assets" },
-  accounts_payable: { sectionLabel: "Creditors: amounts falling due within one year", subsectionLabel: "Accounts Payable" },
   customer_advance: { sectionLabel: "Creditors: amounts falling due within one year", subsectionLabel: "Advance received from Customers" },
   rounding: { sectionLabel: "Creditors: amounts falling due within one year", subsectionLabel: "Rounding" },
   other_current_liability: { sectionLabel: "Creditors: amounts falling due within one year", subsectionLabel: "Other Current Liabilities" },
@@ -535,6 +529,48 @@ function EditorSectionBlock({
             const hasAuto = autoAccounts.length > 0;
             const hasManual = manualSubItems.length > 0;
 
+            // Auto-calculated sections (AR/AP) — read-only total only
+            const isAutoCalculated =
+              sub.label === "Accounts Receivable" || sub.label === "Accounts Payable";
+
+            if (isAutoCalculated) {
+              return (
+                <div key={idx} className="space-y-2">
+                  <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {sub.label}
+                      </span>
+                      {/* Read-only badge */}
+                      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wider text-blue-600 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400">
+                        Auto-calculated
+                      </span>
+                    </div>
+                    <span className="text-sm font-bold num">{fmtNeg(sub.total)}</span>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-blue-50/20 p-3 dark:border-blue-900 dark:bg-blue-950/10">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900">
+                        <svg className="h-4 w-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-foreground">
+                          {sub.label === "Accounts Receivable"
+                            ? "Auto-calculated from outstanding sales invoices"
+                            : "Auto-calculated from outstanding purchase invoices"}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          This value is automatically computed and cannot be manually edited
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={idx} className="space-y-2 group/subsection">
                 {/* Subsection Label */}
@@ -782,8 +818,6 @@ function ManualEntryForm({
   const sectionAccountTypes: Record<BalanceSheetSection, string[]> = {
     tangible_asset: ["fixed_asset"],
     cash_bank: ["bank", "cash", "petty_cash"],
-    accounts_receivable: ["current_asset"],
-    accounts_payable: ["current_liability"],
     customer_advance: ["current_liability"],
     rounding: ["current_liability"],
     share_capital: ["share_capital"],
