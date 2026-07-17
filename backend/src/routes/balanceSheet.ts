@@ -157,7 +157,14 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Receivable",
           total: accountsReceivable,
-          accounts: [],
+          accounts: outstandingInvoices.map((inv: any) => ({
+            id: inv.id,
+            code: inv.invoice_number || `INV-${inv.id.slice(-8)}`,
+            name: inv.buyer_name || `Invoice ${inv.id.slice(-8)}`,
+            balance: Number(inv.amount) - (Number(inv.amount_received) || 0),
+            debit_balance: Number(inv.amount) - (Number(inv.amount_received) || 0),
+            credit_balance: 0,
+          })),
         },
         {
           label: "Other Current Assets",
@@ -227,7 +234,14 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         {
           label: "Accounts Payable",
           total: accountsPayable,
-          accounts: [],
+          accounts: outstandingPurchases.map((pi: any) => ({
+            id: pi.id,
+            code: pi.invoice_number || `PI-${pi.id.slice(-8)}`,
+            name: pi.supplier_name || `Purchase Invoice ${pi.id.slice(-8)}`,
+            balance: Number(pi.amount),
+            debit_balance: 0,
+            credit_balance: Number(pi.amount),
+          })),
         },
         {
           label: "Advance received from Customers",

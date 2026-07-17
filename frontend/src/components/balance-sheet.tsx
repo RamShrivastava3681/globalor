@@ -2,10 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Loader2, Scale, AlertTriangle, Check, X, ArrowRight, ExternalLink, FolderOpen } from "lucide-react";
+import {
+  Loader2, Scale, AlertTriangle, Check, X, ArrowRight, ExternalLink,
+  FolderOpen, Banknote, Users, Building2, Landmark, PieChart,
+  ChevronRight
+} from "lucide-react";
 
 export interface BalanceSheetData {
   report_date: string;
+  from?: string;
+  to?: string;
   sections: Array<{
     label: string;
     total: number;
@@ -159,39 +165,99 @@ export function BalanceSheetView({
 
   const d = data;
 
+  // ── Compute accounting equation ──
+  const eqTotalLiabilitiesEquity = d.verification.totalLiabilities + d.verification.totalEquity;
+  const accountingDiff = Math.abs(d.verification.totalAssets - eqTotalLiabilitiesEquity);
+  const isAccountingBalanced = accountingDiff < 0.01;
+
   return (
     <div className="space-y-6">
+      {/* Report Header */}
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">
+            Balance Sheet
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            As at{' '}
+            <span className="font-medium text-foreground">
+              {d.report_date}
+            </span>
+            {d.from && (
+              <span className="ml-2 text-xs">
+                (from {d.from}{d.to ? ` to ${d.to}` : ''})
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+
       {/* Verification Banner */}
       {d.verification.isBalanced ? (
-        <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-800 dark:bg-emerald-950">
-          <Check className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-          <span className="font-medium text-emerald-800 dark:text-emerald-300">
-            Balance Sheet is in balance
-          </span>
-          <span className="text-emerald-600/60 dark:text-emerald-400/60">
-            · Assets ${d.verification.totalAssets.toLocaleString()} = Liabilities $
-            {d.verification.totalLiabilities.toLocaleString()} + Equity $
-            {d.verification.totalEquity.toLocaleString()}
-          </span>
+        <div className="group relative overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-50/50 px-5 py-4 dark:border-emerald-800 dark:from-emerald-950 dark:to-emerald-950/50">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-200/20 via-transparent to-transparent dark:from-emerald-800/20" />
+          <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900">
+                <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              </span>
+              <div>
+                <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                  In Balance
+                </span>
+                <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70">
+                  The accounting equation holds
+                </p>
+              </div>
+            </div>
+            <div className="hidden sm:block h-8 w-px bg-emerald-200 dark:bg-emerald-800" />
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span className="text-emerald-700 dark:text-emerald-300">
+                <span className="text-emerald-500">Assets</span>{' '}
+                <span className="font-semibold num">{fmtMoney(d.verification.totalAssets)}</span>
+              </span>
+              <span className="text-emerald-600/60 dark:text-emerald-400/60">=</span>
+              <span className="text-emerald-700 dark:text-emerald-300">
+                <span className="text-emerald-500">Liabilities</span>{' '}
+                <span className="font-semibold num">{fmtMoney(d.verification.totalLiabilities)}</span>
+              </span>
+              <span className="text-emerald-600/60 dark:text-emerald-400/60">+</span>
+              <span className="text-emerald-700 dark:text-emerald-300">
+                <span className="text-emerald-500">Equity</span>{' '}
+                <span className="font-semibold num">{fmtMoney(d.verification.totalEquity)}</span>
+              </span>
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm dark:border-rose-800 dark:bg-rose-950">
-          <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-          <span className="font-medium text-rose-800 dark:text-rose-300">
-            Out of balance by {fmtMoney(Math.abs(d.verification.difference))}
-          </span>
+        <div className="rounded-xl border border-rose-200 bg-gradient-to-r from-rose-50 to-rose-50/50 px-5 py-4 dark:border-rose-800 dark:from-rose-950 dark:to-rose-950/50">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-900">
+              <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+            </span>
+            <div>
+              <span className="font-semibold text-rose-800 dark:text-rose-300">
+                Out of Balance
+              </span>
+              <p className="text-xs text-rose-600/70 dark:text-rose-400/70">
+                Difference of {fmtMoney(Math.abs(d.verification.difference))}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Main Sections */}
-      <Card>
-        <div className="space-y-0">
+      <Card className="overflow-hidden">
+        <div className="divide-y divide-border/60">
           {/* Fixed Assets */}
           {(() => {
             const sec = d.sections.find(s => s.label === "Fixed Assets");
             return sec ? (
               <SectionBlock
                 section={sec}
+                accentColor="border-l-blue-500"
+                icon={Building2}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
                   const ids = collectSectionAccountIds(sec);
@@ -201,14 +267,14 @@ export function BalanceSheetView({
             ) : null;
           })()}
 
-          <div className="border-t border-border/60" />
-
           {/* Current Assets */}
           {(() => {
             const sec = d.sections.find(s => s.label === "Current Assets");
             return sec ? (
               <SectionBlock
                 section={sec}
+                accentColor="border-l-sky-500"
+                icon={Banknote}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
                   const ids = collectSectionAccountIds(sec);
@@ -218,14 +284,14 @@ export function BalanceSheetView({
             ) : null;
           })()}
 
-          <div className="border-t border-border/60" />
-
           {/* Creditors: amounts falling due within one year */}
           {(() => {
             const sec = d.sections.find(s => s.label === "Creditors: amounts falling due within one year");
             return sec ? (
               <SectionBlock
                 section={sec}
+                accentColor="border-l-amber-500"
+                icon={Users}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
                   const ids = collectSectionAccountIds(sec);
@@ -235,14 +301,13 @@ export function BalanceSheetView({
             ) : null;
           })()}
 
+          {/* Inter computed rows */}
           <div className="border-t-2 border-border" />
 
-          {/* Net Current Assets (Liabilities) */}
           <ComputedRow
             label="Net Current Assets (Liabilities)"
             value={d.computed.netCurrentAssets}
             onClick={() => {
-              // Show all accounts from current assets + creditors
               const ca = d.sections.find(s => s.label === "Current Assets");
               const cl = d.sections.find(s => s.label === "Creditors: amounts falling due within one year");
               const ids = [
@@ -255,13 +320,11 @@ export function BalanceSheetView({
 
           <div className="border-t-2 border-border" />
 
-          {/* Total Assets less Current Liabilities */}
           <ComputedRow
             label="Total Assets less Current Liabilities"
             value={d.computed.totalAssetsLessCurrentLiabilities}
             bold
             onClick={() => {
-              // Show all accounts from ALL sections
               const allIds: string[] = [];
               for (const sec of d.sections) {
                 allIds.push(...collectSectionAccountIds(sec));
@@ -272,14 +335,12 @@ export function BalanceSheetView({
 
           <div className="border-t-2 border-border" />
 
-          {/* Net Assets */}
           <ComputedRow
             label="Net Assets"
             value={d.computed.netAssets}
             bold
             doubleTop
             onClick={() => {
-              // Same as total assets less current liabilities
               const allIds: string[] = [];
               for (const sec of d.sections) {
                 allIds.push(...collectSectionAccountIds(sec));
@@ -296,6 +357,8 @@ export function BalanceSheetView({
             return sec ? (
               <SectionBlock
                 section={sec}
+                accentColor="border-l-emerald-500"
+                icon={Landmark}
                 isCapital
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
@@ -308,7 +371,6 @@ export function BalanceSheetView({
 
           <div className="border-t-2 border-border" />
 
-          {/* Total Capital and Reserves */}
           <ComputedRow
             label="Total Capital and Reserves"
             value={d.capitalAndReserves.total}
@@ -320,6 +382,63 @@ export function BalanceSheetView({
           />
         </div>
       </Card>
+
+      {/* Accounting Equation Summary */}
+      <div className="rounded-xl border border-border bg-card px-5 py-4">
+        <div className="flex items-center gap-2 mb-3">
+          <PieChart className="h-4 w-4 text-primary" />
+          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Accounting Equation
+          </h4>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border-l-4 border-l-blue-500 bg-blue-50/50 px-4 py-3 dark:bg-blue-950/20">
+            <div className="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400">
+              Total Assets
+            </div>
+            <div className="mt-1 text-lg font-bold tabular-nums text-blue-700 dark:text-blue-300">
+              {fmtMoney(d.verification.totalAssets)}
+            </div>
+          </div>
+          <div className="flex items-center justify-center text-lg text-muted-foreground">
+            <span className="text-2xl font-light">=</span>
+          </div>
+          <div className="space-y-2">
+            <div className="rounded-lg border-l-4 border-l-amber-500 bg-amber-50/50 px-4 py-2.5 dark:bg-amber-950/20">
+              <div className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                Total Liabilities
+              </div>
+              <div className="mt-0.5 text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">
+                {fmtMoney(d.verification.totalLiabilities)}
+              </div>
+            </div>
+            <div className="flex items-center justify-center text-xs text-muted-foreground">
+              <span className="font-medium">+</span>
+            </div>
+            <div className="rounded-lg border-l-4 border-l-emerald-500 bg-emerald-50/50 px-4 py-2.5 dark:bg-emerald-950/20">
+              <div className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                Total Equity
+              </div>
+              <div className="mt-0.5 text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                {fmtMoney(d.verification.totalEquity)}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-3 text-[10px] text-muted-foreground">
+          {isAccountingBalanced ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-500" />
+              <span>Assets = Liabilities + Equity — the balance sheet is consistent</span>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="h-3 w-3 text-rose-500" />
+              <span>Difference: {fmtMoney(accountingDiff)}</span>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Account Drill-down Modal */}
       {drillDownAccount && (
@@ -735,6 +854,8 @@ function AccountTransactionsModal({
 
 function SectionBlock({
   section,
+  accentColor = "border-l-muted-foreground",
+  icon: Icon,
   isCapital,
   onAccountClick,
   onTotalClick,
@@ -755,32 +876,37 @@ function SectionBlock({
       }>;
     }>;
   };
+  accentColor?: string;
+  icon?: React.ComponentType<{ className?: string }>;
   isCapital?: boolean;
   onAccountClick?: (accountId: string) => void;
   onTotalClick?: () => void;
 }) {
   const hasAccounts = section.subsections.some((sub) => sub.accounts.length > 0);
+  const IconComp = Icon || FolderOpen;
 
   return (
-    <div>
+    <div className={`border-l-4 ${accentColor}`}>
       {/* Section Title */}
-      <div className="flex items-center justify-between bg-muted/30 px-6 py-3">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">
+      <div className="flex items-center justify-between bg-gradient-to-r from-muted/40 to-transparent px-6 py-3.5">
+        <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground">
+          <IconComp className="h-4 w-4 text-muted-foreground/60" />
           {section.label}
         </h3>
-        <span className="text-sm font-bold num">{fmtNeg(section.total)}</span>
+        <span className="text-base font-bold tabular-nums">{fmtNeg(section.total)}</span>
       </div>
 
       {/* Subsections */}
       {section.subsections.map((sub, idx) => (
-        <div key={idx}>
+        <div key={idx} className="animate-in fade-in slide-in-from-left-2 duration-300" style={{ animationDelay: `${idx * 50}ms` }}>
           {/* Subsection Label */}
-          <div className="flex items-center justify-between border-t border-border/40 px-6 py-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="flex items-center justify-between border-t border-border/30 px-6 py-2.5">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
               {sub.label}
             </span>
             {sub.accounts.length > 0 && (
-              <span className="text-xs font-semibold num text-muted-foreground">
+              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
                 {fmtNeg(sub.total)}
               </span>
             )}
@@ -788,68 +914,79 @@ function SectionBlock({
 
           {/* Account Lines */}
           {sub.accounts.length === 0 ? (
-            <div className="px-6 py-2 text-xs italic text-muted-foreground/60">
+            <div className="border-t border-border/10 px-10 py-2.5 text-xs italic text-muted-foreground/40">
               No accounts in this category
             </div>
           ) : (
-            sub.accounts.map((acc) => (
-              <button
-                key={acc.id}
-                onClick={() => onAccountClick?.(acc.id)}
-                className="group flex w-full items-center justify-between border-t border-border/20 px-6 py-2 hover:bg-primary/5 transition-colors text-left"
-                title="Click to view transactions"
-              >
-                <span className="text-sm pl-4 flex items-center gap-1.5">
-                  {acc.code && (
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {acc.code}
+            <div className="divide-y divide-border/5">
+              {sub.accounts.map((acc, accIdx) => (
+                <button
+                  key={acc.id}
+                  onClick={() => onAccountClick?.(acc.id)}
+                  className="group flex w-full items-center justify-between px-10 py-2.5 hover:bg-gradient-to-r hover:from-primary/5 hover:to-transparent transition-all duration-150 text-left"
+                  style={{ animationDelay: `${accIdx * 30}ms` }}
+                  title="Click to view transactions"
+                >
+                  <span className="flex items-center gap-2 text-sm">
+                    {acc.code && (
+                      <span className="font-mono text-[10px] text-muted-foreground/50">
+                        {acc.code}
+                      </span>
+                    )}
+                    <span className="text-foreground/90 group-hover:text-foreground transition-colors">
+                      {acc.name}
                     </span>
-                  )}
-                  {acc.name}
-                  <ExternalLink className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary/60 transition-opacity opacity-0 group-hover:opacity-100" />
-                </span>
-                <span className="text-sm tabular-nums num shrink-0">
-                  {acc.debit_balance !== undefined && acc.debit_balance > 0
-                    ? fmtMoney(acc.debit_balance)
-                    : acc.credit_balance !== undefined && acc.credit_balance > 0
-                    ? fmtMoney(acc.credit_balance)
-                    : fmtNeg(acc.balance)}
-                </span>
-              </button>
-            ))
+                    <ExternalLink className="h-3 w-3 text-muted-foreground/20 group-hover:text-primary/50 transition-all opacity-0 group-hover:opacity-100 -ml-1 group-hover:ml-0" />
+                  </span>
+                  <span className="text-sm tabular-nums shrink-0 font-medium">
+                    {acc.debit_balance !== undefined && acc.debit_balance > 0
+                      ? <span className="text-foreground">{fmtMoney(acc.debit_balance)}</span>
+                      : acc.credit_balance !== undefined && acc.credit_balance > 0
+                      ? <span className="text-muted-foreground">{fmtMoney(acc.credit_balance)}</span>
+                      : <span className={acc.balance >= 0 ? 'text-foreground' : 'text-muted-foreground'}>{fmtNeg(acc.balance)}</span>
+                    }
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
 
           {/* Subsection Total separator */}
           {section.subsections.length > 1 && sub.accounts.length > 0 && idx < section.subsections.length - 1 && (
-            <div className="border-t border-dashed border-border/30 mx-6" />
+            <div className="border-t border-dashed border-border/20 mx-8" />
           )}
         </div>
       ))}
 
-      {/* Section Total Bar — clickable */}
-      {!isCapital && hasAccounts && (
-        <button
-          onClick={onTotalClick}
-          className="group flex w-full items-center justify-between border-t border-border/60 bg-muted/10 px-6 py-2.5 hover:bg-primary/5 transition-colors text-left"
-          title="Click to view all transactions in this section"
-        >
-          <span className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-            Total {section.label}
-            <FolderOpen className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary/60 transition-opacity opacity-0 group-hover:opacity-100" />
-          </span>
-          <span className="text-sm font-bold num">{fmtNeg(section.total)}</span>
-        </button>
-      )}
-
-      {/* Non-clickable total bar when no accounts */}
-      {!isCapital && !hasAccounts && (
-        <div className="flex items-center justify-between border-t border-border/60 bg-muted/10 px-6 py-2.5">
-          <span className="text-xs font-bold uppercase tracking-wider text-foreground">
-            Total {section.label}
-          </span>
-          <span className="text-sm font-bold num">{fmtNeg(section.total)}</span>
-        </div>
-      )}
+      {/* Section Total Bar — clickable if there are accounts */}
+      {(() => {
+        if (hasAccounts && !isCapital) {
+          return (
+            <button
+              onClick={onTotalClick}
+              className="group flex w-full items-center justify-between border-t-2 border-border/40 bg-gradient-to-r from-muted/20 to-transparent px-6 py-3 hover:from-primary/5 hover:to-transparent transition-all duration-150 text-left"
+              title="Click to view all transactions in this section"
+            >
+              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-foreground">
+                Total {section.label}
+                <FolderOpen className="h-3 w-3 text-muted-foreground/30 group-hover:text-primary/60 transition-all opacity-0 group-hover:opacity-100" />
+              </span>
+              <span className="text-sm font-bold tabular-nums">{fmtNeg(section.total)}</span>
+            </button>
+          );
+        }
+        if (!isCapital) {
+          return (
+            <div className="flex items-center justify-between border-t-2 border-border/40 bg-gradient-to-r from-muted/20 to-transparent px-6 py-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                Total {section.label}
+              </span>
+              <span className="text-sm font-bold tabular-nums">{fmtNeg(section.total)}</span>
+            </div>
+          );
+        }
+        return null;
+      })()}
     </div>
   );
 }
@@ -873,22 +1010,22 @@ function ComputedRow({
   return (
     <Comp
       onClick={onClick}
-      className={`group flex w-full items-center justify-between px-6 py-3 ${
-        doubleTop ? "border-t-2 border-border" : ""
-      } ${bold ? "bg-muted/15" : ""} ${isClickable ? "hover:bg-primary/5 cursor-pointer transition-colors" : ""}`}
+      className={`group flex w-full items-center justify-between px-6 py-3.5 ${
+        doubleTop ? "border-t-2 border-border" : "border-t border-border/40"
+      } ${bold ? "bg-gradient-to-r from-muted/30 to-transparent" : ""} ${isClickable ? "hover:from-primary/5 hover:to-transparent cursor-pointer transition-all duration-150" : ""}`}
       title={isClickable ? "Click to view all underlying transactions" : undefined}
     >
       <span
-        className={`text-sm flex items-center gap-1.5 ${
-          bold ? "font-bold text-foreground" : "font-semibold text-muted-foreground"
+        className={`flex items-center gap-2 ${
+          bold ? "text-sm font-bold text-foreground" : "text-xs font-semibold text-muted-foreground"
         }`}
       >
         {label}
         {isClickable && (
-          <FolderOpen className="h-3 w-3 text-muted-foreground/30 group-hover:text-primary/60 transition-opacity opacity-0 group-hover:opacity-100" />
+          <FolderOpen className="h-3 w-3 text-muted-foreground/20 group-hover:text-primary/50 transition-all opacity-0 group-hover:opacity-100" />
         )}
       </span>
-      <span className={`text-sm num ${bold ? "font-bold" : "font-semibold"}`}>
+      <span className={`tabular-nums ${bold ? "text-base font-bold" : "text-sm font-semibold"}`}>
         {fmtNeg(value)}
       </span>
     </Comp>
