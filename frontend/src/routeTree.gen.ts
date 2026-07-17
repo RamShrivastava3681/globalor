@@ -32,6 +32,8 @@ import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAdminRouteImport } from './routes/app.admin'
 import { Route as AppAccountingRouteImport } from './routes/app.accounting'
+import { Route as AppReportsIndexRouteImport } from './routes/app.reports.index'
+import { Route as AppReportsTabRouteImport } from './routes/app.reports.$tab'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -148,6 +150,16 @@ const AppAccountingRoute = AppAccountingRouteImport.update({
   path: '/accounting',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsIndexRoute = AppReportsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppReportsRoute,
+} as any)
+const AppReportsTabRoute = AppReportsTabRouteImport.update({
+  id: '/$tab',
+  path: '/$tab',
+  getParentRoute: () => AppReportsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -168,11 +180,13 @@ export interface FileRoutesByFullPath {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/reports': typeof AppReportsRoute
+  '/app/reports': typeof AppReportsRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
+  '/app/reports/$tab': typeof AppReportsTabRoute
+  '/app/reports/': typeof AppReportsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -193,11 +207,12 @@ export interface FileRoutesByTo {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/reports': typeof AppReportsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
+  '/app/reports/$tab': typeof AppReportsTabRoute
+  '/app/reports': typeof AppReportsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -219,11 +234,13 @@ export interface FileRoutesById {
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/reports': typeof AppReportsRoute
+  '/app/reports': typeof AppReportsRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
+  '/app/reports/$tab': typeof AppReportsTabRoute
+  '/app/reports/': typeof AppReportsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -251,6 +268,8 @@ export interface FileRouteTypes {
     | '/app/suppliers'
     | '/app/vendors'
     | '/noa/$token'
+    | '/app/reports/$tab'
+    | '/app/reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -271,11 +290,12 @@ export interface FileRouteTypes {
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
-    | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/vendors'
     | '/noa/$token'
+    | '/app/reports/$tab'
+    | '/app/reports'
   id:
     | '__root__'
     | '/'
@@ -301,6 +321,8 @@ export interface FileRouteTypes {
     | '/app/suppliers'
     | '/app/vendors'
     | '/noa/$token'
+    | '/app/reports/$tab'
+    | '/app/reports/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -473,8 +495,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountingRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/reports/': {
+      id: '/app/reports/'
+      path: '/'
+      fullPath: '/app/reports/'
+      preLoaderRoute: typeof AppReportsIndexRouteImport
+      parentRoute: typeof AppReportsRoute
+    }
+    '/app/reports/$tab': {
+      id: '/app/reports/$tab'
+      path: '/$tab'
+      fullPath: '/app/reports/$tab'
+      preLoaderRoute: typeof AppReportsTabRouteImport
+      parentRoute: typeof AppReportsRoute
+    }
   }
 }
+
+interface AppReportsRouteChildren {
+  AppReportsTabRoute: typeof AppReportsTabRoute
+  AppReportsIndexRoute: typeof AppReportsIndexRoute
+}
+
+const AppReportsRouteChildren: AppReportsRouteChildren = {
+  AppReportsTabRoute: AppReportsTabRoute,
+  AppReportsIndexRoute: AppReportsIndexRoute,
+}
+
+const AppReportsRouteWithChildren = AppReportsRoute._addFileChildren(
+  AppReportsRouteChildren,
+)
 
 interface AppRouteChildren {
   AppAccountingRoute: typeof AppAccountingRoute
@@ -492,7 +542,7 @@ interface AppRouteChildren {
   AppProformasRoute: typeof AppProformasRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
-  AppReportsRoute: typeof AppReportsRoute
+  AppReportsRoute: typeof AppReportsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppVendorsRoute: typeof AppVendorsRoute
@@ -514,7 +564,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProformasRoute: AppProformasRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
-  AppReportsRoute: AppReportsRoute,
+  AppReportsRoute: AppReportsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppVendorsRoute: AppVendorsRoute,
