@@ -50,6 +50,7 @@ export const TABLES = {
   PAYMENTS: `${p()}_payments`,
   CHART_OF_ACCOUNTS: `${p()}_chart_of_accounts`,
   JOURNAL_ENTRIES: `${p()}_journal_entries`,
+  BALANCE_SHEET_ITEMS: `${p()}_balance_sheet_items`,
 } as const;
 
 // ── Generic helpers ──

@@ -11,7 +11,7 @@ import {
 import { requireAuth, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
-import type { Invoice, CreditDebitNote, PaymentRecord } from "../types/index.js";
+import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
 
 const router = Router();
 
@@ -320,13 +320,15 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with debtor names
+    // Enrich with party names (debtors + suppliers)
     const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS);
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d.name]));
+    const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS);
+    const supplierMap = new Map(allSuppliers.map((s) => [`supplier_${s.id}`, s.company_name]));
 
     const enriched = filtered.map((p) => ({
       ...p,
-      debtor_name: debtorMap.get(p.debtor_id) ?? "Unknown",
+      debtor_name: debtorMap.get(p.debtor_id) ?? supplierMap.get(p.debtor_id) ?? "Unknown",
     }));
 
     // Calculate totals
@@ -347,8 +349,76 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ── Helper: reverse a single purchase invoice ──
+async function reversePurchaseInvoice(invoiceId: string, paidAmount: number, now: string): Promise<{ success: boolean; id: string; error?: string }> {
+  try {
+    const inv = await getItem(TABLES.PURCHASE_INVOICES, { id: invoiceId }) as PurchaseInvoice | undefined;
+    if (!inv) {
+      return { success: false, id: invoiceId, error: "Purchase invoice not found" };
+    }
+
+    const prevPaid = inv.amount_paid ?? 0;
+    const newPaid = Math.max(0, prevPaid - paidAmount);
+
+    if (newPaid <= 0) {
+      const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
+      await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
+        status: isOverdue ? "overdue" : "approved",
+        amount_paid: null,
+        paid_date: null,
+        updated_at: now,
+      });
+    } else {
+      await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
+        amount_paid: newPaid,
+        updated_at: now,
+      });
+    }
+
+    return { success: true, id: invoiceId };
+  } catch (err) {
+    console.error(`Error reversing purchase invoice ${invoiceId}:`, err);
+    return { success: false, id: invoiceId, error: "Failed to reverse purchase invoice" };
+  }
+}
+
+// ── Helper: reverse a single sales invoice ──
+async function reverseSalesInvoice(invoiceId: string, paidAmount: number, now: string): Promise<{ success: boolean; id: string; error?: string }> {
+  try {
+    const inv = await getItem(TABLES.INVOICES, { id: invoiceId }) as Invoice | undefined;
+    if (!inv) {
+      return { success: false, id: invoiceId, error: "Invoice not found" };
+    }
+
+    const prevReceived = inv.amount_received ?? 0;
+    const newReceived = Math.max(0, prevReceived - paidAmount);
+
+    if (newReceived <= 0) {
+      const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
+      await updateItem(TABLES.INVOICES, { id: inv.id }, {
+        status: isOverdue ? "overdue" : "approved",
+        amount_received: null,
+        paid_date: null,
+        receipt_date: null,
+        late_days: null,
+        updated_at: now,
+      });
+    } else {
+      await updateItem(TABLES.INVOICES, { id: inv.id }, {
+        amount_received: newReceived,
+        updated_at: now,
+      });
+    }
+
+    return { success: true, id: invoiceId };
+  } catch (err) {
+    console.error(`Error reversing sales invoice ${invoiceId}:`, err);
+    return { success: false, id: invoiceId, error: "Failed to reverse invoice" };
+  }
+}
+
 // ── POST /api/bulk-payments/reverse/:paymentId ──
-// Reverses a payment record: reopens the invoices that were closed, unresolves credit notes, and deletes the payment record.
+// Reverses a payment record: reopens invoices (sales or purchase), unresolves credit notes, and deletes the payment record.
 router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices", "funding-queue"), async (req: AuthRequest, res: Response) => {
   try {
     const { paymentId } = req.params;
@@ -361,84 +431,31 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       return;
     }
 
+    const isSupplierPayment = payment.debtor_id?.startsWith("supplier_");
     const reversedInvoices: string[] = [];
     const reversalErrors: Array<{ id: string; error: string }> = [];
     const restoredCreditNotes: string[] = [];
     const creditNoteErrors: Array<{ id: string; error: string }> = [];
 
+    const reverseFn = isSupplierPayment ? reversePurchaseInvoice : reverseSalesInvoice;
+
     // ── 2. Reverse closed invoices ──
     for (const ci of (payment.closed_invoices ?? [])) {
-      try {
-        const inv = await getItem(TABLES.INVOICES, { id: ci.id }) as Invoice | undefined;
-        if (!inv) {
-          reversalErrors.push({ id: ci.id, error: "Invoice not found" });
-          continue;
-        }
-
-        // Subtract the paid amount from amount_received
-        const prevReceived = inv.amount_received ?? 0;
-        const newReceived = Math.max(0, prevReceived - ci.amount);
-
-        if (newReceived <= 0) {
-          // Fully reverse — set back to open status
-          // Determine status: if due_date is in the past, set to "overdue", otherwise "approved"
-          const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
-          await updateItem(TABLES.INVOICES, { id: inv.id }, {
-            status: isOverdue ? "overdue" : "approved",
-            amount_received: null,
-            paid_date: null,
-            receipt_date: null,
-            late_days: null,
-            updated_at: now,
-          });
-        } else {
-          // Only partially reversed (shouldn't happen in full reverse, but handle gracefully)
-          await updateItem(TABLES.INVOICES, { id: inv.id }, {
-            amount_received: newReceived,
-            updated_at: now,
-          });
-        }
-
+      const result = await reverseFn(ci.id, ci.amount, now);
+      if (result.success) {
         reversedInvoices.push(ci.id);
-      } catch (err) {
-        console.error(`Error reversing invoice ${ci.id}:`, err);
-        reversalErrors.push({ id: ci.id, error: "Failed to reverse invoice" });
+      } else {
+        reversalErrors.push({ id: ci.id, error: result.error ?? "Unknown error" });
       }
     }
 
     // ── 3. Reverse partial payments ──
     for (const pi of (payment.partial_invoices ?? [])) {
-      try {
-        const inv = await getItem(TABLES.INVOICES, { id: pi.id }) as Invoice | undefined;
-        if (!inv) {
-          reversalErrors.push({ id: pi.id, error: "Invoice not found" });
-          continue;
-        }
-
-        const prevReceived = inv.amount_received ?? 0;
-        const newReceived = Math.max(0, prevReceived - pi.amount_paid);
-
-        if (newReceived <= 0) {
-          const isOverdue = inv.due_date != null && inv.due_date < now.slice(0, 10);
-          await updateItem(TABLES.INVOICES, { id: inv.id }, {
-            status: isOverdue ? "overdue" : "approved",
-            amount_received: null,
-            paid_date: null,
-            receipt_date: null,
-            late_days: null,
-            updated_at: now,
-          });
-        } else {
-          await updateItem(TABLES.INVOICES, { id: inv.id }, {
-            amount_received: newReceived,
-            updated_at: now,
-          });
-        }
-
+      const result = await reverseFn(pi.id, pi.amount_paid, now);
+      if (result.success) {
         reversedInvoices.push(pi.id);
-      } catch (err) {
-        console.error(`Error reversing partial payment for invoice ${pi.id}:`, err);
-        reversalErrors.push({ id: pi.id, error: "Failed to reverse partial payment" });
+      } else {
+        reversalErrors.push({ id: pi.id, error: result.error ?? "Unknown error" });
       }
     }
 
@@ -490,6 +507,290 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
     });
   } catch (err) {
     console.error("Reverse payment error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PURCHASE INVOICE (SUPPLIER) BULK PAYMENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Helper: outstanding balance of a purchase invoice ──
+function outstandingPurchaseBalance(inv: PurchaseInvoice): number {
+  return inv.amount_paid != null
+    ? Math.max(0, Number(inv.amount) - Number(inv.amount_paid))
+    : Number(inv.amount);
+}
+
+// ── Helper: fully close a purchase invoice ──
+async function closePurchaseInvoice(inv: PurchaseInvoice, closeDate: string, now: string) {
+  const balance = outstandingPurchaseBalance(inv);
+  const newPaid = (inv.amount_paid ?? 0) + balance;
+
+  await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
+    status: "paid",
+    amount_paid: newPaid,
+    paid_date: closeDate,
+    updated_at: now,
+  });
+}
+
+// ── Helper: partially pay a purchase invoice ──
+async function partiallyPayPurchaseInvoice(inv: PurchaseInvoice, amount: number, now: string) {
+  const newPaid = (inv.amount_paid ?? 0) + amount;
+  await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
+    amount_paid: newPaid,
+    updated_at: now,
+  });
+}
+
+// ── POST /api/bulk-payments/process-purchase ──
+const processPurchaseSchema = z.object({
+  supplier_id: z.string().min(1),
+  payment_date: z.string().min(1),
+  amount: z.number().positive(),
+  use_balance: z.boolean().optional().default(false),
+  mode: z.enum(["manual", "fifo", "two_pass_fifo"]),
+  selected_invoice_ids: z.array(z.string()).optional().default([]),
+  settle_credit_note_ids: z.array(z.string()).optional().default([]),
+});
+
+router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", "funding-queue"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = processPurchaseSchema.parse(req.body);
+    const now = nowISO();
+
+    // ── 1. Look up supplier and find matching vendor ──
+    const supplier = await getItem(TABLES.SUPPLIERS, { id: parsed.supplier_id }) as Supplier | undefined;
+    if (!supplier) {
+      res.status(404).json({ error: "Supplier not found" });
+      return;
+    }
+
+    // Find vendors whose name matches the supplier's company_name (case-insensitive)
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const matchedVendor = allVendors.find(
+      (v) => v.name.toLowerCase().trim() === supplier.company_name.toLowerCase().trim()
+    );
+    if (!matchedVendor) {
+      res.status(404).json({ error: `No vendor found matching supplier "${supplier.company_name}"` });
+      return;
+    }
+
+    // ── 2. Determine available amount ──
+    let availableAmount = parsed.amount;
+    let consumedOldPayments: PaymentRecord[] = [];
+
+    if (parsed.use_balance) {
+      // Supplier balance tracking uses same PAYMENTS table with supplier_id stored in debtor_id field
+      // This allows the same balance tracking infrastructure
+      const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
+        filterExpression: "debtor_id = :did AND #remaining > :zero",
+        expressionAttributeNames: { "#remaining": "remaining" },
+        expressionAttributeValues: { ":did": `supplier_${parsed.supplier_id}`, ":zero": 0 },
+      });
+      consumedOldPayments = prevPayments;
+      const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
+      availableAmount += totalRemaining;
+    }
+
+    // ── 3. Fetch open purchase invoices for this vendor ──
+    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const eligiblePiStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
+    let openPurchaseInvoices = allPurchaseInvoices
+      .filter((pi) => pi.vendor_id === matchedVendor.id && eligiblePiStatuses.has(pi.status))
+      .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
+
+    // ── 4. Process by mode ──
+    const closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }> = [];
+    const partiallyPaid: Array<{ id: string; invoice_number: string; amount_paid: number; remaining: number }> = [];
+    const skipped: Array<{ id: string; invoice_number: string; reason: string }> = [];
+    let remainingAfterProcessing = availableAmount;
+
+    if (parsed.mode === "manual") {
+      const selected = openPurchaseInvoices.filter((inv) => parsed.selected_invoice_ids.includes(inv.id));
+
+      for (const inv of selected) {
+        if (remainingAfterProcessing <= 0) break;
+        const balance = outstandingPurchaseBalance(inv);
+
+        if (remainingAfterProcessing >= balance) {
+          await closePurchaseInvoice(inv, parsed.payment_date, now);
+          const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
+          closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
+          remainingAfterProcessing -= balance;
+        } else {
+          await partiallyPayPurchaseInvoice(inv, remainingAfterProcessing, now);
+          partiallyPaid.push({
+            id: inv.id,
+            invoice_number: inv.invoice_number,
+            amount_paid: remainingAfterProcessing,
+            remaining: balance - remainingAfterProcessing,
+          });
+          remainingAfterProcessing = 0;
+        }
+      }
+
+      for (const inv of openPurchaseInvoices) {
+        if (!parsed.selected_invoice_ids.includes(inv.id)) {
+          skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Not selected" });
+        }
+      }
+    } else if (parsed.mode === "fifo") {
+      for (const inv of openPurchaseInvoices) {
+        if (remainingAfterProcessing <= 0) break;
+        const balance = outstandingPurchaseBalance(inv);
+
+        if (remainingAfterProcessing >= balance) {
+          await closePurchaseInvoice(inv, parsed.payment_date, now);
+          const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
+          closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
+          remainingAfterProcessing -= balance;
+        } else {
+          skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (FIFO strict)" });
+        }
+      }
+    } else if (parsed.mode === "two_pass_fifo") {
+      const overdueInvoices = openPurchaseInvoices.filter((inv) => inv.due_date != null && inv.due_date <= parsed.payment_date);
+      const futureInvoices = openPurchaseInvoices.filter((inv) => inv.due_date == null || inv.due_date > parsed.payment_date);
+
+      for (const inv of overdueInvoices) {
+        if (remainingAfterProcessing <= 0) break;
+        const balance = outstandingPurchaseBalance(inv);
+
+        if (remainingAfterProcessing >= balance) {
+          await closePurchaseInvoice(inv, parsed.payment_date, now);
+          const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
+          closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
+          remainingAfterProcessing -= balance;
+        } else {
+          skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 1)" });
+        }
+      }
+
+      for (const inv of futureInvoices) {
+        if (remainingAfterProcessing <= 0) break;
+        const balance = outstandingPurchaseBalance(inv);
+
+        if (remainingAfterProcessing >= balance) {
+          const closeDate = inv.due_date ?? parsed.payment_date;
+          const lateDays = computeLateDays(inv.due_date, closeDate);
+          await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
+            status: "paid",
+            amount_paid: (inv.amount_paid ?? 0) + balance,
+            paid_date: closeDate,
+            updated_at: now,
+          });
+          closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
+          remainingAfterProcessing -= balance;
+        } else {
+          skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
+        }
+      }
+    }
+
+    // ── 5. Settle credit notes ──
+    const settledCredits: string[] = [];
+    const creditErrors: Array<{ id: string; error: string }> = [];
+
+    for (const noteId of parsed.settle_credit_note_ids) {
+      try {
+        const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+        if (!note) {
+          creditErrors.push({ id: noteId, error: "Credit note not found" });
+          continue;
+        }
+        if (note.type !== "credit") {
+          creditErrors.push({ id: noteId, error: "Only credit notes can be settled as credit" });
+          continue;
+        }
+        if (note.status !== "approved") {
+          creditErrors.push({ id: noteId, error: `Credit note status is "${note.status}", must be approved` });
+          continue;
+        }
+        await updateItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }, {
+          status: "received",
+          settled_at: now,
+          settled_by: req.user!.id,
+          updated_at: now,
+        });
+        settledCredits.push(noteId);
+      } catch (err) {
+        console.error(`Credit settlement error for ${noteId}:`, err);
+        creditErrors.push({ id: noteId, error: "Failed to settle" });
+      }
+    }
+
+    // ── 6. Create payment record with remaining balance ──
+    const paymentRecord: PaymentRecord = {
+      id: generateId(),
+      client_id: req.user!.id,
+      debtor_id: `supplier_${parsed.supplier_id}`,
+      amount: parsed.amount,
+      payment_date: parsed.payment_date,
+      remaining: remainingAfterProcessing,
+      invoices_closed: closed.length,
+      closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
+      partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
+      credit_note_ids: settledCredits,
+      mode: parsed.mode,
+      created_at: now,
+      updated_at: now,
+    };
+    await putItem(TABLES.PAYMENTS, paymentRecord as any);
+
+    // ── 7. Consume old remaining balances ──
+    for (const oldPay of consumedOldPayments) {
+      await updateItem(TABLES.PAYMENTS, { id: oldPay.id }, {
+        remaining: 0,
+        updated_at: now,
+      });
+    }
+
+    // ── 8. Activity alert ──
+    if (closed.length > 0 || partiallyPaid.length > 0) {
+      createActivityAlert({
+        client_id: req.user!.id,
+        type: "payment_received",
+        severity: "info",
+        message: `Supplier bulk payment of ${fmtMoneyShort(parsed.amount)} to "${supplier.company_name}" — ${closed.length} purchase invoices closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining: ${fmtMoneyShort(remainingAfterProcessing)}`,
+        created_by: req.user!.id,
+      });
+    }
+
+    res.json({
+      payment_id: paymentRecord.id,
+      amount: parsed.amount,
+      remaining: remainingAfterProcessing,
+      supplier_name: supplier.company_name,
+      closed,
+      partially_paid: partiallyPaid,
+      skipped,
+      settled_credits: settledCredits,
+      credit_errors: creditErrors,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Supplier bulk payment error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/bulk-payments/purchase-balance/:supplierId ──
+router.get("/purchase-balance/:supplierId", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
+      filterExpression: "debtor_id = :did AND #remaining > :zero",
+      expressionAttributeNames: { "#remaining": "remaining" },
+      expressionAttributeValues: { ":did": `supplier_${req.params.supplierId}`, ":zero": 0 },
+    });
+    const totalRemaining = payments.reduce((s, p) => s + Number(p.remaining), 0);
+    res.json({ total_remaining: totalRemaining, payment_count: payments.length });
+  } catch (err) {
+    console.error("Get supplier balance error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

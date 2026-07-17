@@ -102,6 +102,10 @@ app.use("/api/reports", requireAuth, reportRoutes);
 import balanceSheetRoutes from "./routes/balanceSheet.js";
 app.use("/api/reports/balance-sheet", balanceSheetRoutes);
 
+// Balance Sheet Items (CRUD for manual entries)
+import balanceSheetItemRoutes from "./routes/balanceSheetItems.js";
+app.use("/api/balance-sheet-items", requireAuth, balanceSheetItemRoutes);
+
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

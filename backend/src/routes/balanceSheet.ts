@@ -348,10 +348,76 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       ],
     };
 
+    // ─────────────────────────────────────────────────────────────
+    //  MERGE MANUAL BALANCE SHEET ITEMS
+    // ─────────────────────────────────────────────────────────────
+    const allManualItems = await scanTable<any>(TABLES.BALANCE_SHEET_ITEMS);
+    const activeManualItems = allManualItems.filter((item: any) => item.is_active !== false);
+
+    // Helper: add manual items to a subsection by matching section label
+    const mergeManualIntoSubsection = (
+      section: { total: number; subsections: Array<{ label: string; total: number; accounts: any[] }> },
+      subsectionLabel: string,
+      itemSection: string
+    ) => {
+      const matchingItems = activeManualItems.filter((i: any) => i.section === itemSection);
+      if (matchingItems.length === 0) return;
+
+      const sub = section.subsections.find((s) => s.label === subsectionLabel);
+      if (!sub) return;
+
+      for (const item of matchingItems) {
+        sub.accounts.push({
+          id: item.id,
+          name: item.description,
+          balance: Number(item.amount),
+          source: "manual",
+          date: item.date,
+          notes: item.notes,
+          account_id: item.account_id,
+          is_opening_balance: !!item.is_opening_balance,
+          manual_item_id: item.id,
+        });
+        sub.total += Number(item.amount);
+      }
+
+      // Recalculate section total
+      section.total = section.subsections.reduce((s, sub) => s + sub.total, 0);
+    };
+
+    // Merge manual items into Fixed Assets > Tangible Assets
+    mergeManualIntoSubsection(fixedAssetsSection, "Tangible Assets", "tangible_asset");
+
+    // Merge manual items into Current Assets
+    mergeManualIntoSubsection(currentAssetsSection, "Cash at bank and in hand", "cash_bank");
+    mergeManualIntoSubsection(currentAssetsSection, "Accounts Receivable", "accounts_receivable");
+    mergeManualIntoSubsection(currentAssetsSection, "Other Current Assets", "other_current_asset");
+
+    // Merge manual items into Creditors
+    mergeManualIntoSubsection(currentLiabilitiesSection, "Accounts Payable", "accounts_payable");
+    mergeManualIntoSubsection(currentLiabilitiesSection, "Advance received from Customers", "customer_advance");
+    mergeManualIntoSubsection(currentLiabilitiesSection, "Rounding", "rounding");
+    mergeManualIntoSubsection(currentLiabilitiesSection, "Other Current Liabilities", "other_current_liability");
+
+    // Merge manual items into Capital and Reserves
+    mergeManualIntoSubsection(capitalAndReservesSection, "Share Capital", "share_capital");
+    mergeManualIntoSubsection(capitalAndReservesSection, "Retained Earnings", "retained_earnings");
+    mergeManualIntoSubsection(capitalAndReservesSection, "Other Equity", "other_equity");
+
+    // ── Recalculate computed values after manual merges ──
+    const totalFixedAssetsMerged = fixedAssetsSection.total;
+    const totalCurrentAssetsMerged = currentAssetsSection.total;
+    const totalCreditorsOneYearMerged = currentLiabilitiesSection.total;
+    const totalCapitalAndReservesMerged = capitalAndReservesSection.total;
+
+    const netCurrentAssetsMerged = totalCurrentAssetsMerged - totalCreditorsOneYearMerged;
+    const totalAssetsLessCurrentLiabilitiesMerged = totalFixedAssetsMerged + netCurrentAssetsMerged;
+    const netAssetsMerged = totalAssetsLessCurrentLiabilitiesMerged;
+
     // ── VERIFICATION ──
-    const totalAssets = totalFixedAssets + totalCurrentAssets;
-    const totalLiabilities = totalCreditorsOneYear;
-    const totalEquity = totalCapitalAndReserves;
+    const totalAssets = totalFixedAssetsMerged + totalCurrentAssetsMerged;
+    const totalLiabilities = totalCreditorsOneYearMerged;
+    const totalEquity = totalCapitalAndReservesMerged;
     const difference = totalAssets - (totalLiabilities + totalEquity);
     const isBalanced = Math.abs(difference) < 0.01;
 
@@ -365,9 +431,9 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         currentLiabilitiesSection,
       ],
       computed: {
-        netCurrentAssets,
-        totalAssetsLessCurrentLiabilities,
-        netAssets,
+        netCurrentAssets: netCurrentAssetsMerged,
+        totalAssetsLessCurrentLiabilities: totalAssetsLessCurrentLiabilitiesMerged,
+        netAssets: netAssetsMerged,
       },
       capitalAndReserves: capitalAndReservesSection,
       verification: {
@@ -377,6 +443,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         difference,
         isBalanced,
       },
+      manual_item_count: activeManualItems.length,
     });
   } catch (err) {
     console.error("Balance sheet error:", err);

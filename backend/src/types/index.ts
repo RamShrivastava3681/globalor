@@ -161,6 +161,7 @@ export interface PurchaseInvoice {
   vendor_id: string;
   invoice_number: string;
   amount: number;
+  amount_paid: number | null;
   advance_rate: number;
   po_number: string | null;
   po_date: string | null;

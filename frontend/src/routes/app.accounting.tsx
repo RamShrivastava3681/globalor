@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, Fragment } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { BookOpen, Plus, X, Loader2, Trash2, Pencil, AlertTriangle, Calculator, ScrollText, Check, Ban, Scale } from "lucide-react";
+import { BalanceSheetEditor } from "@/components/balance-sheet-editor";
+import { BookOpen, Plus, X, Loader2, Trash2, Pencil, AlertTriangle, Calculator, ScrollText, Check, Ban, Scale, LineChart } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/accounting")({
@@ -89,6 +90,17 @@ function AccountingPage() {
             <Scale className="h-4 w-4" />
             Trial Balance
           </button>
+          <button
+            onClick={() => navigate({ to: "/app/accounting", search: { tab: "balance-sheet" } })}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all ${
+              tab === "balance-sheet"
+                ? "border-[#00B8FF] text-[#00B8FF]"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            }`}
+          >
+            <LineChart className="h-4 w-4" />
+            Balance Sheet
+          </button>
         </div>
       </div>
 
@@ -96,6 +108,7 @@ function AccountingPage() {
         {tab === "chart-of-accounts" && <ChartOfAccounts />}
         {tab === "manual-journal" && <ManualJournal />}
         {tab === "trial-balance" && <TrialBalance />}
+        {tab === "balance-sheet" && <BalanceSheetTab />}
       </div>
     </div>
   );
@@ -942,6 +955,25 @@ function TrialBalance() {
         </div>
       )}
     </Card>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BALANCE SHEET TAB
+// ═══════════════════════════════════════════════════════════════
+
+function BalanceSheetTab() {
+  return (
+    <div>
+      <div className="mb-6">
+        <h3 className="font-display text-base font-semibold text-card-foreground">Interactive Balance Sheet</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          View auto-computed balances from your transactions alongside manual adjustments. 
+          Toggle <strong>Opening Balances</strong> mode to carry forward prior-period closing balances.
+        </p>
+      </div>
+      <BalanceSheetEditor />
+    </div>
   );
 }
 

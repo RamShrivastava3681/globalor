@@ -6,7 +6,7 @@ import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import {
   ArrowRightLeft, Loader2, CheckCircle2, Wallet, AlertTriangle,
   Building2, CalendarDays, DollarSign, CreditCard, SkipForward, History,
-  ScrollText, ChevronDown, Undo2, AlertCircle,
+  ScrollText, ChevronDown, Undo2, AlertCircle, Users, Truck,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,9 +26,17 @@ export const Route = createFileRoute("/app/bulk-payments")({
 
 // ── Types ──
 
+type CounterpartyType = "debtor" | "supplier";
+
 interface DebtorInfo {
   id: string;
   name: string;
+  industry?: string | null;
+}
+
+interface SupplierInfo {
+  id: string;
+  company_name: string;
   industry?: string | null;
 }
 
@@ -41,6 +49,18 @@ interface InvoiceInfo {
   due_date: string | null;
   status: string;
   debtor?: { name: string } | null;
+  vendor?: { name: string } | null;
+}
+
+interface PurchaseInvoiceInfo {
+  id: string;
+  invoice_number: string;
+  amount: number;
+  amount_paid: number | null;
+  issue_date: string;
+  due_date: string | null;
+  status: string;
+  vendor?: { name: string } | null;
 }
 
 interface CreditNoteInfo {
@@ -68,6 +88,7 @@ interface PaymentResult {
   payment_id: string;
   amount: number;
   remaining: number;
+  supplier_name?: string;
   closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }>;
   partially_paid: Array<{ id: string; invoice_number: string; amount_paid: number; remaining: number }>;
   skipped: Array<{ id: string; invoice_number: string; reason: string }>;
@@ -96,20 +117,25 @@ function outstanding(inv: InvoiceInfo): number {
   return inv.amount_received != null ? Math.max(0, inv.amount - inv.amount_received) : inv.amount;
 }
 
+function outstandingPurchase(inv: PurchaseInvoiceInfo): number {
+  return inv.amount_paid != null ? Math.max(0, inv.amount - inv.amount_paid) : inv.amount;
+}
+
 // ── FIFO Preview (strict — no partials) ──
-function computeFifoPreview(
-  invoices: InvoiceInfo[],
+function computeFifoPreview<T extends { id: string; due_date: string | null }>(
+  invoices: T[],
   amount: number,
   isTwoPass: boolean,
   paymentDate: string,
+  outstandingFn: (inv: T) => number,
 ): {
-  closed: Array<{ inv: InvoiceInfo; amount: number; lateDays: number; isFuture: boolean }>;
-  skipped: InvoiceInfo[];
+  closed: Array<{ inv: T; amount: number; lateDays: number; isFuture: boolean }>;
+  skipped: T[];
   remaining: number;
 } {
   let remaining = amount;
-  const closed: Array<{ inv: InvoiceInfo; amount: number; lateDays: number; isFuture: boolean }> = [];
-  const skipped: InvoiceInfo[] = [];
+  const closed: Array<{ inv: T; amount: number; lateDays: number; isFuture: boolean }> = [];
+  const skipped: T[] = [];
 
   const sorted = [...invoices].sort((a, b) =>
     (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
@@ -119,10 +145,9 @@ function computeFifoPreview(
     const overdue = sorted.filter((inv) => inv.due_date != null && inv.due_date <= paymentDate);
     const future = sorted.filter((inv) => inv.due_date == null || inv.due_date > paymentDate);
 
-    // Pass 1: overdue
     for (const inv of overdue) {
       if (remaining <= 0) { skipped.push(inv); continue; }
-      const bal = outstanding(inv);
+      const bal = outstandingFn(inv);
       if (remaining >= bal) {
         closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate), isFuture: false });
         remaining -= bal;
@@ -131,10 +156,9 @@ function computeFifoPreview(
       }
     }
 
-    // Pass 2: future — closed_date = due_date, lateDays = 0
     for (const inv of future) {
       if (remaining <= 0) { skipped.push(inv); continue; }
-      const bal = outstanding(inv);
+      const bal = outstandingFn(inv);
       if (remaining >= bal) {
         closed.push({ inv, amount: bal, lateDays: 0, isFuture: true });
         remaining -= bal;
@@ -143,10 +167,9 @@ function computeFifoPreview(
       }
     }
   } else {
-    // Standard FIFO (strict)
     for (const inv of sorted) {
       if (remaining <= 0) { skipped.push(inv); continue; }
-      const bal = outstanding(inv);
+      const bal = outstandingFn(inv);
       if (remaining >= bal) {
         closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate), isFuture: false });
         remaining -= bal;
@@ -160,15 +183,16 @@ function computeFifoPreview(
 }
 
 // ── Manual Preview (process in due_date order, allow partials) ──
-function computeManualPreview(
-  invoices: InvoiceInfo[],
+function computeManualPreview<T extends { id: string; due_date: string | null }>(
+  invoices: T[],
   selectedIds: Set<string>,
   amount: number,
   paymentDate: string,
+  outstandingFn: (inv: T) => number,
 ): {
-  closed: Array<{ inv: InvoiceInfo; amount: number; lateDays: number }>;
-  partiallyPaid: Array<{ inv: InvoiceInfo; amountPaid: number; remainingBalance: number }>;
-  untouched: InvoiceInfo[];
+  closed: Array<{ inv: T; amount: number; lateDays: number }>;
+  partiallyPaid: Array<{ inv: T; amountPaid: number; remainingBalance: number }>;
+  untouched: T[];
   remaining: number;
 } {
   const sorted = [...invoices]
@@ -178,12 +202,12 @@ function computeManualPreview(
     );
 
   let remaining = amount;
-  const closed: Array<{ inv: InvoiceInfo; amount: number; lateDays: number }> = [];
-  const partiallyPaid: Array<{ inv: InvoiceInfo; amountPaid: number; remainingBalance: number }> = [];
+  const closed: Array<{ inv: T; amount: number; lateDays: number }> = [];
+  const partiallyPaid: Array<{ inv: T; amountPaid: number; remainingBalance: number }> = [];
 
   for (const inv of sorted) {
     if (remaining <= 0) break;
-    const bal = outstanding(inv);
+    const bal = outstandingFn(inv);
 
     if (remaining >= bal) {
       closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate) });
@@ -206,7 +230,9 @@ function BulkPaymentsPage() {
   const qc = useQueryClient();
 
   // ── Core state ──
+  const [counterpartyType, setCounterpartyType] = useState<CounterpartyType>("debtor");
   const [selectedDebtorId, setSelectedDebtorId] = useState<string>("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [inputAmount, setInputAmount] = useState("");
   const [useBalance, setUseBalance] = useState(false);
@@ -219,6 +245,20 @@ function BulkPaymentsPage() {
   const [historyFilterDebtorId, setHistoryFilterDebtorId] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  const isSupplier = counterpartyType === "supplier";
+
+  // ── Queries ──
+
+  const debtorsQ = useQuery({
+    queryKey: ["debtors"],
+    queryFn: async () => (await api.get<DebtorInfo[]>("/debtors")) ?? [],
+  });
+
+  const suppliersQ = useQuery({
+    queryKey: ["suppliers"],
+    queryFn: async () => (await api.get<SupplierInfo[]>("/suppliers")) ?? [],
+  });
+
   // ── Payment history (lazy-loaded when card is opened) ──
   const historyQ = useQuery({
     queryKey: ["bulk-payment-history", historyFilterDebtorId],
@@ -229,26 +269,32 @@ function BulkPaymentsPage() {
     },
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<DebtorInfo[]>("/debtors")) ?? [],
-  });
-
-  // ── Fetch previous remaining balance ──
+  // ── Fetch previous remaining balance (debtor) ──
   const balanceQ = useQuery({
     queryKey: ["bulk-payment-balance", selectedDebtorId],
-    enabled: !!selectedDebtorId && useBalance,
+    enabled: !!selectedDebtorId && useBalance && !isSupplier,
     queryFn: async (): Promise<number> => {
       const res = await api.get<{ total_remaining: number }>(`/bulk-payments/balance/${selectedDebtorId}`);
       return res?.total_remaining ?? 0;
     },
   });
-  const previousRemaining = balanceQ.data ?? 0;
 
-  // ── Fetch invoices ──
+  // ── Fetch previous remaining balance (supplier) ──
+  const supplierBalanceQ = useQuery({
+    queryKey: ["bulk-payment-purchase-balance", selectedSupplierId],
+    enabled: !!selectedSupplierId && useBalance && isSupplier,
+    queryFn: async (): Promise<number> => {
+      const res = await api.get<{ total_remaining: number }>(`/bulk-payments/purchase-balance/${selectedSupplierId}`);
+      return res?.total_remaining ?? 0;
+    },
+  });
+
+  const previousRemaining = isSupplier ? (supplierBalanceQ.data ?? 0) : (balanceQ.data ?? 0);
+
+  // ── Fetch invoices (sales) ──
   const invoicesQ = useQuery({
     queryKey: ["bulk-payment-invoices", selectedDebtorId],
-    enabled: !!selectedDebtorId,
+    enabled: !!selectedDebtorId && !isSupplier,
     queryFn: async (): Promise<InvoiceInfo[]> => {
       const all = await api.get<any[]>("/invoices") ?? [];
       return all
@@ -266,7 +312,38 @@ function BulkPaymentsPage() {
     },
   });
 
-  const openInvoices = invoicesQ.data ?? [];
+  // ── Fetch purchase invoices ──
+  const purchaseInvoicesQ = useQuery({
+    queryKey: ["bulk-payment-purchase-invoices", selectedSupplierId],
+    enabled: !!selectedSupplierId && isSupplier,
+    queryFn: async (): Promise<PurchaseInvoiceInfo[]> => {
+      const all = await api.get<any[]>("/purchase-invoices") ?? [];
+      // Find vendor that matches this supplier by name (done on backend, but we filter client-side too)
+      const supplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
+      if (!supplier) return [];
+
+      return all
+        .filter((i: any) => {
+          const vendorName = i.vendor?.name ?? "";
+          const match = vendorName.toLowerCase().trim() === supplier.company_name.toLowerCase().trim();
+          return match && i.status !== "paid" && i.status !== "rejected" && i.status !== "disputed";
+        })
+        .map((i: any) => ({
+          id: i.id,
+          invoice_number: i.invoice_number,
+          amount: Number(i.amount),
+          amount_paid: i.amount_paid != null ? Number(i.amount_paid) : null,
+          issue_date: i.issue_date,
+          due_date: i.due_date,
+          status: i.status,
+          vendor: i.vendor ? { name: i.vendor.name } : null,
+        }));
+    },
+  });
+
+  const openInvoices: (InvoiceInfo | PurchaseInvoiceInfo)[] = isSupplier
+    ? (purchaseInvoicesQ.data ?? [])
+    : (invoicesQ.data ?? []);
 
   // Sort invoices by due date ascending (earliest first), null due dates last
   const sortedInvoices = useMemo(() => {
@@ -277,17 +354,25 @@ function BulkPaymentsPage() {
 
   // ── Fetch credit notes ──
   const creditNotesQ = useQuery({
-    queryKey: ["bulk-payment-credits", selectedDebtorId, debtorsQ.data],
-    enabled: !!selectedDebtorId,
+    queryKey: ["bulk-payment-credits", isSupplier ? selectedSupplierId : selectedDebtorId, isSupplier],
+    enabled: isSupplier ? !!selectedSupplierId : !!selectedDebtorId,
     queryFn: async (): Promise<{ total: number; notes: CreditNoteInfo[] }> => {
-      const debtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
-      if (!debtor) return { total: 0, notes: [] };
+      let partyName: string | undefined;
+      if (isSupplier) {
+        const supplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
+        partyName = supplier?.company_name;
+      } else {
+        const debtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
+        partyName = debtor?.name;
+      }
+      if (!partyName) return { total: 0, notes: [] };
+
       const allNotes = await api.get<any[]>("/credit-debit-notes") ?? [];
       const matching = allNotes
         .filter((n: any) =>
           n.type === "credit"
           && n.status === "approved"
-          && n.debtor_supplier_name?.toLowerCase() === debtor.name.toLowerCase()
+          && n.debtor_supplier_name?.toLowerCase() === partyName.toLowerCase()
         )
         .map((n: any) => ({ id: n.id, note_number: n.note_number, amount: Number(n.amount), date: n.date, status: n.status }));
       return { total: matching.reduce((s: number, n: CreditNoteInfo) => s + n.amount, 0), notes: matching };
@@ -303,28 +388,52 @@ function BulkPaymentsPage() {
   const creditBoost = applyCredit ? unappliedCredit : 0;
   const availableAmount = numericAmount + balanceBoost + creditBoost;
 
+  // Outstanding function based on type
+  const outstandingFn = useCallback(
+    (inv: any): number => isSupplier ? outstandingPurchase(inv) : outstanding(inv),
+    [isSupplier]
+  );
+
   // FIFO / Two-Pass FIFO preview
   const fifoPreview = useMemo(() => {
     if (mode === "manual" || availableAmount <= 0 || openInvoices.length === 0) return null;
-    return computeFifoPreview(openInvoices, availableAmount, mode === "two_pass_fifo", paymentDate);
-  }, [mode, availableAmount, openInvoices, paymentDate]);
+    return computeFifoPreview(openInvoices as any[], availableAmount, mode === "two_pass_fifo", paymentDate, outstandingFn);
+  }, [mode, availableAmount, openInvoices, paymentDate, outstandingFn]);
 
   // Manual preview
   const manualPreview = useMemo(() => {
     if (mode !== "manual" || availableAmount <= 0 || selectedInvoiceIds.size === 0) return null;
-    return computeManualPreview(openInvoices, selectedInvoiceIds, availableAmount, paymentDate);
-  }, [mode, availableAmount, selectedInvoiceIds, openInvoices, paymentDate]);
+    return computeManualPreview(openInvoices as any[], selectedInvoiceIds, availableAmount, paymentDate, outstandingFn);
+  }, [mode, availableAmount, selectedInvoiceIds, openInvoices, paymentDate, outstandingFn]);
 
   const selectedDebtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
+  const selectedSupplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
+  const selectedPartyName = isSupplier ? selectedSupplier?.company_name : selectedDebtor?.name;
 
   // ── Handlers ──
-  const handleDebtorChange = (id: string) => {
-    setSelectedDebtorId(id);
+  const resetSelections = () => {
     setSelectedInvoiceIds(new Set());
     setInputAmount("");
     setUseBalance(false);
     setApplyCredit(false);
     setResult(null);
+  };
+
+  const handleCounterpartyTypeChange = (type: CounterpartyType) => {
+    setCounterpartyType(type);
+    setSelectedDebtorId("");
+    setSelectedSupplierId("");
+    resetSelections();
+  };
+
+  const handleDebtorChange = (id: string) => {
+    setSelectedDebtorId(id);
+    resetSelections();
+  };
+
+  const handleSupplierChange = (id: string) => {
+    setSelectedSupplierId(id);
+    resetSelections();
   };
 
   const handleDateChange = (date: string) => {
@@ -344,7 +453,7 @@ function BulkPaymentsPage() {
 
   // ── Submit ──
   const submitPayment = useCallback(async () => {
-    if (!selectedDebtorId || availableAmount <= 0) return;
+    if ((!selectedDebtorId && !selectedSupplierId) || availableAmount <= 0) return;
     if (mode === "manual" && selectedInvoiceIds.size === 0) return;
 
     setSubmitting(true);
@@ -353,46 +462,75 @@ function BulkPaymentsPage() {
     try {
       const creditNoteIds = applyCredit ? creditNotes.map((n) => n.id) : [];
 
-      const res = await api.post<PaymentResult>("/bulk-payments/process", {
-        debtor_id: selectedDebtorId,
-        payment_date: paymentDate,
-        amount: numericAmount,
-        use_balance: useBalance,
-        mode,
-        selected_invoice_ids: mode === "manual" ? [...selectedInvoiceIds] : [],
-        settle_credit_note_ids: creditNoteIds,
-      });
+      if (isSupplier) {
+        const res = await api.post<PaymentResult>("/bulk-payments/process-purchase", {
+          supplier_id: selectedSupplierId,
+          payment_date: paymentDate,
+          amount: numericAmount,
+          use_balance: useBalance,
+          mode,
+          selected_invoice_ids: mode === "manual" ? [...selectedInvoiceIds] : [],
+          settle_credit_note_ids: creditNoteIds,
+        });
 
-      setResult(res);
+        setResult(res);
 
-      if (res.closed.length > 0) {
-        toast.success(`${res.closed.length} invoice${res.closed.length !== 1 ? "s" : ""} closed`);
-      }
-      if (res.partially_paid.length > 0) {
-        toast.info(`${res.partially_paid.length} invoice${res.partially_paid.length !== 1 ? "s" : ""} partially paid`);
-      }
-      if (res.remaining > 0) {
-        toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
+        if (res.closed.length > 0) {
+          toast.success(`${res.closed.length} purchase invoice${res.closed.length !== 1 ? "s" : ""} closed`);
+        }
+        if (res.partially_paid.length > 0) {
+          toast.info(`${res.partially_paid.length} purchase invoice${res.partially_paid.length !== 1 ? "s" : ""} partially paid`);
+        }
+        if (res.remaining > 0) {
+          toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
+        }
+
+        qc.setQueryData(["bulk-payment-purchase-balance", selectedSupplierId], res.remaining);
+        qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+        qc.invalidateQueries({ queryKey: ["bulk-payment-purchase-invoices"] });
+        qc.invalidateQueries({ queryKey: ["bulk-payment-purchase-balance"] });
+      } else {
+        const res = await api.post<PaymentResult>("/bulk-payments/process", {
+          debtor_id: selectedDebtorId,
+          payment_date: paymentDate,
+          amount: numericAmount,
+          use_balance: useBalance,
+          mode,
+          selected_invoice_ids: mode === "manual" ? [...selectedInvoiceIds] : [],
+          settle_credit_note_ids: creditNoteIds,
+        });
+
+        setResult(res);
+
+        if (res.closed.length > 0) {
+          toast.success(`${res.closed.length} invoice${res.closed.length !== 1 ? "s" : ""} closed`);
+        }
+        if (res.partially_paid.length > 0) {
+          toast.info(`${res.partially_paid.length} invoice${res.partially_paid.length !== 1 ? "s" : ""} partially paid`);
+        }
+        if (res.remaining > 0) {
+          toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
+        }
+
+        qc.setQueryData(["bulk-payment-balance", selectedDebtorId], res.remaining);
+        qc.invalidateQueries({ queryKey: ["invoices"] });
+        qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
+        qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
       }
 
-      // Immediately update the balance in cache to the new remaining so the user sees it right away
-      qc.setQueryData(["bulk-payment-balance", selectedDebtorId], res.remaining);
-      // Also invalidate to ensure a fresh fetch from the server
-      qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
-      qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
       qc.invalidateQueries({ queryKey: ["bulk-payment-credits"] });
       qc.invalidateQueries({ queryKey: ["bulk-payment-history"] });
-      qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Payment failed");
     } finally {
       setSubmitting(false);
     }
-  }, [selectedDebtorId, availableAmount, numericAmount, mode, selectedInvoiceIds, applyCredit, creditNotes, paymentDate, useBalance, qc]);
+  }, [selectedDebtorId, selectedSupplierId, isSupplier, availableAmount, numericAmount, mode, selectedInvoiceIds, applyCredit, creditNotes, paymentDate, useBalance, qc]);
 
   // ── Validation ──
-  const canSubmit = !!selectedDebtorId
+  const hasSelectedParty = isSupplier ? !!selectedSupplierId : !!selectedDebtorId;
+  const canSubmit = hasSelectedParty
     && availableAmount > 0
     && (mode !== "manual" || selectedInvoiceIds.size > 0)
     && !submitting;
@@ -406,30 +544,91 @@ function BulkPaymentsPage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        {/* ── Step 1: Customer Selection ── */}
-        <Card title="1. Select customer" className={!selectedDebtorId ? "ring-1 ring-primary/30" : ""}>
+        {/* ── Counterparty Type Toggle ── */}
+        <Card title="Payment type" className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleCounterpartyTypeChange("debtor")}
+              className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                counterpartyType === "debtor"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border hover:border-primary/30 hover:bg-muted/20"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`rounded-full p-2 ${
+                  counterpartyType === "debtor" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Debtor (AR)</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Receive payments from customers</div>
+                </div>
+              </div>
+            </button>
+            <button
+              onClick={() => handleCounterpartyTypeChange("supplier")}
+              className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                counterpartyType === "supplier"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border hover:border-primary/30 hover:bg-muted/20"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`rounded-full p-2 ${
+                  counterpartyType === "supplier" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  <Truck className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Supplier (AP)</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Pay purchase invoices to suppliers</div>
+                </div>
+              </div>
+            </button>
+          </div>
+        </Card>
+
+        {/* ── Step 1: Party Selection ── */}
+        <Card title={`1. Select ${counterpartyType === "debtor" ? "customer" : "supplier"}`} className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
           <div className="space-y-4">
             <div className="relative">
               <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <select
-                value={selectedDebtorId}
-                onChange={(e) => handleDebtorChange(e.target.value)}
-                className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all appearance-none cursor-pointer"
-              >
-                <option value="" disabled>Select a customer…</option>
-                {(debtorsQ.data ?? []).map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}{d.industry ? ` — ${d.industry}` : ""}
-                  </option>
-                ))}
-              </select>
+              {counterpartyType === "debtor" ? (
+                <select
+                  value={selectedDebtorId}
+                  onChange={(e) => handleDebtorChange(e.target.value)}
+                  className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="" disabled>Select a customer…</option>
+                  {(debtorsQ.data ?? []).map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}{d.industry ? ` — ${d.industry}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={selectedSupplierId}
+                  onChange={(e) => handleSupplierChange(e.target.value)}
+                  className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all appearance-none cursor-pointer"
+                >
+                  <option value="" disabled>Select a supplier…</option>
+                  {(suppliersQ.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.company_name}{s.industry ? ` — ${s.industry}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
-            {selectedDebtor && (
+            {selectedPartyName && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
                 <div className="flex items-center gap-2 text-primary">
                   <CheckCircle2 className="h-4 w-4" />
-                  <span className="font-medium">{selectedDebtor.name}</span>
+                  <span className="font-medium">{selectedPartyName}</span>
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {sortedInvoices.length} open invoice{sortedInvoices.length !== 1 ? "s" : ""}
@@ -442,7 +641,7 @@ function BulkPaymentsPage() {
         </Card>
 
         {/* ── Step 2: Payment Details ── */}
-        {selectedDebtorId && (
+        {hasSelectedParty && (
           <Card title="2. Payment details">
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <div>
@@ -452,7 +651,7 @@ function BulkPaymentsPage() {
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                   <input
-                    type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?"
+                    type="text" inputMode="decimal" pattern="[0-9]+(\\.[0-9]+)?"
                     placeholder="0.00" value={inputAmount}
                     onChange={(e) => { setInputAmount(e.target.value); setResult(null); }}
                     className="h-11 w-full rounded-lg border border-border bg-background pl-8 pr-4 text-sm text-foreground placeholder:text-muted-foreground/30 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all font-mono"
@@ -517,7 +716,7 @@ function BulkPaymentsPage() {
                 </label>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {balanceQ.isLoading
+                {(isSupplier ? supplierBalanceQ.isLoading : balanceQ.isLoading)
                   ? "Checking previous balances…"
                   : previousRemaining > 0
                     ? `${fmtMoney(previousRemaining)} available from previous payments`
@@ -551,7 +750,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Step 3: Mode Selection ── */}
-        {selectedDebtorId && sortedInvoices.length > 0 && (
+        {hasSelectedParty && sortedInvoices.length > 0 && (
           <Card title="3. Payment mode">
             <div className="mb-4 flex flex-wrap gap-2">
               {([
@@ -611,9 +810,9 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Invoice Table ── */}
-        {selectedDebtorId && sortedInvoices.length > 0 && (
-          <Card title="Invoices">
-            {invoicesQ.isLoading ? (
+        {hasSelectedParty && sortedInvoices.length > 0 && (
+          <Card title={isSupplier ? "Purchase invoices" : "Invoices"}>
+            {(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> Loading invoices…
               </div>
@@ -634,19 +833,19 @@ function BulkPaymentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedInvoices.map((inv) => {
+                    {sortedInvoices.map((inv: any) => {
                       const overdue = isOverdue(inv.due_date, paymentDate);
                       const late = daysLateCalc(inv.due_date, paymentDate);
                       const isSelected = selectedInvoiceIds.has(inv.id);
-                      const bal = outstanding(inv);
+                      const bal = outstandingFn(inv);
 
                       // Determine what happens to this invoice
                       let resultLabel = "";
                       let resultCls = "";
 
                       if (mode !== "manual" && fifoPreview) {
-                        const isClosed = fifoPreview.closed.find((c) => c.inv.id === inv.id);
-                        const isSkipped = fifoPreview.skipped.find((s) => s.id === inv.id);
+                        const isClosed = fifoPreview.closed.find((c: any) => c.inv.id === inv.id);
+                        const isSkipped = fifoPreview.skipped.find((s: any) => s.id === inv.id);
                         if (isClosed) {
                           resultLabel = isClosed.isFuture ? "Pre-close" : fmtMoney(isClosed.amount);
                           resultCls = isClosed.isFuture ? "text-purple-500 bg-purple-500/15" : "text-success bg-success/15";
@@ -657,8 +856,8 @@ function BulkPaymentsPage() {
                       }
 
                       if (mode === "manual" && manualPreview) {
-                        const isClosed = manualPreview.closed.find((c) => c.inv.id === inv.id);
-                        const isPartial = manualPreview.partiallyPaid.find((p) => p.inv.id === inv.id);
+                        const isClosed = manualPreview.closed.find((c: any) => c.inv.id === inv.id);
+                        const isPartial = manualPreview.partiallyPaid.find((p: any) => p.inv.id === inv.id);
                         if (isClosed) {
                           resultLabel = fmtMoney(isClosed.amount);
                           resultCls = "text-success bg-success/15";
@@ -718,6 +917,8 @@ function BulkPaymentsPage() {
                               inv.status === "overdue" ? "bg-destructive/15 text-destructive"
                               : inv.status === "approved" ? "bg-primary/15 text-primary"
                               : inv.status === "advanced" || inv.status === "funded" ? "bg-warning/15 text-warning"
+                              : inv.status === "draft" ? "bg-muted text-muted-foreground"
+                              : inv.status === "submitted" ? "bg-blue-500/15 text-blue-500"
                               : "bg-muted text-muted-foreground"
                             }`}>{inv.status}</span>
                           </td>
@@ -750,7 +951,7 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Submit Button ── */}
-        {selectedDebtorId && sortedInvoices.length > 0 && (
+        {hasSelectedParty && sortedInvoices.length > 0 && (
           <div className="sticky bottom-6 z-10">
             <Card className="border-primary/20 shadow-lg">
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -813,26 +1014,28 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── No invoices ── */}
-        {selectedDebtorId && !invoicesQ.isLoading && sortedInvoices.length === 0 && (
+        {hasSelectedParty && !(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) && sortedInvoices.length === 0 && (
           <Card>
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <CheckCircle2 className="mb-3 h-10 w-10 text-success/60" />
               <h3 className="text-lg font-medium">All caught up</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {selectedDebtor?.name ?? "This customer"} has no open invoices.
+                {selectedPartyName ?? "This party"} has no open {isSupplier ? "purchase " : ""}invoices.
               </p>
             </div>
           </Card>
         )}
 
         {/* ── Empty state ── */}
-        {!selectedDebtorId && (
+        {!hasSelectedParty && (
           <Card>
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <ArrowRightLeft className="mb-4 h-12 w-12 text-muted-foreground/40" />
-              <h3 className="text-lg font-medium">Select a customer to begin</h3>
+              <h3 className="text-lg font-medium">Select a party to begin</h3>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                Choose a customer above, enter the payment amount, optionally apply past balance or credit,
+                Choose <strong>Debtor (AR)</strong> to receive payments from customers, or{" "}
+                <strong>Supplier (AP)</strong> to pay purchase invoices to suppliers.
+                Then enter the payment amount, optionally apply past balance or credit,
                 then choose FIFO (strict), Two-Pass FIFO (future pre-closing), or manual selection.
               </p>
             </div>
@@ -841,7 +1044,7 @@ function BulkPaymentsPage() {
 
         {/* ── Results ── */}
         {result && (
-          <Card title="Payment result">
+          <Card title={`Payment result${result.supplier_name ? ` — ${result.supplier_name}` : ""}`}>
             <div className="space-y-4">
               <div className="grid grid-cols-4 gap-4">
                 <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
@@ -941,9 +1144,12 @@ function BulkPaymentsPage() {
                   onChange={(e) => setHistoryFilterDebtorId(e.target.value)}
                   className="h-9 rounded-lg border border-border bg-background px-3 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 >
-                  <option value="">All customers</option>
+                  <option value="">All parties</option>
                   {(debtorsQ.data ?? []).map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                  {(suppliersQ.data ?? []).map((s) => (
+                    <option key={s.id} value={`supplier_${s.id}`}>{s.company_name}</option>
                   ))}
                 </select>
                 <div className="text-xs text-muted-foreground">
@@ -968,7 +1174,7 @@ function BulkPaymentsPage() {
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
                         <th className="px-5 py-2 text-left font-normal">Date</th>
-                        <th className="px-5 py-2 text-left font-normal">Customer</th>
+                        <th className="px-5 py-2 text-left font-normal">Party</th>
                         <th className="px-5 py-2 text-right font-normal">Amount</th>
                         <th className="px-5 py-2 text-right font-normal">Remaining</th>
                         <th className="px-5 py-2 text-center font-normal">Mode</th>
@@ -985,8 +1191,11 @@ function BulkPaymentsPage() {
                           onReversed={() => {
                             qc.invalidateQueries({ queryKey: ["bulk-payment-history"] });
                             qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
+                            qc.invalidateQueries({ queryKey: ["bulk-payment-purchase-balance"] });
                             qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
+                            qc.invalidateQueries({ queryKey: ["bulk-payment-purchase-invoices"] });
                             qc.invalidateQueries({ queryKey: ["invoices"] });
+                            qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
                             qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
                           }}
                         />
@@ -1030,12 +1239,21 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
     }
   };
 
+  const isSupplierPayment = payment.debtor_id?.startsWith("supplier_");
+
   return (
     <>
       <tr className="border-b border-border/60 hover:bg-muted/30">
         <td className="px-5 py-3 text-xs">{fmtDateShort(payment.payment_date)}</td>
         <td className="px-5 py-3">
-          <div className="text-xs font-medium">{payment.debtor_name}</div>
+          <div className="flex items-center gap-1.5 text-xs font-medium">
+            {isSupplierPayment ? (
+              <Truck className="h-3 w-3 text-muted-foreground" />
+            ) : (
+              <Users className="h-3 w-3 text-muted-foreground" />
+            )}
+            {payment.debtor_name}
+          </div>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
         <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}`}>

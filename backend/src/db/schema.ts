@@ -130,6 +130,22 @@ const tableDefs = [
     AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    TableName: TABLES.BALANCE_SHEET_ITEMS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [
+      { AttributeName: "id", AttributeType: "S" },
+      { AttributeName: "section", AttributeType: "S" },
+    ],
+    GlobalSecondaryIndexes: [
+      {
+        IndexName: "section-index",
+        KeySchema: [{ AttributeName: "section", KeyType: "HASH" }],
+        Projection: { ProjectionType: "ALL" },
+      },
+    ],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ] as const;
 
 export async function createTables() {
