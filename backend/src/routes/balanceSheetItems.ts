@@ -36,6 +36,13 @@ const SECTION_LABELS: Record<BalanceSheetSection, string> = {
   other_equity: "Other Equity",
 };
 
+export interface SubField {
+  id: string;
+  name: string;
+  amount: number;
+  date: string;
+}
+
 export interface BalanceSheetItem {
   id: string;
   section: BalanceSheetSection;
@@ -43,12 +50,21 @@ export interface BalanceSheetItem {
   description: string;
   amount: number;
   date: string;
+  sub_fields?: SubField[];
   account_id?: string;
   notes?: string;
   is_active: boolean;
   is_opening_balance?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// Helper: compute amount from sub_fields if present, otherwise use raw amount
+function computeAmount(item: BalanceSheetItem): number {
+  if (item.sub_fields && item.sub_fields.length > 0) {
+    return item.sub_fields.reduce((sum, sf) => sum + Number(sf.amount), 0);
+  }
+  return Number(item.amount);
 }
 
 // ── GET /api/balance-sheet-items ──
@@ -103,7 +119,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── POST /api/balance-sheet-items ──
 router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { section, description, amount, date, account_id, notes, is_opening_balance } = req.body;
+    const { section, description, amount, date, account_id, notes, is_opening_balance, sub_fields } = req.body;
 
     // Validation
     if (!section || !BALANCE_SHEET_SECTIONS.includes(section)) {
@@ -112,21 +128,33 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     if (!description?.trim()) {
       return res.status(400).json({ error: "Description is required" });
     }
-    if (amount === undefined || amount === null || isNaN(Number(amount))) {
-      return res.status(400).json({ error: "A valid amount is required" });
-    }
     if (!date) {
       return res.status(400).json({ error: "Date is required" });
     }
 
+    // Parse sub_fields if provided
+    let parsedSubFields: SubField[] | undefined;
+    if (sub_fields && Array.isArray(sub_fields) && sub_fields.length > 0) {
+      parsedSubFields = sub_fields.map((sf: any) => ({
+        id: sf.id || randomUUID(),
+        name: sf.name || "",
+        amount: Number(sf.amount) || 0,
+        date: sf.date || date,
+      }));
+    }
+
     const now = new Date().toISOString();
+    const itemAmount = parsedSubFields
+      ? parsedSubFields.reduce((sum, sf) => sum + Number(sf.amount), 0)
+      : (Number(amount) || 0);
     const item: BalanceSheetItem = {
       id: randomUUID(),
       section,
       type: "manual",
       description: description.trim(),
-      amount: Number(amount),
+      amount: itemAmount,
       date,
+      sub_fields: parsedSubFields,
       account_id: account_id || undefined,
       notes: notes?.trim() || undefined,
       is_active: true,
@@ -151,7 +179,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: "Balance sheet item not found" });
     }
 
-    const { section, description, amount, date, account_id, notes, is_active, is_opening_balance } = req.body;
+    const { section, description, amount, date, account_id, notes, is_active, is_opening_balance, sub_fields } = req.body;
 
     const updates: Record<string, unknown> = {};
     if (section !== undefined) {
@@ -161,7 +189,29 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       updates.section = section;
     }
     if (description !== undefined) updates.description = description.trim();
-    if (amount !== undefined) updates.amount = Number(amount);
+    
+    // Handle sub_fields: if provided, compute amount from them
+    if (sub_fields !== undefined) {
+      if (Array.isArray(sub_fields) && sub_fields.length > 0) {
+        const parsedSubFields: SubField[] = sub_fields.map((sf: any) => ({
+          id: sf.id || randomUUID(),
+          name: sf.name || "",
+          amount: Number(sf.amount) || 0,
+          date: sf.date || date || existing.date,
+        }));
+        updates.sub_fields = parsedSubFields;
+        updates.amount = parsedSubFields.reduce((sum, sf) => sum + sf.amount, 0);
+      } else {
+        // Clearing sub-fields: update amount if provided, or use existing
+        updates.sub_fields = [];
+        if (amount !== undefined) {
+          updates.amount = Number(amount);
+        }
+      }
+    } else if (amount !== undefined) {
+      updates.amount = Number(amount);
+    }
+    
     if (date !== undefined) updates.date = date;
     if (account_id !== undefined) updates.account_id = account_id || undefined;
     if (notes !== undefined) updates.notes = notes?.trim() || undefined;

@@ -40,12 +40,20 @@ const SECTION_LABELS: Record<BalanceSheetSection, string> = {
   other_equity: "Other Equity",
 };
 
+interface SubField {
+  id: string;
+  name: string;
+  amount: number;
+  date: string;
+}
+
 interface BalanceSheetItem {
   id: string;
   section: BalanceSheetSection;
   description: string;
   amount: number;
   date: string;
+  sub_fields?: SubField[];
   account_id?: string;
   notes?: string;
   is_active: boolean;
@@ -362,6 +370,13 @@ export function BalanceSheetEditor() {
 //  EDITOR SECTION BLOCK — Displays auto + manual entries
 // ═══════════════════════════════════════════════════════════════
 
+function fmtItemAmount(item: BalanceSheetItem): number {
+  if (item.sub_fields && item.sub_fields.length > 0) {
+    return item.sub_fields.reduce((s, sf) => s + (Number(sf.amount) || 0), 0);
+  }
+  return Number(item.amount);
+}
+
 function EditorSectionBlock({
   section,
   manualItems,
@@ -389,6 +404,7 @@ function EditorSectionBlock({
         manual_item_id?: string;
         date?: string;
         notes?: string;
+        sub_fields?: SubField[];
       }>;
     }>;
   };
@@ -492,41 +508,65 @@ function EditorSectionBlock({
                       <div className="text-[11px] italic text-muted-foreground/60">No manual entries</div>
                     ) : (
                       <div className="space-y-1">
-                        {manualSubItems.map((item) => (
-                          <div
-                            key={item.id}
-                            className="group flex items-center justify-between rounded-md px-2 py-1 text-xs hover:bg-amber-100/50 dark:hover:bg-amber-950/30 transition-colors"
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              {item.is_opening_balance && (
-                                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                                  Opening
-                                </span>
-                              )}
-                              <span className="truncate">{item.description}</span>
-                              {item.date && (
-                                <span className="text-muted-foreground/60 shrink-0">{fmtDate(item.date)}</span>
+                        {manualSubItems.map((item) => {
+                          const hasSubFields = item.sub_fields && item.sub_fields.length > 0;
+                          const itemAmt = fmtItemAmount(item);
+                          return (
+                            <div key={item.id}>
+                              <div className="group flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-amber-100/50 dark:hover:bg-amber-950/30 transition-colors">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                  {item.is_opening_balance && (
+                                    <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                      Opening
+                                    </span>
+                                  )}
+                                  {hasSubFields && (
+                                    <Layers className="h-3 w-3 shrink-0 text-violet-500" />
+                                  )}
+                                  <span className="truncate font-medium">{item.description}</span>
+                                  {item.date && (
+                                    <span className="text-muted-foreground/60 shrink-0">{fmtDate(item.date)}</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0 ml-2">
+                                  <span className="num font-medium">{fmtMoney(itemAmt)}</span>
+                                  <button
+                                    onClick={() => onEdit(item)}
+                                    className="p-0.5 text-muted-foreground/40 hover:text-primary opacity-0 group-hover:opacity-100 transition-all"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => onDelete(item.id)}
+                                    className="p-0.5 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </div>
+                              {/* Sub-fields nested under parent */}
+                              {hasSubFields && item.sub_fields && (
+                                <div className="ml-5 pl-3 border-l-2 border-violet-200 dark:border-violet-800/60 space-y-0.5 mt-0.5">
+                                  {item.sub_fields.map((sf) => (
+                                    <div
+                                      key={sf.id}
+                                      className="flex items-center justify-between rounded-md px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <span className="h-1 w-1 rounded-full bg-violet-400 shrink-0" />
+                                        <span className="truncate">{sf.name}</span>
+                                        <span className="text-muted-foreground/50 shrink-0">{fmtDate(sf.date)}</span>
+                                      </div>
+                                      <span className="num shrink-0">{fmtMoney(Number(sf.amount) || 0)}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 shrink-0 ml-2">
-                              <span className="num font-medium">{fmtMoney(item.amount)}</span>
-                              <button
-                                onClick={() => onEdit(item)}
-                                className="p-0.5 text-muted-foreground/40 hover:text-primary opacity-0 group-hover:opacity-100 transition-all"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button
-                                onClick={() => onDelete(item.id)}
-                                className="p-0.5 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -595,6 +635,10 @@ function ComputedRow({
 //  MANUAL ENTRY FORM MODAL
 // ═══════════════════════════════════════════════════════════════
 
+function generateId() {
+  return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 11);
+}
+
 function ManualEntryForm({
   editing,
   openingMode,
@@ -617,6 +661,17 @@ function ManualEntryForm({
   const [accountId, setAccountId] = useState(editing?.account_id ?? "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
   const [isOpening, setIsOpening] = useState(editing?.is_opening_balance ?? openingMode ?? false);
+  const [subFields, setSubFields] = useState<SubField[]>(
+    editing?.sub_fields && editing.sub_fields.length > 0
+      ? editing.sub_fields.map(sf => ({ ...sf }))
+      : []
+  );
+  const [useSubFields, setUseSubFields] = useState(
+    editing?.sub_fields !== undefined && editing.sub_fields.length > 0
+  );
+
+  // Compute total from sub_fields
+  const subFieldsTotal = subFields.reduce((sum, sf) => sum + (Number(sf.amount) || 0), 0);
 
   // Fetch chart of accounts for dropdown
   const { data: accounts = [] } = useQuery({
@@ -644,22 +699,70 @@ function ManualEntryForm({
     (a: any) => relevantSubTypes.includes(a.sub_type) || a.sub_type === section
   );
 
+  const handleAddSubField = () => {
+    setSubFields(prev => [...prev, {
+      id: generateId(),
+      name: "",
+      amount: 0,
+      date: date,
+    }]);
+  };
+
+  const handleRemoveSubField = (id: string) => {
+    setSubFields(prev => prev.filter(sf => sf.id !== id));
+  };
+
+  const handleSubFieldChange = (id: string, field: keyof SubField, value: string | number) => {
+    setSubFields(prev => prev.map(sf => {
+      if (sf.id !== id) return sf;
+      return { ...sf, [field]: value };
+    }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) { toast.error("Description is required"); return; }
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum)) { toast.error("A valid amount is required"); return; }
     if (!date) { toast.error("Date is required"); return; }
 
-    onSave({
-      section,
-      description: description.trim(),
-      amount: amountNum,
-      date,
-      account_id: accountId || undefined,
-      notes: notes.trim() || undefined,
-      is_opening_balance: isOpening,
-    });
+    if (useSubFields) {
+      if (subFields.length === 0) {
+        toast.error("Add at least one sub-field or switch to manual amount");
+        return;
+      }
+      // Validate sub-fields
+      for (const sf of subFields) {
+        if (!sf.name.trim()) { toast.error("Each sub-field needs a name"); return; }
+        if (isNaN(Number(sf.amount))) { toast.error("Each sub-field needs a valid amount"); return; }
+        if (!sf.date) { toast.error("Each sub-field needs a date"); return; }
+      }
+      onSave({
+        section,
+        description: description.trim(),
+        amount: subFieldsTotal,
+        date,
+        sub_fields: subFields.map(sf => ({
+          id: sf.id,
+          name: sf.name.trim(),
+          amount: Number(sf.amount) || 0,
+          date: sf.date,
+        })),
+        account_id: accountId || undefined,
+        notes: notes.trim() || undefined,
+        is_opening_balance: isOpening,
+      });
+    } else {
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum)) { toast.error("A valid amount is required"); return; }
+      onSave({
+        section,
+        description: description.trim(),
+        amount: amountNum,
+        date,
+        account_id: accountId || undefined,
+        notes: notes.trim() || undefined,
+        is_opening_balance: isOpening,
+      });
+    }
   };
 
   return (
@@ -668,7 +771,7 @@ function ManualEntryForm({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl"
+        className="w-full max-w-xl rounded-xl border border-border bg-card shadow-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -717,18 +820,53 @@ function ManualEntryForm({
             />
           </L>
 
+          {/* Amount entry mode toggle */}
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 p-3">
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={useSubFields}
+                onChange={(e) => {
+                  setUseSubFields(e.target.checked);
+                  if (e.target.checked && subFields.length === 0) {
+                    handleAddSubField();
+                  }
+                }}
+              />
+              <div className="h-5 w-9 rounded-full bg-muted-foreground/30 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-violet-500 peer-checked:after:translate-x-full" />
+            </label>
+            <div>
+              <span className="text-sm font-medium">Use sub-fields (line items)</span>
+              <p className="text-[11px] text-muted-foreground">
+                Break down this entry into individual line items with name, amount & date
+              </p>
+            </div>
+          </div>
+
           {/* Amount & Date */}
           <div className="grid grid-cols-2 gap-4">
-            <L label="Amount *">
-              <input
-                required
-                type="text"
-                inputMode="decimal"
-                className="inp num"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-              />
+            <L label={useSubFields ? "Total (auto-calculated)" : "Amount *"}>
+              {useSubFields ? (
+                <div className="inp num flex items-center gap-2 bg-violet-50/30 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800">
+                  <span className="text-sm font-bold text-violet-700 dark:text-violet-400">
+                    {fmtMoney(subFieldsTotal)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {subFields.length} line{subFields.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              ) : (
+                <input
+                  required
+                  type="text"
+                  inputMode="decimal"
+                  className="inp num"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                />
+              )}
             </L>
             <L label="Date *">
               <input
@@ -740,6 +878,89 @@ function ManualEntryForm({
               />
             </L>
           </div>
+
+          {/* ── Sub-fields Section ── */}
+          {useSubFields && (
+            <div className="rounded-lg border border-violet-100 bg-violet-50/20 p-4 dark:border-violet-900 dark:bg-violet-950/10">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-400">
+                    Line Items
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddSubField}
+                  className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300 dark:hover:bg-violet-900/50 transition-all"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add line item
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {subFields.map((sf, idx) => (
+                  <div
+                    key={sf.id}
+                    className="group grid grid-cols-12 gap-2 items-start rounded-md border border-violet-200/60 bg-white p-2 dark:border-violet-800/60 dark:bg-violet-950/20"
+                  >
+                    <div className="col-span-1 flex items-center justify-center">
+                      <span className="text-[10px] font-mono text-muted-foreground">{idx + 1}</span>
+                    </div>
+                    <div className="col-span-4">
+                      <input
+                        type="text"
+                        className="inp text-xs py-1.5"
+                        value={sf.name}
+                        onChange={(e) => handleSubFieldChange(sf.id, "name", e.target.value)}
+                        placeholder="Item name"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="inp num text-xs py-1.5"
+                        value={sf.amount || ""}
+                        onChange={(e) => handleSubFieldChange(sf.id, "amount", e.target.value)}
+                        placeholder="Amount"
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <input
+                        type="date"
+                        className="inp text-xs py-1.5"
+                        value={sf.date}
+                        onChange={(e) => handleSubFieldChange(sf.id, "date", e.target.value)}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSubField(sf.id)}
+                        className="p-1 text-muted-foreground/40 hover:text-destructive transition-colors"
+                        title="Remove line item"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {subFields.length > 0 && (
+                <div className="mt-3 flex items-center justify-between border-t border-violet-200/60 pt-2 dark:border-violet-800/60">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Total
+                  </span>
+                  <span className="text-sm font-bold num text-violet-700 dark:text-violet-400">
+                    {fmtMoney(subFieldsTotal)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Account mapping */}
           <L label="Link to Account (optional)">

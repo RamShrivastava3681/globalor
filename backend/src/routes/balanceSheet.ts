@@ -367,18 +367,24 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       if (!sub) return;
 
       for (const item of matchingItems) {
+        // If item has sub_fields, compute amount from sub_fields instead
+        const itemAmount = item.sub_fields && item.sub_fields.length > 0
+          ? item.sub_fields.reduce((s: number, sf: any) => s + Number(sf.amount), 0)
+          : Number(item.amount);
+
         sub.accounts.push({
           id: item.id,
           name: item.description,
-          balance: Number(item.amount),
+          balance: itemAmount,
           source: "manual",
           date: item.date,
           notes: item.notes,
           account_id: item.account_id,
           is_opening_balance: !!item.is_opening_balance,
           manual_item_id: item.id,
+          sub_fields: item.sub_fields || [],
         });
-        sub.total += Number(item.amount);
+        sub.total += itemAmount;
       }
 
       // Recalculate section total
