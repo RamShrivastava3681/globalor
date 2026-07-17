@@ -2,7 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2, Scale } from "lucide-react";
+import {
+  FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2, Scale,
+  TrendingUp, Briefcase, Clock, Users, Wallet, Boxes, Banknote, FileSignature, ShoppingCart,
+  ArrowLeft, LayoutGrid, ChevronRight
+} from "lucide-react";
 import { BalanceSheetView } from "@/components/balance-sheet";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -22,20 +26,42 @@ export const Route = createFileRoute("/app/reports")({
 
 type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
 
-const TABS: { id: ReportTab; label: string }[] = [
-  { id: "balance-sheet", label: "Balance Sheet" },
-  { id: "portfolio", label: "Portfolio Summary" },
-  { id: "profit-loss", label: "Profit & Loss" },
-  { id: "proformas", label: "Proforma invoices" },
-  { id: "sales-invoices", label: "Sales invoices" },
-  { id: "purchase-invoices", label: "Purchase invoices" },
-  { id: "aging", label: "Aging report" },
-  { id: "debtors", label: "Debtors" },
-  { id: "suppliers", label: "Suppliers" },
-  { id: "advances", label: "Advances" },
-  { id: "expenses", label: "Expenses" },
-  { id: "inventory-tracking", label: "Inventory tracking" },
+const REPORT_CATEGORIES = [
+  {
+    name: "Financial Reports",
+    reports: [
+      { id: "balance-sheet" as ReportTab, label: "Balance Sheet", icon: Scale, description: "Snapshot of assets, liabilities, and equity", color: "from-blue-500 to-blue-600", bgLight: "bg-blue-50", iconBg: "bg-blue-100", iconColor: "text-blue-600" },
+      { id: "profit-loss" as ReportTab, label: "Profit & Loss", icon: TrendingUp, description: "Revenue, costs, and profitability analysis", color: "from-emerald-500 to-emerald-600", bgLight: "bg-emerald-50", iconBg: "bg-emerald-100", iconColor: "text-emerald-600" },
+      { id: "portfolio" as ReportTab, label: "Portfolio Summary", icon: Briefcase, description: "Overview of your entire portfolio performance", color: "from-violet-500 to-violet-600", bgLight: "bg-violet-50", iconBg: "bg-violet-100", iconColor: "text-violet-600" },
+    ],
+  },
+  {
+    name: "Invoice Reports",
+    reports: [
+      { id: "sales-invoices" as ReportTab, label: "Sales Invoices", icon: FileText, description: "Detailed view of all sales invoices", color: "from-amber-500 to-amber-600", bgLight: "bg-amber-50", iconBg: "bg-amber-100", iconColor: "text-amber-600" },
+      { id: "purchase-invoices" as ReportTab, label: "Purchase Invoices", icon: ShoppingCart, description: "Track all purchase invoices", color: "from-rose-500 to-rose-600", bgLight: "bg-rose-50", iconBg: "bg-rose-100", iconColor: "text-rose-600" },
+      { id: "proformas" as ReportTab, label: "Proforma Invoices", icon: FileSignature, description: "View proforma invoice details", color: "from-orange-500 to-orange-600", bgLight: "bg-orange-50", iconBg: "bg-orange-100", iconColor: "text-orange-600" },
+    ],
+  },
+  {
+    name: "Customer Reports",
+    reports: [
+      { id: "aging" as ReportTab, label: "Aging Report", icon: Clock, description: "Receivables aging analysis by buyer", color: "from-cyan-500 to-cyan-600", bgLight: "bg-cyan-50", iconBg: "bg-cyan-100", iconColor: "text-cyan-600" },
+      { id: "debtors" as ReportTab, label: "Debtors", icon: Users, description: "Detailed debtor information and history", color: "from-sky-500 to-sky-600", bgLight: "bg-sky-50", iconBg: "bg-sky-100", iconColor: "text-sky-600" },
+      { id: "suppliers" as ReportTab, label: "Suppliers", icon: Building2, description: "Supplier details and payment terms", color: "from-teal-500 to-teal-600", bgLight: "bg-teal-50", iconBg: "bg-teal-100", iconColor: "text-teal-600" },
+    ],
+  },
+  {
+    name: "Other Reports",
+    reports: [
+      { id: "advances" as ReportTab, label: "Advances", icon: Banknote, description: "Track all advances made", color: "from-purple-500 to-purple-600", bgLight: "bg-purple-50", iconBg: "bg-purple-100", iconColor: "text-purple-600" },
+      { id: "expenses" as ReportTab, label: "Expenses", icon: Wallet, description: "Categorized expense tracking", color: "from-pink-500 to-pink-600", bgLight: "bg-pink-50", iconBg: "bg-pink-100", iconColor: "text-pink-600" },
+      { id: "inventory-tracking" as ReportTab, label: "Inventory Tracking", icon: Boxes, description: "Stock levels and valuation", color: "from-indigo-500 to-indigo-600", bgLight: "bg-indigo-50", iconBg: "bg-indigo-100", iconColor: "text-indigo-600" },
+    ],
+  },
 ];
+
+const TABS: { id: ReportTab; label: string }[] = REPORT_CATEGORIES.flatMap(cat => cat.reports);
 
 // ── Status filter options ──
 const STATUS_FILTERS: Record<ReportTab, string[]> = {
@@ -393,8 +419,10 @@ const ADMIN_CAT_LABELS: Record<string, string> = {
 
 // ── Report Component ──
 
+// ── Report Categories (icons & metadata) ──
+
 function ReportsPage() {
-  const [tab, setTab] = useState<ReportTab>("sales-invoices");
+  const [tab, setTab] = useState<ReportTab | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -443,15 +471,16 @@ function ReportsPage() {
     }).catch(() => {});
   }, []);
 
-  // Column visibility state
+  // Column visibility state (moved before early return for hooks consistency)
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({});
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
 
-  const columns = getColumns(tab);
+  const columns = tab ? getColumns(tab) : [];
 
   // Initialize/reset column visibility when tab changes
   useEffect(() => {
+    if (!tab) return;
     setVisibleColumns(initColumnVisibility(columns));
     setColumnMenuOpen(false);
   }, [tab]);
@@ -474,20 +503,19 @@ function ReportsPage() {
 
   // Tabs that support server-side pagination
   const PAGINATED_TABS: ReportTab[] = ["sales-invoices", "purchase-invoices", "aging"];
-  const isPaginated = PAGINATED_TABS.includes(tab);
+  const isPaginated = tab ? PAGINATED_TABS.includes(tab) : false;
 
   const hasDateFilter = !!fromDate || !!toDate;
 
   const fetchData = useCallback(async () => {
+    if (!tab) return;
     setLoading(true);
     try {
       if (isBalanceSheet) {
-        // Balance sheet is handled by its own component via useQuery
         setData([]);
         setLoading(false);
         return;
       } else if (isPnL) {
-        // Fetch P&L report
         let fromStr: string | undefined;
         let toStr: string | undefined;
         if (periodPreset === "custom") {
@@ -516,7 +544,6 @@ function ReportsPage() {
           if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
           if (buyerId) params.set("buyer_id", buyerId);
         }
-        // Payment type filter (comma-separated values for server-side filtering)
         const activePaymentTypes: string[] = [];
         if (filterBulkPay) activePaymentTypes.push("bulk_pay");
         if (filterTreasuryPay) activePaymentTypes.push("treasury_pay");
@@ -553,8 +580,77 @@ function ReportsPage() {
   }, [tab, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (tab) fetchData();
+  }, [fetchData, tab]);
+
+  // If no tab selected, show the home page with cards (after all hooks)
+  if (tab === null) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-background to-muted/30">
+        <div className="animate-fade-in border-b border-border bg-card/80 backdrop-blur-sm">
+          <div className="mx-auto max-w-7xl px-4 py-8 md:px-8">
+            <div className="animate-fade-in-up animate-stagger-1 flex items-center gap-2 text-sm text-muted-foreground mb-2">
+              <LayoutGrid className="h-4 w-4" />
+              <span>Reports</span>
+            </div>
+            <h1 className="animate-fade-in-up animate-stagger-2 text-3xl font-bold tracking-tight">Reports Dashboard</h1>
+            <p className="animate-fade-in-up animate-stagger-3 mt-2 text-muted-foreground max-w-2xl">
+              Select a report below to view detailed insights about your business.
+            </p>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl px-4 py-10 md:px-8">
+          {REPORT_CATEGORIES.map((category, catIdx) => (
+            <div key={catIdx} className="animate-fade-in-up mb-12 last:mb-0" style={{ animationDelay: `${0.2 + catIdx * 0.1}s` }}>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  {category.name}
+                </span>
+                <div className="h-px flex-1 bg-gradient-to-l from-border to-transparent" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {category.reports.map((report, reportIdx) => {
+                  const Icon = report.icon;
+                  const globalIdx = catIdx * 3 + reportIdx;
+                  return (
+                    <button
+                      key={report.id}
+                      onClick={() => setTab(report.id)}
+                      className={`animate-fade-in-up group relative overflow-hidden rounded-xl border border-border bg-card p-6 text-left shadow-sm transition-all duration-200 hover:shadow-md hover:border-primary/20 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                      style={{ animationDelay: `${0.4 + globalIdx * 0.08}s` }}
+                    >
+                      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${report.color}`} />
+
+                      <div className="flex items-start gap-4">
+                        <div className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${report.iconBg} transition-all duration-200 group-hover:scale-105 group-hover:shadow-sm`}>
+                          <Icon className={`h-6 w-6 ${report.iconColor}`} />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors duration-200">
+                            {report.label}
+                          </h3>
+                          <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
+                            {report.description}
+                          </p>
+                        </div>
+
+                        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/40 transition-all duration-200 group-hover:text-primary group-hover:translate-x-0.5" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
 
   // When year / quarter / month dropdowns change, compute dates and switch to custom
   useEffect(() => {
@@ -613,8 +709,11 @@ function ReportsPage() {
         return true;
       });
 
+  // Only render report view after tab is selected
+  const reportMeta = REPORT_CATEGORIES.flatMap(c => c.reports).find(r => r.id === tab);
+
   // ── Fetch all data for export (bypasses pagination) ──
-  const fetchExportData = useCallback(async () => {
+  async function fetchExportData() {
     const params = new URLSearchParams();
     if (searchQuery) params.set("search", searchQuery);
     if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
@@ -655,10 +754,10 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [tab, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay]);
+  }
 
   // ── P&L export helpers ──
-  const buildPnlRows = useCallback(() => {
+  function buildPnlRows() {
     if (!pnlData) return [];
     const d = pnlData;
     const adminEntries = Object.entries(d.adminCostByCategory).sort(([a], [b]) => a.localeCompare(b));
@@ -730,7 +829,7 @@ function ReportsPage() {
     push("Profit After Taxation", d.profitAfterTax, { bold: true, doubleLine: true });
 
     return rows;
-  }, [pnlData]);
+  }
 
   // ── Excel Export (handles both tabular and P&L) ──
   const exportExcel = async () => {
@@ -793,7 +892,7 @@ function ReportsPage() {
 
   // ── Helper: load company logo as base64 (cached) ──
   const logoBase64PromiseRef = useRef<Promise<string> | null>(null);
-  const getLogoBase64 = useCallback(async (): Promise<string> => {
+  async function getLogoBase64(): Promise<string> {
     if (logoBase64PromiseRef.current) return logoBase64PromiseRef.current;
     logoBase64PromiseRef.current = new Promise<string>((resolve, reject) => {
       const img = new Image();
@@ -811,7 +910,7 @@ function ReportsPage() {
       img.src = "/logo.png";
     });
     return logoBase64PromiseRef.current;
-  }, []);
+  }
 
   // ── Helper: draw a PDF footer with page numbers ──
   const drawPdfFooter = (doc: jsPDF) => {
@@ -1603,13 +1702,31 @@ function ReportsPage() {
   const visibleCount = Object.values(visibleColumns).filter(Boolean).length;
   const totalCount = columns.length;
   const statuses = STATUS_FILTERS[tab];
+  const ReportIcon = reportMeta?.icon ?? FileText;
 
   return (
     <div>
       <PageHeader
-        eyebrow="Reports"
-        title="Reports"
-        description="View and export detailed reports for all business activities"
+        eyebrow={
+          <button
+            onClick={() => { setTab(null); setPnlData(null); setData([]); }}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            All Reports
+          </button>
+        }
+        title={
+          <div className="flex items-center gap-3">
+            {reportMeta && (
+              <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${reportMeta.iconBg}`}>
+                <ReportIcon className={`h-5 w-5 ${reportMeta.iconColor}`} />
+              </div>
+            )}
+            <span>{reportMeta?.label ?? "Report"}</span>
+          </div>
+        }
+        description={`Detailed ${reportMeta?.label.toLowerCase() ?? "report"} data with export options`}
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -1630,22 +1747,28 @@ function ReportsPage() {
         }
       />
 
-      {/* Tabs */}
+      {/* Quick-switch report chips */}
       <div className="border-b border-border px-6 md:px-10">
-        <div className="flex gap-1 overflow-x-auto -mb-px">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setBuyerId(""); setFromDate(undefined); setToDate(undefined); setFilterBulkPay(false); setFilterTreasuryPay(false); }}
+        <div className="flex gap-1.5 overflow-x-auto py-3 -mb-px">
+          {TABS.map((t) => {
+            const meta = REPORT_CATEGORIES.flatMap(c => c.reports).find(r => r.id === t.id);
+            const ChipIcon = meta?.icon ?? FileText;
+            const isActive = t.id === tab;
+            return (
+              <button
+                key={t.id}
+                onClick={() => { setTab(t.id); setStatusFilter("all"); setSearchQuery(""); setBuyerId(""); setFromDate(undefined); setToDate(undefined); setFilterBulkPay(false); setFilterTreasuryPay(false); }}
               className={`whitespace-nowrap px-4 py-3 text-xs font-medium uppercase tracking-widest transition-colors border-b-2 ${
                 tab === t.id
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
+              <ChipIcon className="h-3.5 w-3.5" />
               {t.label}
             </button>
-          ))}
+          );
+        })}
         </div>
       </div>
 

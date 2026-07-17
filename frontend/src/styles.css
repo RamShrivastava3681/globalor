@@ -1107,4 +1107,58 @@
     animation: bell-pulse 1.5s ease-in-out infinite;
     color: var(--color-primary);
   }
+
+  /* ============================================================
+     STAGGERED FADE-IN ANIMATIONS — Reports Dashboard
+     ============================================================ */
+
+  /* Fade in and slide up */
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Simple fade in */
+  @keyframes fade-in {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out forwards;
+    opacity: 0;
+  }
+
+  .animate-stagger-1 { animation-delay: 0.05s; }
+  .animate-stagger-2 { animation-delay: 0.10s; }
+  .animate-stagger-3 { animation-delay: 0.15s; }
+  .animate-stagger-4 { animation-delay: 0.20s; }
+  .animate-stagger-5 { animation-delay: 0.25s; }
+  .animate-stagger-6 { animation-delay: 0.30s; }
+  .animate-stagger-7 { animation-delay: 0.35s; }
+  .animate-stagger-8 { animation-delay: 0.40s; }
+  .animate-stagger-9 { animation-delay: 0.45s; }
+  .animate-stagger-10 { animation-delay: 0.50s; }
+  .animate-stagger-11 { animation-delay: 0.55s; }
+  .animate-stagger-12 { animation-delay: 0.60s; }
+
+  /* Reduce motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-in-up,
+    .animate-fade-in {
+      animation: none;
+      opacity: 1;
+    }
+  }
 }
