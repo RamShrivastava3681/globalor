@@ -4,11 +4,13 @@ import { z } from "zod";
 import {
   getItem,
   putItem,
+  updateItem,
   scanTable,
   TABLES,
 } from "../db/client.js";
 import { generateToken, requireAuth, countUsers, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
+import { config } from "../config.js";
 import type { User, Profile, UserRole, AppRole } from "../types/index.js";
 
 const router = Router();
@@ -54,6 +56,7 @@ router.post("/signup", async (req: Request, res: Response) => {
     const profile: Profile = {
       id, email, company_name,
       contact_name: contact_name || null,
+      last_seen_at: null,
       created_at: now, updated_at: now,
     };
     await putItem(TABLES.PROFILES, profile as any);
@@ -108,6 +111,9 @@ router.post("/signin", async (req: Request, res: Response) => {
       return;
     }
 
+    // Update last_seen_at on profile
+    await updateItem(TABLES.PROFILES, { id: user.id }, { last_seen_at: nowISO() });
+
     // Load roles
     const roles = await scanTable<{ role: AppRole }>(TABLES.USER_ROLES, {
       filterExpression: "user_id = :uid",
@@ -127,6 +133,7 @@ router.post("/signin", async (req: Request, res: Response) => {
         email: user.email,
         company_name: profile?.company_name ?? "",
         contact_name: profile?.contact_name ?? null,
+        last_seen_at: profile?.last_seen_at ?? null,
         roles: appRoles,
       },
     });
@@ -149,12 +156,17 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
       expressionAttributeValues: { ":uid": req.user!.id },
     });
 
+    const appRoles = roles.map((r) => r.role);
+    const isSuperAdmin = req.user!.email === config.admin.email;
+
     res.json({
       id: req.user!.id,
       email: req.user!.email,
       company_name: profile?.company_name ?? "",
       contact_name: profile?.contact_name ?? null,
-      roles: roles.map((r) => r.role),
+      last_seen_at: profile?.last_seen_at ?? null,
+      roles: appRoles,
+      is_super_admin: isSuperAdmin,
     });
   } catch (err) {
     console.error("Me error:", err);
@@ -170,6 +182,19 @@ router.post("/refresh-token", requireAuth, (req: AuthRequest, res: Response) => 
     roles: req.user!.roles,
   });
   res.json({ token });
+});
+
+// ── POST /api/auth/ping ──
+// Heartbeat endpoint — updates the user's last_seen_at timestamp
+// Called periodically by the frontend to track online status
+router.post("/ping", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    await updateItem(TABLES.PROFILES, { id: req.user!.id }, { last_seen_at: nowISO() });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Ping error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

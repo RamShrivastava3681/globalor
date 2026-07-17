@@ -57,6 +57,7 @@ export async function seedAdmin(): Promise<void> {
       id, email,
       company_name: email.split('@')[0] || "Administrator",
       contact_name: email.split('@')[0] || "Admin",
+      last_seen_at: null,
       created_at: now,
       updated_at: now,
     };

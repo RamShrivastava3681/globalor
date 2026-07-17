@@ -12,12 +12,18 @@ import {
 import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js";
 import { sendWelcomeEmail } from "../utils/email.js";
+import { config } from "../config.js";
 import type {
   AppRole, UserRole, Profile, Invoice, Debtor, Alert,
   NoaInvoiceResult, NoaStatus, User,
 } from "../types/index.js";
 
 const router = Router();
+
+// ── Helper: check if the requesting user is the super admin ──
+function isSuperAdmin(req: AuthRequest): boolean {
+  return req.user?.email === config.admin.email;
+}
 
 // ── POST /api/admin/users ──
 // Admin creates a new user with a specific role
@@ -31,6 +37,12 @@ const createUserSchema = z.object({
 
 router.post("/users", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
+    // Only the super admin (the original admin from env vars) can create users
+    if (!isSuperAdmin(req)) {
+      res.status(403).json({ error: "Only the main administrator can create users" });
+      return;
+    }
+
     const parsed = createUserSchema.parse(req.body);
     const { email, password, company_name, contact_name, role } = parsed;
 
@@ -57,6 +69,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     const profile: Profile = {
       id, email, company_name,
       contact_name: contact_name || null,
+      last_seen_at: null,
       created_at: now, updated_at: now,
     };
     await putItem(TABLES.PROFILES, profile as any);
@@ -97,7 +110,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
 router.get("/profiles", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
     const profiles = await scanTable<Profile>(TABLES.PROFILES);
-    res.json(profiles.map((p) => ({ id: p.id, email: p.email, company_name: p.company_name, contact_name: p.contact_name })));
+    res.json(profiles.map((p) => ({ id: p.id, email: p.email, company_name: p.company_name, contact_name: p.contact_name, last_seen_at: p.last_seen_at })));
   } catch (err) {
     console.error("Get profiles error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -125,6 +138,18 @@ const upsertRoleSchema = z.object({
 router.post("/roles", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
     const { user_id, role, add } = upsertRoleSchema.parse(req.body);
+
+    // Prevent ANYONE from revoking the super admin's factor_admin role
+    if (!add && role === "factor_admin") {
+      const targetUser = await scanTable<User>(TABLES.USERS, {
+        filterExpression: "id = :id",
+        expressionAttributeValues: { ":id": user_id },
+      });
+      if (targetUser.length > 0 && targetUser[0].email === config.admin.email) {
+        res.status(403).json({ error: "Cannot revoke the main administrator's admin role" });
+        return;
+      }
+    }
 
     if (add) {
       const existing = await scanTable<UserRole>(TABLES.USER_ROLES, {
@@ -154,6 +179,55 @@ router.post("/roles", requireAuth, requireRole("factor_admin"), async (req: Auth
       return;
     }
     console.error("Upsert role error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── DELETE /api/admin/users/:userId ──
+// Only the super admin can delete users
+router.delete("/users/:userId", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isSuperAdmin(req)) {
+      res.status(403).json({ error: "Only the main administrator can delete users" });
+      return;
+    }
+
+    const { userId } = req.params;
+
+    // Don't allow deleting the super admin themselves
+    const targetUser = await scanTable<User>(TABLES.USERS, {
+      filterExpression: "id = :id",
+      expressionAttributeValues: { ":id": userId },
+    });
+
+    if (targetUser.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    if (targetUser[0].email === config.admin.email) {
+      res.status(403).json({ error: "Cannot delete the main administrator account" });
+      return;
+    }
+
+    // Delete user roles
+    const userRoles = await scanTable<UserRole>(TABLES.USER_ROLES, {
+      filterExpression: "user_id = :uid",
+      expressionAttributeValues: { ":uid": userId },
+    });
+    for (const r of userRoles) {
+      await deleteItem(TABLES.USER_ROLES, { id: r.id });
+    }
+
+    // Delete profile
+    await deleteItem(TABLES.PROFILES, { id: userId });
+
+    // Delete user
+    await deleteItem(TABLES.USERS, { id: userId });
+
+    res.json({ success: true, message: "User deleted successfully" });
+  } catch (err) {
+    console.error("Delete user error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

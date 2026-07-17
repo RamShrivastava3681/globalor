@@ -1,18 +1,78 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney, daysBetween } from "@/components/ledger-ui";
-import { Zap, Shield } from "lucide-react";
+import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Zap, Shield, Trash2, AlertTriangle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/admin")({
   component: AdminPage,
 });
 
+const AVAILABLE_ROLES = [
+  "client",
+  "factor_admin",
+  "treasury",
+  "checker",
+  "operations",
+  "viewer",
+] as const;
+
+// ── Helpers for online status ──
+function getOnlineStatus(lastSeenAt: string | null): { label: string; color: string; dotColor: string } {
+  if (!lastSeenAt) {
+    return { label: "Never seen", color: "text-muted-foreground", dotColor: "bg-muted-foreground" };
+  }
+
+  const now = Date.now();
+  const lastSeen = new Date(lastSeenAt).getTime();
+  const diffMinutes = (now - lastSeen) / (1000 * 60);
+
+  if (diffMinutes < 5) {
+    return { label: "Online", color: "text-emerald-600", dotColor: "bg-emerald-500" };
+  }
+  if (diffMinutes < 15) {
+    return { label: "Away", color: "text-amber-600", dotColor: "bg-amber-500" };
+  }
+
+  // Format relative time
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  let timeAgo: string;
+  if (diffDays > 0) {
+    timeAgo = `${diffDays}d ago`;
+  } else if (diffHours > 0) {
+    timeAgo = `${diffHours}h ago`;
+  } else {
+    timeAgo = `${Math.floor(diffMinutes)}m ago`;
+  }
+
+  return { label: `Seen ${timeAgo}`, color: "text-muted-foreground", dotColor: "bg-muted-foreground/50" };
+}
+
 function AdminPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSuperAdmin } = useAuth();
   const qc = useQueryClient();
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // ── Create user form state ──
+  const [newUser, setNewUser] = useState({
+    email: "",
+    password: "",
+    company_name: "",
+    contact_name: "",
+    role: "client" as string,
+  });
 
   const invoicesQ = useQuery({
     queryKey: ["invoices-admin"],
@@ -61,6 +121,33 @@ function AdminPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const createUser = useMutation({
+    mutationFn: async (data: typeof newUser) => {
+      return api.post("/admin/users", data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["profiles-admin"] });
+      qc.invalidateQueries({ queryKey: ["user_roles-admin"] });
+      toast.success("User created successfully");
+      setShowCreateUser(false);
+      setNewUser({ email: "", password: "", company_name: "", contact_name: "", role: "client" });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: async (userId: string) => {
+      return api.delete(`/admin/users/${userId}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["profiles-admin"] });
+      qc.invalidateQueries({ queryKey: ["user_roles-admin"] });
+      toast.success("User deleted");
+      setDeleteConfirmId(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   if (!isAdmin) {
     return (
       <div className="grid min-h-[60vh] place-items-center">
@@ -88,12 +175,144 @@ function AdminPage() {
         title="Risk & operations console"
         description="Generate alerts, manage team roles, and act on exceptions."
         actions={
-          <button onClick={() => generateAlerts.mutate()} disabled={generateAlerts.isPending}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-            <Zap className="h-4 w-4" /> Run monitoring scan
-          </button>
+          <div className="flex items-center gap-2">
+            {isSuperAdmin && (
+              <button onClick={() => setShowCreateUser(true)}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+                <UserPlus className="h-4 w-4" /> Create user
+              </button>
+            )}
+            <button onClick={() => generateAlerts.mutate()} disabled={generateAlerts.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-muted px-4 py-2 text-sm font-medium text-foreground border border-border hover:bg-muted/80 transition-colors disabled:opacity-60">
+              <Zap className="h-4 w-4" /> Run monitoring scan
+            </button>
+          </div>
         }
       />
+
+      {/* ── Create User Dialog ── */}
+      <Dialog open={showCreateUser} onOpenChange={setShowCreateUser}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create new user</DialogTitle>
+            <DialogDescription>
+              Only the main administrator can create users. The user will receive a welcome email with their credentials.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createUser.mutate(newUser);
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Email</label>
+              <input
+                type="email"
+                required
+                value={newUser.email}
+                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+                placeholder="user@company.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Password</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={newUser.password}
+                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+                placeholder="Min 6 characters"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Company name</label>
+              <input
+                type="text"
+                required
+                value={newUser.company_name}
+                onChange={(e) => setNewUser({ ...newUser, company_name: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+                placeholder="Acme Corp"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Contact name</label>
+              <input
+                type="text"
+                value={newUser.contact_name}
+                onChange={(e) => setNewUser({ ...newUser, contact_name: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+                placeholder="John Doe"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Role</label>
+              <select
+                value={newUser.role}
+                onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+              >
+                {AVAILABLE_ROLES.map((r) => (
+                  <option key={r} value={r}>{r.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateUser(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={createUser.isPending}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
+              >
+                {createUser.isPending ? "Creating…" : "Create user"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirmation Dialog ── */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete user
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete this user and all associated data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setDeleteConfirmId(null)}
+              className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (deleteConfirmId) deleteUser.mutate(deleteConfirmId);
+              }}
+              disabled={deleteUser.isPending}
+              className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-60"
+            >
+              {deleteUser.isPending ? "Deleting…" : "Delete user"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-4 p-6 md:grid-cols-4 md:p-10">
         <Card title="Pending review">
           <div className="num text-3xl">{invoices.filter((i: any) => i.status === "pending").length}</div>
@@ -124,6 +343,7 @@ function AdminPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">User</th>
                     <th className="px-5 py-2 text-left font-normal">Email</th>
@@ -131,6 +351,7 @@ function AdminPage() {
                     <th className="px-5 py-2 text-right font-normal">Checker</th>
                     <th className="px-5 py-2 text-right font-normal">Treasury</th>
                     <th className="px-5 py-2 text-right font-normal">Factor admin</th>
+                    {isSuperAdmin && <th className="px-5 py-2 text-right font-normal">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -141,6 +362,17 @@ function AdminPage() {
                     const hasAdmin = userRoles.includes("factor_admin");
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          {(() => {
+                            const status = getOnlineStatus(p.last_seen_at);
+                            return (
+                              <span className={`inline-flex items-center gap-1.5 text-xs ${status.color}`}>
+                                <span className={`h-2 w-2 rounded-full ${status.dotColor}`} />
+                                {status.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3">
                           <div>{p.contact_name || p.company_name || "—"}</div>
@@ -170,6 +402,17 @@ function AdminPage() {
                             {hasAdmin ? "Revoke" : "Grant"}
                           </button>
                         </td>
+                        {isSuperAdmin && (
+                          <td className="px-5 py-3 text-right">
+                            <button
+                              onClick={() => setDeleteConfirmId(p.id)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors"
+                              title="Delete user"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
