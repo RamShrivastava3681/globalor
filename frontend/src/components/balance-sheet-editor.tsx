@@ -77,9 +77,35 @@ const SECTION_TO_SUBSECTION: Record<string, { sectionLabel: string; subsectionLa
   other_equity: { sectionLabel: "Capital and Reserves", subsectionLabel: "Other Equity" },
 };
 
+// ── Reverse mapping: get available section keys for a given section label ──
+function getSectionAddOptions(sectionLabel: string): Array<{ label: string; sectionKey: BalanceSheetSection }> {
+  const options: Array<{ label: string; sectionKey: BalanceSheetSection }> = [];
+  for (const [key, mapping] of Object.entries(SECTION_TO_SUBSECTION)) {
+    if (mapping.sectionLabel === sectionLabel) {
+      options.push({ label: mapping.subsectionLabel, sectionKey: key as BalanceSheetSection });
+    }
+  }
+  return options;
+}
+
+// ── Find section key from section label + subsection label ──
+function findSectionKey(sectionLabel: string, subsectionLabel: string): BalanceSheetSection | null {
+  for (const [key, mapping] of Object.entries(SECTION_TO_SUBSECTION)) {
+    if (mapping.sectionLabel === sectionLabel && mapping.subsectionLabel === subsectionLabel) {
+      return key as BalanceSheetSection;
+    }
+  }
+  return null;
+}
+
 function fmtNeg(val: number): string {
   if (val < 0) return `(${fmtMoney(Math.abs(val))})`;
   return fmtMoney(val);
+}
+
+/** Strip commas from a user-entered number string and parse to float */
+function toFloat(raw: string | number): number {
+  return parseFloat(String(raw).replace(/,/g, ""));
 }
 
 export function BalanceSheetEditor() {
@@ -88,6 +114,7 @@ export function BalanceSheetEditor() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<BalanceSheetItem | null>(null);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [prefilledSection, setPrefilledSection] = useState<BalanceSheetSection | null>(null);
 
   // ── Fetch balance sheet data (merged auto + manual) ──
   const { data: bsData, isLoading: bsLoading } = useQuery<BalanceSheetData>({
@@ -198,13 +225,10 @@ export function BalanceSheetEditor() {
             <History className="h-3.5 w-3.5" />
             {openingMode ? "Opening mode ON" : "Opening Balances"}
           </button>
-          {/* Add Manual Entry */}
-          <button
-            onClick={() => { setEditingItem(null); setShowForm(true); }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-all"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add manual entry
-          </button>
+          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <Plus className="h-3 w-3" />
+            Click + on sections below to add entries
+          </span>
         </div>
       </div>
 
@@ -239,8 +263,9 @@ export function BalanceSheetEditor() {
               manualItems={manualItems}
               sectionKey="Fixed Assets"
               getManualItemsForSubsection={getManualItemsForSubsection}
-              onEdit={(item) => { setEditingItem(item); setShowForm(true); }}
+              onEdit={(item) => { setEditingItem(item); setPrefilledSection(null); setShowForm(true); }}
               onDelete={(id) => deleteItem.mutate(id)}
+              onAddEntry={(sectionKey) => { setEditingItem(null); setPrefilledSection(sectionKey); setShowForm(true); }}
               isExpanded={expandedSection === "Fixed Assets"}
               onToggle={() => setExpandedSection(expandedSection === "Fixed Assets" ? null : "Fixed Assets")}
             />
@@ -258,8 +283,9 @@ export function BalanceSheetEditor() {
               manualItems={manualItems}
               sectionKey="Current Assets"
               getManualItemsForSubsection={getManualItemsForSubsection}
-              onEdit={(item) => { setEditingItem(item); setShowForm(true); }}
+              onEdit={(item) => { setEditingItem(item); setPrefilledSection(null); setShowForm(true); }}
               onDelete={(id) => deleteItem.mutate(id)}
+              onAddEntry={(sectionKey) => { setEditingItem(null); setPrefilledSection(sectionKey); setShowForm(true); }}
               isExpanded={expandedSection === "Current Assets"}
               onToggle={() => setExpandedSection(expandedSection === "Current Assets" ? null : "Current Assets")}
             />
@@ -277,8 +303,9 @@ export function BalanceSheetEditor() {
               manualItems={manualItems}
               sectionKey="Creditors: amounts falling due within one year"
               getManualItemsForSubsection={getManualItemsForSubsection}
-              onEdit={(item) => { setEditingItem(item); setShowForm(true); }}
+              onEdit={(item) => { setEditingItem(item); setPrefilledSection(null); setShowForm(true); }}
               onDelete={(id) => deleteItem.mutate(id)}
+              onAddEntry={(sectionKey) => { setEditingItem(null); setPrefilledSection(sectionKey); setShowForm(true); }}
               isExpanded={expandedSection === "Creditors"}
               onToggle={() => setExpandedSection(expandedSection === "Creditors" ? null : "Creditors")}
             />
@@ -311,8 +338,9 @@ export function BalanceSheetEditor() {
               manualItems={manualItems}
               sectionKey="Capital and Reserves"
               getManualItemsForSubsection={getManualItemsForSubsection}
-              onEdit={(item) => { setEditingItem(item); setShowForm(true); }}
+              onEdit={(item) => { setEditingItem(item); setPrefilledSection(null); setShowForm(true); }}
               onDelete={(id) => deleteItem.mutate(id)}
+              onAddEntry={(sectionKey) => { setEditingItem(null); setPrefilledSection(sectionKey); setShowForm(true); }}
               isExpanded={expandedSection === "Capital and Reserves"}
               onToggle={() => setExpandedSection(expandedSection === "Capital and Reserves" ? null : "Capital and Reserves")}
               isCapital
@@ -349,9 +377,11 @@ export function BalanceSheetEditor() {
       {/* ── Manual Entry Form Modal ── */}
       {showForm && (
         <ManualEntryForm
+          key={prefilledSection ?? 'default'}
           editing={editingItem}
           openingMode={openingMode}
-          onClose={() => { setShowForm(false); setEditingItem(null); }}
+          defaultSection={prefilledSection}
+          onClose={() => { setShowForm(false); setEditingItem(null); setPrefilledSection(null); }}
           onSave={(data) => {
             if (editingItem) {
               updateItem.mutate({ id: editingItem.id, ...data });
@@ -387,6 +417,7 @@ function EditorSectionBlock({
   isExpanded,
   onToggle,
   isCapital,
+  onAddEntry,
 }: {
   section: {
     label: string;
@@ -413,6 +444,7 @@ function EditorSectionBlock({
   getManualItemsForSubsection: (sectionLabel: string, subsectionLabel: string) => BalanceSheetItem[];
   onEdit: (item: BalanceSheetItem) => void;
   onDelete: (id: string) => void;
+  onAddEntry: (sectionKey: BalanceSheetSection) => void;
   isExpanded: boolean;
   onToggle: () => void;
   isCapital?: boolean;
@@ -422,25 +454,78 @@ function EditorSectionBlock({
     return mapping?.sectionLabel === section.label;
   });
 
+  const addOptions = getSectionAddOptions(section.label);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    }
+    if (showAddMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showAddMenu]);
+
   return (
     <div>
       {/* Section Header */}
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center justify-between bg-muted/30 px-6 py-3 hover:bg-muted/50 transition-colors"
-      >
-        <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">
-          {section.label}
-        </h3>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-bold num">{fmtNeg(section.total)}</span>
+      <div className="flex items-center bg-muted/30 px-6 py-3">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 text-left"
+        >
+          <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">
+            {section.label}
+          </h3>
           <span className={`text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`}>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </span>
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold num">{fmtNeg(section.total)}</span>
+          {/* Add entry button for section */}
+          <div className="relative" ref={addMenuRef}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowAddMenu(!showAddMenu); }}
+              className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-primary/40 text-primary/60 hover:border-primary hover:bg-primary/10 hover:text-primary transition-all"
+              title={`Add entry to ${section.label}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+            {/* Dropdown menu for subsection selection */}
+            {showAddMenu && (
+              <div
+                className="absolute right-0 top-full z-20 mt-1 min-w-[200px] rounded-lg border border-border bg-card py-1 shadow-lg"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+                  Add to {section.label}
+                </div>
+                {addOptions.map((opt) => (
+                  <button
+                    key={opt.sectionKey}
+                    onClick={() => {
+                      onAddEntry(opt.sectionKey);
+                      setShowAddMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-xs text-left hover:bg-muted transition-colors"
+                  >
+                    <Plus className="h-3 w-3 text-primary shrink-0" />
+                    <span>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </button>
+      </div>
 
       {isExpanded && (
         <div className="px-6 py-4 space-y-6">
@@ -451,12 +536,24 @@ function EditorSectionBlock({
             const hasManual = manualSubItems.length > 0;
 
             return (
-              <div key={idx} className="space-y-2">
+              <div key={idx} className="space-y-2 group/subsection">
                 {/* Subsection Label */}
                 <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {sub.label}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {sub.label}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const sk = findSectionKey(section.label, sub.label);
+                        if (sk) onAddEntry(sk);
+                      }}
+                      className="flex h-4 w-4 items-center justify-center rounded-full border border-dashed border-primary/30 text-primary/40 hover:border-primary hover:bg-primary/10 hover:text-primary transition-all opacity-0 group-hover/subsection:opacity-100"
+                      title={`Add entry to ${sub.label}`}
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
                   <span className="text-xs font-semibold num text-muted-foreground">
                     {fmtNeg(sub.total)}
                   </span>
@@ -642,18 +739,20 @@ function generateId() {
 function ManualEntryForm({
   editing,
   openingMode,
+  defaultSection,
   onClose,
   onSave,
   isPending,
 }: {
   editing: BalanceSheetItem | null;
   openingMode: boolean;
+  defaultSection?: BalanceSheetSection | null;
   onClose: () => void;
   onSave: (data: any) => void;
   isPending: boolean;
 }) {
   const [section, setSection] = useState<BalanceSheetSection>(
-    editing?.section ?? "tangible_asset"
+    editing?.section ?? defaultSection ?? "tangible_asset"
   );
   const [description, setDescription] = useState(editing?.description ?? "");
   const [amount, setAmount] = useState(editing?.amount?.toString() ?? "");
@@ -671,7 +770,7 @@ function ManualEntryForm({
   );
 
   // Compute total from sub_fields
-  const subFieldsTotal = subFields.reduce((sum, sf) => sum + (Number(sf.amount) || 0), 0);
+  const subFieldsTotal = subFields.reduce((sum, sf) => sum + (toFloat(sf.amount) || 0), 0);
 
   // Fetch chart of accounts for dropdown
   const { data: accounts = [] } = useQuery({
@@ -732,7 +831,7 @@ function ManualEntryForm({
       // Validate sub-fields
       for (const sf of subFields) {
         if (!sf.name.trim()) { toast.error("Each sub-field needs a name"); return; }
-        if (isNaN(Number(sf.amount))) { toast.error("Each sub-field needs a valid amount"); return; }
+        if (isNaN(toFloat(sf.amount))) { toast.error("Each sub-field needs a valid amount"); return; }
         if (!sf.date) { toast.error("Each sub-field needs a date"); return; }
       }
       onSave({
@@ -743,7 +842,7 @@ function ManualEntryForm({
         sub_fields: subFields.map(sf => ({
           id: sf.id,
           name: sf.name.trim(),
-          amount: Number(sf.amount) || 0,
+          amount: toFloat(sf.amount) || 0,
           date: sf.date,
         })),
         account_id: accountId || undefined,
@@ -751,7 +850,7 @@ function ManualEntryForm({
         is_opening_balance: isOpening,
       });
     } else {
-      const amountNum = parseFloat(amount);
+      const amountNum = toFloat(amount);
       if (isNaN(amountNum)) { toast.error("A valid amount is required"); return; }
       onSave({
         section,
