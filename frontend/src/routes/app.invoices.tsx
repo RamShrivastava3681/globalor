@@ -385,6 +385,23 @@ function InvoicesPage() {
           </div>
         )}
 
+        {/* Submit all drafts button — searches ALL pages */}
+        {(() => {
+          const allDraftIds = allInvoices.filter((i: any) => i.status === "draft").map((i: any) => i.id);
+          if (allDraftIds.length === 0 || !canEdit) return null;
+          return (
+            <div className="mb-4 flex items-center gap-3">
+              <button
+                onClick={() => setBulkConfirmOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                Review All Drafts ({allDraftIds.length})
+              </button>
+            </div>
+          );
+        })()}
+
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
           <div className="flex gap-1">
@@ -435,18 +452,7 @@ function InvoicesPage() {
                     >
                       Clear selection
                     </button>
-                    <button
-                      onClick={() => {
-                        const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
-                        if (draftIds.length === 0) { toast.error("No draft invoices selected"); return; }
-                        setBulkConfirmOpen(true);
-                      }}
-                      disabled={bulkSubmitToChecker.isPending || selectedIds.size === 0}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-2.5 py-1 text-[11px] text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
-                    >
-                      {bulkSubmitToChecker.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
-                      Review All
-                    </button>
+
                     <button
                       onClick={handleBulkDelete}
                       disabled={bulkRemove.isPending}
@@ -712,19 +718,19 @@ function InvoicesPage() {
         icon={<SendHorizonal className="h-5 w-5 text-primary" />}
       />
 
-      {/* Confirm bulk review all */}
-      <ConfirmDialog
+      {/* Confirm bulk review all */}            <ConfirmDialog
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
-        title="Review all selected invoices?"
+        title="Review all draft invoices?"
         description={(() => {
-          const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
-          return `Submit ${draftIds.length} draft invoice${draftIds.length !== 1 ? "s" : ""} to checker for review?`;
+          const allDraftIds = allInvoices.filter((i: any) => i.status === "draft").map((i: any) => i.id);
+          return `Submit all ${allDraftIds.length} draft invoice${allDraftIds.length !== 1 ? "s" : ""} across all pages to checker for review?`;
         })()}
         confirmLabel="Review All"
         onConfirm={() => {
-          const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
-          bulkSubmitToChecker.mutate(draftIds);
+          const allDraftIds = allInvoices.filter((i: any) => i.status === "draft").map((i: any) => i.id);
+          if (allDraftIds.length === 0) { toast.error("No draft invoices found"); setBulkConfirmOpen(false); return; }
+          bulkSubmitToChecker.mutate(allDraftIds);
           setBulkConfirmOpen(false);
         }}
         loading={bulkSubmitToChecker.isPending}

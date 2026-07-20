@@ -366,10 +366,10 @@ function PurchasesPage() {
           </div>
         </div>
 
-        {/* Submit all drafts button */}
+        {/* Submit all drafts button — searches ALL pages */}
         {(() => {
-          const draftInvoices = invoiceData.filter((p: any) => p.status === "draft");
-          if (draftInvoices.length === 0 || !canEdit) return null;
+          const allDraftInvoices = allPi.filter((p: any) => p.status === "draft");
+          if (allDraftInvoices.length === 0 || !canEdit) return null;
           return (
             <div className="mb-4 flex items-center gap-3">
               <button
@@ -377,7 +377,7 @@ function PurchasesPage() {
                 className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
               >
                 <CheckCircle className="h-3.5 w-3.5" />
-                Review All Drafts ({draftInvoices.length})
+                Review All Drafts ({allDraftInvoices.length})
               </button>
             </div>
           );
@@ -622,15 +622,15 @@ function PurchasesPage() {
         onOpenChange={setBulkConfirmOpen}
         title="Review all drafts?"
         description={(() => {
-          const draftInvoices = invoiceData.filter((p: any) => p.status === "draft");
-          return `Submit all ${draftInvoices.length} draft invoice${draftInvoices.length !== 1 ? "s" : ""} to checker for review?`;
+          const allDraftInvoices = allPi.filter((p: any) => p.status === "draft");
+          return `Submit all ${allDraftInvoices.length} draft invoice${allDraftInvoices.length !== 1 ? "s" : ""} across all pages to checker for review?`;
         })()}
         confirmLabel="Review All"
         onConfirm={() => {
-          const draftInvoices = invoiceData.filter((p: any) => p.status === "draft");
-          Promise.all(draftInvoices.map((p: any) => api.post(`/purchase-invoices/${p.id}/submit`)))
+          const allDraftInvoices = allPi.filter((p: any) => p.status === "draft");
+          Promise.all(allDraftInvoices.map((p: any) => api.post(`/purchase-invoices/${p.id}/submit`)))
             .then(() => {
-              toast.success(`${draftInvoices.length} draft invoice${draftInvoices.length !== 1 ? "s" : ""} sent to checker for review`);
+              toast.success(`${allDraftInvoices.length} draft invoice${allDraftInvoices.length !== 1 ? "s" : ""} sent to checker for review`);
               qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
             })
             .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
