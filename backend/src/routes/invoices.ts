@@ -21,12 +21,13 @@ import { getFileStream } from "../s3/client.js";
 import { Readable } from "stream";
 
 // ── Lazy-loading helpers for CJS modules in ESM context ──
-let _pdfParse: any = null;
-async function getPdfParse() {
-  if (!_pdfParse) {
-    _pdfParse = (await import("pdf-parse")).default;
+let _PDFParseClass: any = null;
+async function getPDFParse() {
+  if (!_PDFParseClass) {
+    const mod = await import("pdf-parse");
+    _PDFParseClass = mod.PDFParse;
   }
-  return _pdfParse;
+  return _PDFParseClass;
 }
 
 let _tesseract: any = null;
@@ -913,9 +914,14 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
     const isImage = !isPdf && isImageFile(contentType, filePath);
 
     if (isPdf) {
-      const pdfParse = await getPdfParse();
-      const pdfData = await pdfParse(fileBuffer);
-      extractedText = pdfData.text;
+      const PDFParseClass = await getPDFParse();
+      const parser = new PDFParseClass({ data: fileBuffer });
+      try {
+        const result = await parser.getText();
+        extractedText = result.text;
+      } finally {
+        await parser.destroy();
+      }
     } else if (isImage) {
       console.log(`   🔍 Running OCR on image: ${filePath} (${(fileBuffer.length / 1024).toFixed(0)} KB)`);
       const Tesseract = await getTesseract();
