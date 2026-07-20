@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -12,6 +12,7 @@ import jsPDF from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
 import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -48,6 +49,8 @@ function InvoicesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [duplicateCheckOpen, setDuplicateCheckOpen] = useState(false);
   const [bulkSearchOpen, setBulkSearchOpen] = useState(false);
+  const [confirmSendTarget, setConfirmSendTarget] = useState<{ id: string; number: string } | null>(null);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   // All invoices query for dashboard stats
   const allInvoicesQ = useQuery({
@@ -170,6 +173,29 @@ function InvoicesPage() {
     },
     onSuccess: () => {
       toast.success("Invoice removed");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const submitToChecker = useMutation({
+    mutationFn: async (id: string) => {
+      await api.post(`/invoices/${id}/submit`);
+    },
+    onSuccess: () => {
+      toast.success("Invoice sent to checker for review");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const bulkSubmitToChecker = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => api.post(`/invoices/${id}/submit`)));
+    },
+    onSuccess: () => {
+      toast.success(`${selectedIds.size} invoice${selectedIds.size !== 1 ? "s" : ""} sent to checker for review`);
+      setSelectedIds(new Set());
       qc.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -410,6 +436,18 @@ function InvoicesPage() {
                       Clear selection
                     </button>
                     <button
+                      onClick={() => {
+                        const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
+                        if (draftIds.length === 0) { toast.error("No draft invoices selected"); return; }
+                        setBulkConfirmOpen(true);
+                      }}
+                      disabled={bulkSubmitToChecker.isPending || selectedIds.size === 0}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-2.5 py-1 text-[11px] text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                    >
+                      {bulkSubmitToChecker.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                      Review All
+                    </button>
+                    <button
                       onClick={handleBulkDelete}
                       disabled={bulkRemove.isPending}
                       className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-2.5 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
@@ -523,6 +561,27 @@ function InvoicesPage() {
                                 </button>
                               </>
                             )}
+                            {/* Draft invoices: review + submit to checker */}
+                            {i.status === "draft" && canEdit && (
+                              <>
+                                <button onClick={() => { setViewing(i); }}
+                                  className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[10px] text-warning hover:bg-warning/10">
+                                  <PenLine className="h-3 w-3" /> Review
+                                </button>
+                                <button onClick={() => setConfirmSendTarget({ id: i.id, number: i.invoice_number })}
+                                  disabled={submitToChecker.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50">
+                                  {submitToChecker.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <SendHorizonal className="h-3 w-3" />}
+                                  Send to Checker
+                                </button>
+                              </>
+                            )}
+                            {/* Submitted: awaiting checker */}
+                            {i.status === "submitted" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-warning">
+                                <Clock className="h-3 w-3" /> Awaiting checker
+                              </span>
+                            )}
                             {isAdmin && i.status === "pending" && (
                               canReview ? (
                                 <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
@@ -635,6 +694,42 @@ function InvoicesPage() {
       {duplicateCheckOpen && (
         <DuplicateCheckModal onClose={() => setDuplicateCheckOpen(false)} />
       )}
+
+      {/* Confirm send to checker for individual invoice */}
+      <ConfirmDialog
+        open={!!confirmSendTarget}
+        onOpenChange={(o) => { if (!o) setConfirmSendTarget(null); }}
+        title="Send to checker?"
+        description={`Send invoice ${confirmSendTarget?.number ?? ""} to the checker for review? This will change its status from draft to submitted.`}
+        confirmLabel="Send to Checker"
+        onConfirm={() => {
+          if (confirmSendTarget) {
+            submitToChecker.mutate(confirmSendTarget.id);
+            setConfirmSendTarget(null);
+          }
+        }}
+        loading={submitToChecker.isPending}
+        icon={<SendHorizonal className="h-5 w-5 text-primary" />}
+      />
+
+      {/* Confirm bulk review all */}
+      <ConfirmDialog
+        open={bulkConfirmOpen}
+        onOpenChange={setBulkConfirmOpen}
+        title="Review all selected invoices?"
+        description={(() => {
+          const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
+          return `Submit ${draftIds.length} draft invoice${draftIds.length !== 1 ? "s" : ""} to checker for review?`;
+        })()}
+        confirmLabel="Review All"
+        onConfirm={() => {
+          const draftIds = [...selectedIds].filter(id => invoiceData.find((i: any) => i.id === id)?.status === "draft");
+          bulkSubmitToChecker.mutate(draftIds);
+          setBulkConfirmOpen(false);
+        }}
+        loading={bulkSubmitToChecker.isPending}
+        icon={<CheckCircle className="h-5 w-5 text-primary" />}
+      />
 
       {bulkSearchOpen && (
         <BulkSearchModal onClose={() => setBulkSearchOpen(false)} />
