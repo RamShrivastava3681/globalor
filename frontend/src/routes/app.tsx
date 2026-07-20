@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft, Sun, Moon, BookOpen
+  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart, Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, User, BarChart3, ScrollText, Menu, Search, ArrowRightLeft, Sun, Moon, BookOpen, FileUp
 } from "lucide-react";
 
 export const Route = createFileRoute("/app")({
@@ -86,6 +86,7 @@ function AppLayout() {
         { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { to: "/app/checker", label: "Checker desk", icon: ClipboardCheck },
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+        { to: "/app/upload-invoice", label: "Upload Invoice", icon: FileUp },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
@@ -99,6 +100,7 @@ function AppLayout() {
         { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+        { to: "/app/upload-invoice", label: "Upload Invoice", icon: FileUp },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/expenses", label: "Expenses", icon: Receipt },
@@ -118,6 +120,7 @@ function AppLayout() {
         { to: "/app/queue", label: "Funding queue", icon: Banknote },
         { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
         { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+        { to: "/app/upload-invoice", label: "Upload Invoice", icon: FileUp },
         { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
         { to: "/app/reports", label: "Reports", icon: BarChart3 },
         { to: "/app/expenses", label: "Expenses", icon: Receipt },

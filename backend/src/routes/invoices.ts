@@ -17,6 +17,36 @@ import { sendNoaEmail } from "../utils/email.js";
 import type { Invoice, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { getFileStream } from "../s3/client.js";
+import { Readable } from "stream";
+
+// ── Lazy-loading helpers for CJS modules in ESM context ──
+let _pdfParse: any = null;
+async function getPdfParse() {
+  if (!_pdfParse) {
+    _pdfParse = (await import("pdf-parse")).default;
+  }
+  return _pdfParse;
+}
+
+let _tesseract: any = null;
+async function getTesseract() {
+  if (!_tesseract) {
+    // tesseract.js v5+ has ESM support — use named import
+    const mod = await import("tesseract.js");
+    _tesseract = mod.default || mod;
+  }
+  return _tesseract;
+}
+
+/** Check if a file is a raster image that needs OCR */
+function isImageFile(contentType: string | undefined, filePath: string): boolean {
+  const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/tiff", "image/webp"];
+  const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp"];
+  if (contentType && imageTypes.some((t) => contentType.includes(t))) return true;
+  const ext = filePath.toLowerCase().slice(filePath.lastIndexOf("."));
+  return imageExts.includes(ext);
+}
 
 const router = Router();
 
@@ -851,6 +881,205 @@ router.post("/bulk-pay", requireAuth, requireAnyWriteAccess("invoices", "funding
     }
     console.error("Bulk pay invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/invoices/parse-invoice ── (parse uploaded PDF invoice and extract fields)
+router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { filePath } = z.object({
+      filePath: z.string().min(1),
+    }).parse(req.body);
+
+    // Download the file from S3
+    const s3Response = await getFileStream(filePath);
+    if (!s3Response.Body) {
+      res.status(404).json({ error: "File not found in storage" });
+      return;
+    }
+
+    // Convert the S3 stream to a Buffer
+    const stream = s3Response.Body as Readable;
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const fileBuffer = Buffer.concat(chunks);
+
+    // ── Extract text: PDF → pdf-parse, Image → Tesseract OCR, else raw UTF-8 ──
+    let extractedText = "";
+    const contentType = s3Response.ContentType || "";
+    const isPdf = contentType.includes("pdf") || filePath.endsWith(".pdf");
+    const isImage = !isPdf && isImageFile(contentType, filePath);
+
+    if (isPdf) {
+      const pdfParse = await getPdfParse();
+      const pdfData = await pdfParse(fileBuffer);
+      extractedText = pdfData.text;
+    } else if (isImage) {
+      console.log(`   🔍 Running OCR on image: ${filePath} (${(fileBuffer.length / 1024).toFixed(0)} KB)`);
+      const Tesseract = await getTesseract();
+      const { data } = await Tesseract.recognize(fileBuffer, "eng", {
+        logger: (m: any) => {
+          if (m.status === "recognizing text") {
+            // Log progress every ~25%
+            if (m.progress !== undefined && Math.round(m.progress * 4) !== Math.round((m.progress - 0.01) * 4)) {
+              console.log(`   ⏳ OCR progress: ${Math.round(m.progress * 100)}%`);
+            }
+          }
+        },
+      });
+      extractedText = data.text || "";
+      console.log(`   ✅ OCR complete — extracted ${extractedText.length} characters`);
+    } else {
+      // For non-PDF, non-image files, try to interpret as text
+      extractedText = fileBuffer.toString("utf-8");
+    }
+
+    if (!extractedText.trim()) {
+      res.status(400).json({ error: "Could not extract any text from the file. Please ensure the file contains selectable text or a clear image." });
+      return;
+    }
+
+    // ── Parse invoice fields using regex patterns ──
+
+    // Helper: find first match with cleanup
+    const findField = (patterns: RegExp[], normalize?: (s: string) => string): string | null => {
+      for (const pattern of patterns) {
+        const match = extractedText.match(pattern);
+        if (match?.[1]?.trim()) {
+          let val = match[1].trim();
+          if (normalize) val = normalize(val);
+          return val || null;
+        }
+      }
+      return null;
+    };
+
+    // Helper: find amount (remove currency symbols and commas)
+    const findAmount = (patterns: RegExp[]): number | null => {
+      const raw = findField(patterns, (s) => s.replace(/[$,€£\s]/g, ""));
+      if (!raw) return null;
+      const num = parseFloat(raw);
+      return isNaN(num) ? null : num;
+    };
+
+    // ── Invoice number ──
+    const invoiceNumber = findField([
+      /(?:Invoice\s*(?:No|Number|#|№)\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,50})/i,
+      /(?:INV\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,50})/i,
+      /Invoice\s+#?\s*(\S{3,50})/i,
+      /(?:INVOICE\s+N[O0]\s*[:.]?\s*)(\S+)/i,
+    ]);
+
+    // ── Invoice amount ──
+    const amount = findAmount([
+      /(?:Total\s*(?:Amount|Due|Invoice|)\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+      /(?:Amount\s*(?:Due|Payable|Total)?\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+      /(?:Grand\s*Total\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+      /(?:Balance\s*(?:Due)?\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+      /(?:TOTAL\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+      /(?:Net\s*Total\s*[:.]?\s*)[$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)/i,
+    ]);
+
+    // ── Issue date ──
+    const issueDate = findField([
+      /(?:Invoice\s*Date\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+      /(?:Date\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+      /(?:Issue\s*Date\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+    ]);
+
+    // ── Due date ──
+    const dueDate = findField([
+      /(?:Due\s*Date\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+      /(?:Payment\s*Due\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+      /(?:Due\s*By\s*[:.]?\s*)(\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})/i,
+    ]);
+
+    // ── PO Number ──
+    const poNumber = findField([
+      /(?:PO\s*(?:Number|#|No)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,30})/i,
+      /(?:Purchase\s*Order\s*(?:Number|#|No)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,30})/i,
+      /(?:Order\s*(?:Number|#|No)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,30})/i,
+    ]);
+
+    // ── Debtor / Bill-To company name ──
+    let debtorName = findField([
+      /(?:Bill\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
+      /(?:Ship\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
+      /(?:Customer\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
+      /(?:Client\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
+      /(?:Sold\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
+    ]);
+
+    // ── Debtor address (lines after company name) ──
+    let debtorAddress = null;
+    if (debtorName) {
+      const escName = debtorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const addrPattern = new RegExp(`${escName}\\s*\\n\\s*([A-Za-z0-9\\s,.#'-]{5,100})`, 'i');
+      const addrMatch = extractedText.match(addrPattern);
+      if (addrMatch) {
+        debtorAddress = addrMatch[1].trim();
+      }
+    }
+
+    // ── Debtor email ──
+    const contactEmail = findField([
+      /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
+    ]);
+
+    // ── Debtor phone ──
+    const contactPhone = findField([
+      /(?:Phone|Tel|Telephone|Mobile|Call)\s*[:.]?\s*([+]?[\d\s\-()]{7,20})/i,
+      /([+]\d{1,3}[\s-]?\d{1,4}[\s-]?\d{1,4}[\s-]?\d{1,9})/,
+      /(\d{3}[\s-]?\d{3}[\s-]?\d{4})/,
+    ]);
+
+    // ── Registration / Tax ID ──
+    const registrationNo = findField([
+      /(?:Registration\s*(?:No|Number|#)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-]{2,30})/i,
+      /(?:Tax\s*(?:ID|No|Number)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-]{2,30})/i,
+      /(?:VAT\s*(?:No|Number|#)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-]{2,30})/i,
+      /(?:CR\s*(?:No|Number|#)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-]{2,30})/i,
+    ]);
+
+    // Normalize date format to YYYY-MM-DD
+    const normalizeDate = (dateStr: string | null): string | null => {
+      if (!dateStr) return null;
+      // Try MM/DD/YYYY or DD/MM/YYYY or YYYY-MM-DD
+      let m = dateStr.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+      m = dateStr.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+      return dateStr;
+    };
+
+    const result = {
+      debtor: {
+        name: debtorName || "",
+        registered_address: debtorAddress || "",
+        contact_email: contactEmail || "",
+        contact_phone: contactPhone || "",
+        registration_no: registrationNo || "",
+      },
+      invoice: {
+        invoice_number: invoiceNumber || "",
+        amount: amount || 0,
+        issue_date: normalizeDate(issueDate) || new Date().toISOString().slice(0, 10),
+        due_date: normalizeDate(dueDate) || "",
+        po_number: poNumber || "",
+      },
+      raw_text_preview: extractedText.slice(0, 2000),
+    };
+
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Parse invoice error:", err);
+    res.status(500).json({ error: "Failed to parse invoice: " + (err instanceof Error ? err.message : "Unknown error") });
   }
 });
 

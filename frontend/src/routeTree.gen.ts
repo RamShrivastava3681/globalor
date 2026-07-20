@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
+import { Route as AppUploadInvoiceRouteImport } from './routes/app.upload-invoice'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
@@ -58,6 +59,11 @@ const NoaTokenRoute = NoaTokenRouteImport.update({
 const AppVendorsRoute = AppVendorsRouteImport.update({
   id: '/vendors',
   path: '/vendors',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUploadInvoiceRoute = AppUploadInvoiceRouteImport.update({
+  id: '/upload-invoice',
+  path: '/upload-invoice',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSuppliersRoute = AppSuppliersRouteImport.update({
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/app/reports': typeof AppReportsRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -209,6 +216,7 @@ export interface FileRoutesByTo {
   '/app/queue': typeof AppQueueRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -237,6 +245,7 @@ export interface FileRoutesById {
   '/app/reports': typeof AppReportsRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
+    | '/app/upload-invoice'
     | '/app/vendors'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -292,6 +302,7 @@ export interface FileRouteTypes {
     | '/app/queue'
     | '/app/settings'
     | '/app/suppliers'
+    | '/app/upload-invoice'
     | '/app/vendors'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -319,6 +330,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/settings'
     | '/app/suppliers'
+    | '/app/upload-invoice'
     | '/app/vendors'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -367,6 +379,13 @@ declare module '@tanstack/react-router' {
       path: '/vendors'
       fullPath: '/app/vendors'
       preLoaderRoute: typeof AppVendorsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/upload-invoice': {
+      id: '/app/upload-invoice'
+      path: '/upload-invoice'
+      fullPath: '/app/upload-invoice'
+      preLoaderRoute: typeof AppUploadInvoiceRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/suppliers': {
@@ -545,6 +564,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppUploadInvoiceRoute: typeof AppUploadInvoiceRoute
   AppVendorsRoute: typeof AppVendorsRoute
 }
 
@@ -567,6 +587,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppUploadInvoiceRoute: AppUploadInvoiceRoute,
   AppVendorsRoute: AppVendorsRoute,
 }
 
