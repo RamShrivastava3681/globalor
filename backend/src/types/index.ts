@@ -22,11 +22,24 @@ export interface DocMeta {
   uploaded_at: string;
 }
 
+// ── Company ──
+export interface Company {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  settings: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── User / Auth ──
 export interface User {
   id: string;
   email: string;
   password_hash: string;
+  company_id: string | null;
   created_at: string;
 }
 
@@ -34,6 +47,7 @@ export interface Profile {
   id: string;
   email: string | null;
   company_name: string;
+  company_id: string | null;
   contact_name: string | null;
   last_seen_at: string | null;
   created_at: string;
@@ -49,6 +63,7 @@ export interface UserRole {
 // ── Debtors ──
 export interface Debtor {
   id: string;
+  company_id: string | null;
   name: string;
   legal_entity_name: string | null;
   registration_no: string | null;
@@ -72,6 +87,7 @@ export interface Debtor {
 export interface Vendor {
   id: string;
   client_id: string;
+  company_id: string | null;
   name: string;
   address_line: string | null;
   city: string | null;
@@ -93,6 +109,7 @@ export interface Vendor {
 // ── Suppliers (factor-managed) ──
 export interface Supplier {
   id: string;
+  company_id: string | null;
   company_name: string;
   industry: string | null;
   website: string | null;
@@ -119,6 +136,7 @@ export interface Supplier {
 export interface Invoice {
   id: string;
   client_id: string;
+  company_id: string | null;
   debtor_id: string;
   supplier_id: string | null;
   invoice_number: string;
@@ -158,6 +176,7 @@ export interface Invoice {
 export interface PurchaseInvoice {
   id: string;
   client_id: string;
+  company_id: string | null;
   vendor_id: string;
   invoice_number: string;
   amount: number;
@@ -188,6 +207,7 @@ export interface PurchaseInvoice {
 export interface PurchaseOrder {
   id: string;
   client_id: string;
+  company_id: string | null;
   side: AdvanceSide;
   debtor_id: string | null;
   vendor_id: string | null;
@@ -218,6 +238,7 @@ export interface PurchaseOrder {
 export interface Advance {
   id: string;
   client_id: string;
+  company_id: string | null;
   purchase_order_id: string | null;
   invoice_id: string | null;
   purchase_invoice_id: string | null;
@@ -235,6 +256,7 @@ export interface Advance {
 export interface Expense {
   id: string;
   client_id: string;
+  company_id: string | null;
   category: string;
   description: string | null;
   amount: number;
@@ -250,6 +272,7 @@ export interface Expense {
 export interface StockMovement {
   id: string;
   client_id: string;
+  company_id: string | null;
   direction: MovementDirection;
   item_name: string;
   sku: string | null;
@@ -268,6 +291,7 @@ export interface StockMovement {
 export interface Alert {
   id: string;
   client_id: string | null;
+  company_id: string | null;
   debtor_id: string | null;
   invoice_id: string | null;
   type: AlertType;
@@ -283,6 +307,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   roles: AppRole[];
+  company_id: string | null;
   iat?: number;
   exp?: number;
 }
@@ -323,6 +348,7 @@ export interface StockMovementWithRelations extends StockMovement {
 export interface InventoryItem {
   id: string;
   client_id: string;
+  company_id: string | null;
   item: string;
   description: string | null;
   closing_quantity: number;
@@ -338,6 +364,7 @@ export interface InventoryItem {
 export interface CreditDebitNote {
   id: string;
   client_id: string;
+  company_id: string | null;
   type: CreditDebitNoteType;
   note_number: string;
   date: string;
@@ -359,6 +386,7 @@ export interface CreditDebitNote {
 export interface PaymentRecord {
   id: string;
   client_id: string;
+  company_id: string | null;
   debtor_id: string;
   amount: number;
   payment_date: string;

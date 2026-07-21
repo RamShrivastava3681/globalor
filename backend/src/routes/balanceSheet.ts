@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, getItem, TABLES } from "../db/client.js";
 
 const router = Router();
@@ -27,12 +27,12 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // ── Fetch all source data in parallel ──
     const [allAccounts, allJournalEntries, allInvoices, allPurchaseInvoices, allAdvances, allPurchaseOrders] =
       await Promise.all([
-        scanTable<any>(TABLES.CHART_OF_ACCOUNTS),
-        scanTable<any>(TABLES.JOURNAL_ENTRIES),
-        scanTable<any>(TABLES.INVOICES),
-        scanTable<any>(TABLES.PURCHASE_INVOICES),
-        scanTable<any>(TABLES.ADVANCES),
-        scanTable<any>(TABLES.PURCHASE_ORDERS),
+        scanTable<any>(TABLES.CHART_OF_ACCOUNTS, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.ADVANCES, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!)),
       ]);
 
     // ── Compute account balances from journal entries ──
@@ -351,7 +351,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // ─────────────────────────────────────────────────────────────
     //  MERGE MANUAL BALANCE SHEET ITEMS
     // ─────────────────────────────────────────────────────────────
-    const allManualItems = await scanTable<any>(TABLES.BALANCE_SHEET_ITEMS);
+    const allManualItems = await scanTable<any>(TABLES.BALANCE_SHEET_ITEMS, getCompanyFilter(req.user!));
     const activeManualItems = allManualItems.filter((item: any) => item.is_active !== false);
 
     // Helper: add manual items to a subsection by matching section label
@@ -477,8 +477,8 @@ router.get("/section-transactions", requireAuth, async (req: AuthRequest, res: R
 
     // Fetch accounts and journal entries in parallel
     const [allAccounts, allEntries] = await Promise.all([
-      scanTable<any>(TABLES.CHART_OF_ACCOUNTS),
-      scanTable<any>(TABLES.JOURNAL_ENTRIES),
+      scanTable<any>(TABLES.CHART_OF_ACCOUNTS, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!)),
     ]);
 
     // Build account lookup
@@ -580,7 +580,7 @@ router.get("/account-transactions/:accountId", requireAuth, async (req: AuthRequ
     }
 
     // Fetch all journal entries
-    const allEntries = await scanTable<any>(TABLES.JOURNAL_ENTRIES);
+    const allEntries = await scanTable<any>(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!));
 
     // Extract lines for this account, sorted by entry date
     const transactions: Array<{

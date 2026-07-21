@@ -1,5 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowUpRight, Bell, ChartLine, ShieldCheck, Wallet, Zap } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { signUp } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
+import { toast } from "sonner";
+import { ArrowUpRight, Bell, ChartLine, Loader2, ShieldCheck, Wallet, Zap } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -14,6 +18,32 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const navigate = useNavigate();
+  const { user, refreshSession } = useAuth();
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupCompany, setSignupCompany] = useState("");
+  const [signupLoading, setSignupLoading] = useState(false);
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!signupCompany.trim() || !signupEmail.trim() || !signupPassword) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    setSignupLoading(true);
+    try {
+      await signUp(signupEmail, signupPassword, signupCompany);
+      toast.success("Account created. Welcome to Globalor.");
+      await refreshSession();
+      navigate({ to: "/app/dashboard" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Signup failed");
+    } finally {
+      setSignupLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-border/60 bg-[linear-gradient(90deg,rgba(0,191,255,0.08),transparent)]">
@@ -171,22 +201,113 @@ function Landing() {
         </div>
       </section>
 
-      {/* CTA */}
-      <section id="workflow" className="border-b border-border/60 relative overflow-hidden">
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/10 blur-[100px] rounded-full pointer-events-none" />
-        <div className="relative mx-auto max-w-7xl px-6 py-32 text-center z-10">
-          <h2 className="mx-auto max-w-3xl font-display text-4xl tracking-tight md:text-6xl text-balance font-medium">
-            Deploy global capital. Fund tomorrow's growth today.
-          </h2>
-          <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-            Spin up an enterprise trading intelligence portal in seconds.
-          </p>
-          <div className="mt-10 flex justify-center gap-4">
-            <Link to="/auth" search={{ mode: "signup" }} className="btn-primary px-8 py-4 text-sm font-medium">Deploy portal</Link>
-            <Link to="/auth" className="btn-secondary px-8 py-4 text-sm font-medium">Sign in</Link>
+      {/* Signup Section */}
+      <section id="signup" className="border-b border-border/60 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_center,rgba(0,191,255,0.08),transparent_60%)]" />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/15 blur-[120px] rounded-full pointer-events-none" />
+        <div className="relative mx-auto max-w-7xl px-6 py-24 md:py-32 z-10">
+          <div className="mx-auto max-w-5xl">
+            <div className="text-center">
+              <p className="text-xs uppercase tracking-[0.2em] text-primary font-medium">Get started</p>
+              <h2 className="mt-4 font-display text-4xl tracking-tight md:text-5xl text-balance">
+                Deploy your trading workspace.
+              </h2>
+              <p className="mt-4 text-lg text-muted-foreground">
+                Submit invoices, advance capital, and monitor risk — all from one command surface.
+              </p>
+            </div>
+
+            <div className="mt-12 mx-auto max-w-lg">
+              {user ? (
+                <div className="rounded-2xl border border-border/50 bg-glass-card p-8 text-center shadow-xl backdrop-blur">
+                  <p className="text-sm text-muted-foreground">You're already signed in.</p>
+                  <Link to="/app/dashboard" className="mt-4 inline-flex items-center gap-2 btn-primary px-6 py-3 text-sm font-medium">
+                    Go to dashboard
+                  </Link>
+                </div>
+              ) : (
+                <form onSubmit={handleSignup} className="rounded-2xl border border-border/50 bg-glass-card p-8 shadow-xl backdrop-blur">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="mb-2 block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Company name</label>
+                      <input
+                        value={signupCompany}
+                        onChange={(e) => setSignupCompany(e.target.value)}
+                        required
+                        className="landing-input"
+                        placeholder="Acme Global Ltd"
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Email</label>
+                        <input
+                          type="email"
+                          value={signupEmail}
+                          onChange={(e) => setSignupEmail(e.target.value)}
+                          required
+                          className="landing-input"
+                          placeholder="you@company.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Password</label>
+                        <input
+                          type="password"
+                          value={signupPassword}
+                          onChange={(e) => setSignupPassword(e.target.value)}
+                          required
+                          minLength={6}
+                          className="landing-input"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={signupLoading}
+                    className="mt-6 inline-flex w-full items-center justify-center gap-2 btn-primary px-6 py-3.5 text-sm font-medium disabled:opacity-60 transition-all duration-200 hover:shadow-[0_0_30px_rgba(0,191,255,0.3)]"
+                  >
+                    {signupLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {signupLoading ? "Creating workspace…" : "Deploy workspace"}
+                  </button>
+
+                  <p className="mt-5 text-center text-xs text-muted-foreground">
+                    Already deployed?{" "}
+                    <Link to="/auth" className="font-medium text-primary underline-offset-4 hover:underline transition-all">
+                      Sign in to your terminal
+                    </Link>
+                  </p>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       </section>
+
+      <style>{`
+        .landing-input {
+          width: 100%;
+          background: rgba(0,0,0,0.25);
+          border: 1px solid rgba(56,189,248,0.15);
+          color: #fff;
+          border-radius: 10px;
+          padding: 0.75rem 1rem;
+          font-size: 0.875rem;
+          transition: all 0.2s ease;
+        }
+        .landing-input:focus { 
+          outline: none; 
+          border-color: #00BFFF; 
+          background: rgba(0,0,0,0.4);
+          box-shadow: 0 0 0 3px rgba(0,191,255,0.15); 
+        }
+        .landing-input::placeholder {
+          color: rgba(148, 163, 184, 0.4);
+        }
+      `}</style>
 
       <footer className="mx-auto max-w-7xl px-6 py-12 text-xs text-muted-foreground flex items-center justify-between border-t border-border/40">
         <span>© Globalor Limited. Trading Intelligence Platform.</span>

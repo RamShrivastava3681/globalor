@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
@@ -87,7 +87,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     }
 
     // ── 2. Fetch open invoices for this debtor ──
-    const allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const eligibleStatuses = new Set(["pending", "approved", "funded", "advanced", "overdue"]);
     let openInvoices = allInvoices
       .filter((i) => i.debtor_id === parsed.debtor_id && eligibleStatuses.has(i.status))
@@ -229,6 +229,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: parsed.debtor_id,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
@@ -258,6 +259,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     if (closed.length > 0 || partiallyPaid.length > 0) {
       createActivityAlert({
         client_id: req.user!.id,
+        company_id: req.user!.company_id,
         debtor_id: parsed.debtor_id,
         type: "payment_received",
         severity: "info",
@@ -309,7 +311,7 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const debtorId = req.query.debtor_id as string | undefined;
 
-    const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS);
+    const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!));
 
     // Filter by debtor if specified
     let filtered = payments;
@@ -321,12 +323,12 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
     // Enrich with party names (debtors + vendors)
-    const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS);
+    const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d.name]));
-    const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS);
+    const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));
     // Keep legacy supplier prefix for backward compatibility with old records
-    const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS);
+    const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, getCompanyFilter(req.user!));
     const supplierMap = new Map(allSuppliers.map((s) => [`supplier_${s.id}`, s.company_name]));
 
     const enriched = filtered.map((p) => ({
@@ -492,6 +494,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
     if (reversedInvoices.length > 0) {
       createActivityAlert({
         client_id: req.user!.id,
+        company_id: req.user!.company_id,
         debtor_id: payment.debtor_id,
         type: "payment_received",
         severity: "warning",
@@ -587,7 +590,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     }
 
     // ── 3. Fetch open purchase invoices for this vendor ──
-    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const eligiblePiStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
     let openPurchaseInvoices = allPurchaseInvoices
       .filter((pi) => pi.vendor_id === vendor.id && eligiblePiStatuses.has(pi.status))
@@ -717,6 +720,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: `vendor_${parsed.vendor_id}`,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
@@ -743,6 +747,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     if (closed.length > 0 || partiallyPaid.length > 0) {
       createActivityAlert({
         client_id: req.user!.id,
+        company_id: req.user!.company_id,
         type: "payment_received",
         severity: "info",
         message: `Supplier bulk payment of ${fmtMoneyShort(parsed.amount)} to "${vendor.name}" — ${closed.length} purchase invoices closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining: ${fmtMoneyShort(remainingAfterProcessing)}`,

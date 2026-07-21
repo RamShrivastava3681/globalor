@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { TABLES, putItem, getItem, scanTable, updateItem, deleteItem } from "../db/client.js";
 
 const VALID_SUB_TYPES = [
@@ -19,9 +19,9 @@ const router = Router();
 router.use(requireAuth);
 
 // ── GET / — List all accounts ──
-router.get("/", async (_req: Request, res: Response) => {
+router.get("/", async (req: AuthRequest, res: Response) => {
   try {
-    const accounts = await scanTable(TABLES.CHART_OF_ACCOUNTS);
+    const accounts = await scanTable(TABLES.CHART_OF_ACCOUNTS, getCompanyFilter(req.user!));
     accounts.sort((a: any, b: any) => (a.code ?? "").localeCompare(b.code ?? ""));
     res.json(accounts);
   } catch (err) {
@@ -133,12 +133,12 @@ router.patch("/:id", async (req: Request, res: Response) => {
 });
 
 // ── GET /trial-balance — Compute trial balance from journal entries ──
-router.get("/trial-balance", async (_req: Request, res: Response) => {
+router.get("/trial-balance", async (req: AuthRequest, res: Response) => {
   try {
     // Fetch all accounts and journal entries in parallel
     const [accounts, entries] = await Promise.all([
-      scanTable(TABLES.CHART_OF_ACCOUNTS),
-      scanTable(TABLES.JOURNAL_ENTRIES),
+      scanTable(TABLES.CHART_OF_ACCOUNTS, getCompanyFilter(req.user!)),
+      scanTable(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!)),
     ]);
 
     // Build a map of account_id -> { debit_total, credit_total }

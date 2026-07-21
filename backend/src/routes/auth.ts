@@ -11,13 +11,12 @@ import {
 import { generateToken, requireAuth, countUsers, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import { config } from "../config.js";
-import type { User, Profile, UserRole, AppRole } from "../types/index.js";
+import type { User, Profile, UserRole, AppRole, Company } from "../types/index.js";
 
 const router = Router();
 
 // ── POST /api/auth/signup ──
-// First user to sign up automatically becomes factor_admin.
-// Subsequent signups get the default "client" role (admin can change this in Settings).
+// Every signup creates a new company and the user becomes factor_admin of that company.
 const signupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -41,37 +40,53 @@ router.post("/signup", async (req: Request, res: Response) => {
       return;
     }
 
-    const userCount = await countUsers();
-    const isFirstUser = userCount === 0;
-
     const id = generateId();
+    const companyId = generateId();
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
-    // Create user
-    const user: User = { id, email, password_hash, created_at: now };
+    // Create company
+    const company: Company = {
+      id: companyId,
+      name: company_name,
+      email: email,
+      phone: null,
+      address: null,
+      settings: null,
+      created_at: now,
+      updated_at: now,
+    };
+    await putItem(TABLES.COMPANIES, company as any);
+
+    // Create user (now with company_id)
+    const user: User = { id, email, password_hash, company_id: companyId, created_at: now };
     await putItem(TABLES.USERS, user as any);
 
-    // Create profile
+    // Create profile (now with company_id)
     const profile: Profile = {
       id, email, company_name,
+      company_id: companyId,
       contact_name: contact_name || null,
       last_seen_at: null,
       created_at: now, updated_at: now,
     };
     await putItem(TABLES.PROFILES, profile as any);
 
-    // Assign role: first user = factor_admin, otherwise "client"
-    const defaultRole: AppRole = isFirstUser ? "factor_admin" : "client";
+    // Assign factor_admin role to the company admin
     const roleId = generateId();
-    const userRole: UserRole = { id: roleId, user_id: id, role: defaultRole };
+    const userRole: UserRole = { id: roleId, user_id: id, role: "factor_admin" };
     await putItem(TABLES.USER_ROLES, userRole as any);
 
-    const token = generateToken({ id, email, roles: [defaultRole] });
+    const token = generateToken({ id, email, roles: ["factor_admin"], company_id: companyId });
 
     res.status(201).json({
       token,
-      user: { id, email, company_name, contact_name: profile.contact_name, roles: [defaultRole] },
+      user: {
+        id, email, company_name,
+        company_id: companyId,
+        contact_name: profile.contact_name,
+        roles: ["factor_admin"],
+      },
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -121,17 +136,26 @@ router.post("/signin", async (req: Request, res: Response) => {
     });
     const appRoles: AppRole[] = roles.map((r) => r.role);
 
-    // Load profile
+    // Load profile & company
     const profile = await getItem(TABLES.PROFILES, { id: user.id }) as Profile | undefined;
+    const company = user.company_id
+      ? await getItem(TABLES.COMPANIES, { id: user.company_id }) as Company | undefined
+      : undefined;
 
-    const token = generateToken({ id: user.id, email: user.email, roles: appRoles });
+    const token = generateToken({
+      id: user.id,
+      email: user.email,
+      roles: appRoles,
+      company_id: user.company_id ?? null,
+    });
 
     res.json({
       token,
       user: {
         id: user.id,
         email: user.email,
-        company_name: profile?.company_name ?? "",
+        company_id: user.company_id ?? null,
+        company_name: company?.name ?? profile?.company_name ?? "",
         contact_name: profile?.contact_name ?? null,
         last_seen_at: profile?.last_seen_at ?? null,
         roles: appRoles,
@@ -159,10 +183,16 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
     const appRoles = roles.map((r) => r.role);
     const isSuperAdmin = req.user!.email === config.admin.email;
 
+    // Load company info
+    const company = req.user!.company_id
+      ? await getItem(TABLES.COMPANIES, { id: req.user!.company_id }) as Company | undefined
+      : undefined;
+
     res.json({
       id: req.user!.id,
       email: req.user!.email,
-      company_name: profile?.company_name ?? "",
+      company_id: req.user!.company_id,
+      company_name: company?.name ?? profile?.company_name ?? "",
       contact_name: profile?.contact_name ?? null,
       last_seen_at: profile?.last_seen_at ?? null,
       roles: appRoles,
@@ -180,6 +210,7 @@ router.post("/refresh-token", requireAuth, (req: AuthRequest, res: Response) => 
     id: req.user!.id,
     email: req.user!.email,
     roles: req.user!.roles,
+    company_id: req.user!.company_id,
   });
   res.json({ token });
 });

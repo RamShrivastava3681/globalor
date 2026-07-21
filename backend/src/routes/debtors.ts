@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Debtor } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
@@ -16,9 +16,9 @@ import { createActivityAlert } from "../utils/alerts.js";
 const router = Router();
 
 // ── GET /api/debtors ──
-router.get("/", requireAuth, async (_req: AuthRequest, res: Response) => {
+router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
     res.json(debtors.sort((a, b) => a.name.localeCompare(b.name)));
   } catch (err) {
     console.error("Get debtors error:", err);
@@ -65,6 +65,7 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
 
     const debtor: Debtor = {
       id,
+      company_id: req.user!.company_id,
       name: parsed.name,
       legal_entity_name: parsed.legal_entity_name || null,
       registration_no: parsed.registration_no || null,
@@ -89,6 +90,7 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
     // Create activity alert
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: id,
       type: "debtor_created",
       severity: "info",

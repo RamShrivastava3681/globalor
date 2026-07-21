@@ -11,16 +11,22 @@ export interface AuthRequest extends Request {
     id: string;
     email: string;
     roles: AppRole[];
+    company_id: string | null;
+    /** The company_id from the JWT before any X-Company-Override header was applied.
+     *  This is `null` for super admins (their JWT has no company_id).
+     *  Only set when an override is active. */
+    originalCompanyId?: string | null;
   };
 }
 
 // ── JWT ──
 
-export function generateToken(payload: { id: string; email: string; roles: AppRole[] }): string {
+export function generateToken(payload: { id: string; email: string; roles: AppRole[]; company_id: string | null }): string {
   const jwtPayload: JwtPayload = {
     sub: payload.id,
     email: payload.email,
     roles: payload.roles,
+    company_id: payload.company_id,
   };
   return jwt.sign(jwtPayload, config.jwt.secret, {
     expiresIn: config.jwt.expiresIn as any,
@@ -46,7 +52,19 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       id: decoded.sub,
       email: decoded.email,
       roles: decoded.roles,
+      company_id: decoded.company_id ?? null,
     };
+
+    // Company override for super admins (X-Company-Override header)
+    // Store the original JWT company_id before applying the override
+    // so routes can check `originalCompanyId` to verify super admin status.
+    if (!req.user.company_id) {
+      const override = req.headers["x-company-override"] as string | undefined;
+      if (override) {
+        req.user.originalCompanyId = req.user.company_id;
+        req.user.company_id = override;
+      }
+    }
 
     next();
   } catch (err) {
@@ -194,4 +212,26 @@ export async function loadUserRoles(userId: string): Promise<AppRole[]> {
 export async function countUsers(): Promise<number> {
   const users = await scanTable<any>(TABLES.USERS);
   return users.length;
+}
+
+/**
+ * Returns a company filter for DynamoDB scan operations.
+ *
+ * When the user has a company_id, results are scoped to that company only.
+ * Super admins (company_id = null) see all data — no filter is returned.
+ *
+ * Usage:
+ *   const items = await scanTable(TABLE, getCompanyFilter(req.user!));
+ */
+export function getCompanyFilter(user: { company_id: string | null }): {
+  filterExpression?: string;
+  expressionAttributeValues?: Record<string, unknown>;
+} {
+  if (user.company_id) {
+    return {
+      filterExpression: "company_id = :cid",
+      expressionAttributeValues: { ":cid": user.company_id },
+    };
+  }
+  return {};
 }

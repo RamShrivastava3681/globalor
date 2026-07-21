@@ -10,7 +10,7 @@ import {
   batchPutItems,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { PurchaseInvoice, Vendor, Profile, Debtor, DocMeta } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
@@ -23,14 +23,14 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
 
     // Preload all vendors, profiles, debtors, and invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allSalesInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allSalesInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
@@ -133,7 +133,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── GET /api/purchase-invoices/mini ──
 router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     res.json(
       invoices
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
@@ -220,6 +220,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
     const invoice: PurchaseInvoice = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       vendor_id: parsed.vendor_id,
       invoice_number: parsed.invoice_number,
       amount: parsed.amount,
@@ -270,6 +271,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
         const movement: StockMovement = {
           id: generateId(),
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           direction: "in",
           item_name: item.item_name,
           sku: item.sku || null,
@@ -291,6 +293,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
     const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: "purchase_invoice_created",
       severity: "info",
       message: `Purchase invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${vendor ? ` — ${vendor.name}` : ""}`,
@@ -364,6 +367,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
         const invoice: PurchaseInvoice = {
           id,
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           vendor_id: parsed.vendor_id,
           invoice_number: item.invoice_number,
           amount: item.amount,
@@ -420,6 +424,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
 
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: "purchase_invoice_created",
       severity: "info",
       message: `Batch imported ${created.length} purchase invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,

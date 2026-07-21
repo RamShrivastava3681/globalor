@@ -146,6 +146,22 @@ const tableDefs = [
     ],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    TableName: TABLES.COMPANIES,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [
+      { AttributeName: "id", AttributeType: "S" },
+      { AttributeName: "name", AttributeType: "S" },
+    ],
+    GlobalSecondaryIndexes: [
+      {
+        IndexName: "name-index",
+        KeySchema: [{ AttributeName: "name", KeyType: "HASH" }],
+        Projection: { ProjectionType: "ALL" },
+      },
+    ],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ] as const;
 
 export async function createTables() {

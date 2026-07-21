@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Advance, AdvanceSide, DocMeta } from "../types/index.js";
 
@@ -17,14 +17,14 @@ const router = Router();
 // ── GET /api/advances ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const advances = await scanTable<Advance>(TABLES.ADVANCES);
+    const advances = await scanTable<Advance>(TABLES.ADVANCES, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
-    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS);
-    const allDebtors = await scanTable<any>(TABLES.DEBTORS);
-    const allVendors = await scanTable<any>(TABLES.VENDORS);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
+    const allDebtors = await scanTable<any>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
     const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
@@ -98,6 +98,7 @@ router.post("/", requireAuth, requireWriteAccess("advances"), async (req: AuthRe
     const advance: Advance = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       side: parsed.side as AdvanceSide,
       amount: parsed.amount,
       advance_date: parsed.advance_date,
@@ -155,7 +156,7 @@ router.post("/batch", requireAuth, requireWriteAccess("advances"), async (req: A
     const now = nowISO();
 
     // Scan invoices and build lookup by invoice_number
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const invoiceByNumber = new Map<string, any>();
     for (const inv of allInvoices) {
       invoiceByNumber.set(inv.invoice_number, inv);
@@ -178,6 +179,7 @@ router.post("/batch", requireAuth, requireWriteAccess("advances"), async (req: A
         const advance: Advance = {
           id,
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           side: "sales" as AdvanceSide,
           amount: item.amount,
           advance_date: item.advance_date,

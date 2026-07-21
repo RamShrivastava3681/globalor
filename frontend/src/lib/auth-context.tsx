@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { api, getToken, setToken, clearToken } from "./api-client";
+import { api, getToken, setToken, clearToken, setCompanyOverride } from "./api-client";
 
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 
@@ -34,6 +34,11 @@ export const roleWritePermissions: Record<AppRole, readonly (WriteResource | "*"
   viewer: [],
 };
 
+type ImpersonatedCompany = {
+  id: string;
+  name: string;
+};
+
 type AuthState = {
   user: { id: string; email: string } | null;
   roles: AppRole[];
@@ -46,6 +51,13 @@ type AuthState = {
   isViewer: boolean;
   isClient: boolean;
   canWrite: (resource: WriteResource) => boolean;
+  company_id: string | null;
+  company_name: string;
+  /** The effective company being viewed — overridden for super admins */
+  effectiveCompanyId: string | null;
+  effectiveCompanyName: string;
+  impersonatedCompany: ImpersonatedCompany | null;
+  setImpersonatedCompany: (company: ImpersonatedCompany | null) => void;
   refreshRoles: () => Promise<void>;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -56,6 +68,7 @@ const Ctx = createContext<AuthState | undefined>(undefined);
 type MeResponse = {
   id: string;
   email: string;
+  company_id: string | null;
   company_name: string;
   contact_name: string | null;
   roles: AppRole[];
@@ -74,6 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState("");
+  const [impersonatedCompany, setImpersonatedCompany] = useState<ImpersonatedCompany | null>(null);
   const [loading, setLoading] = useState(true);
   const qc = useQueryClient();
   const router = useRouter();
@@ -119,13 +135,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (me) {
       setUser({ id: me.id, email: me.email });
       setRoles(me.roles);
+      setCompanyId(me.company_id ?? null);
+      setCompanyName(me.company_name ?? "");
       setIsSuperAdmin(!!me.is_super_admin);
       startPing();
     } else {
       clearToken();
       setUser(null);
       setRoles([]);
+      setCompanyId(null);
+      setCompanyName("");
       setIsSuperAdmin(false);
+      setImpersonatedCompany(null);
       stopPing();
     }
     setLoading(false);
@@ -155,13 +176,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearToken();
     setUser(null);
     setRoles([]);
+    setCompanyId(null);
+    setCompanyName("");
+    setImpersonatedCompany(null);
     router.navigate({ to: "/auth", replace: true });
+  };
+
+  const handleSetImpersonatedCompany = (company: ImpersonatedCompany | null) => {
+    setImpersonatedCompany(company);
+    setCompanyOverride(company?.id ?? null);
   };
 
   const refreshSession = async () => {
     setLoading(true);
     await loadSession();
   };
+
+  // Effective company — overridden for super admins, else the user's own company
+  const effectiveCompanyId = impersonatedCompany?.id ?? companyId;
+  const effectiveCompanyName = impersonatedCompany?.name ?? companyName;
 
   const isAdmin = roles.includes("factor_admin");
   const isTreasury = roles.includes("treasury");
@@ -192,6 +225,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isViewer,
     isClient,
     canWrite,
+    company_id: companyId,
+    company_name: companyName,
+    effectiveCompanyId,
+    effectiveCompanyName,
+    impersonatedCompany,
+    setImpersonatedCompany: handleSetImpersonatedCompany,
     refreshRoles,
     refreshSession,
     signOut: handleSignOut,

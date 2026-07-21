@@ -1,6 +1,15 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4444/api";
 
 let _token: string | null | undefined = undefined;
+let _companyOverride: string | null = null;
+
+export function setCompanyOverride(id: string | null) {
+  _companyOverride = id;
+}
+
+export function getCompanyOverride(): string | null {
+  return _companyOverride;
+}
 
 export function getToken(): string | null {
   if (_token === undefined) {
@@ -38,6 +47,11 @@ async function request<T = unknown>(
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  // Company override for super admin company switcher
+  if (_companyOverride) {
+    headers["X-Company-Override"] = _companyOverride;
   }
 
   if (body !== undefined && !(body instanceof FormData)) {

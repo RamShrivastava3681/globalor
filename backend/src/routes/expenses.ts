@@ -6,7 +6,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Expense, DocMeta } from "../types/index.js";
 
@@ -15,11 +15,11 @@ const router = Router();
 // ── GET /api/expenses ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const expenses = await scanTable<Expense>(TABLES.EXPENSES);
+    const expenses = await scanTable<Expense>(TABLES.EXPENSES, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
 
@@ -64,6 +64,7 @@ router.post("/", requireAuth, requireWriteAccess("expenses"), async (req: AuthRe
     const expense: Expense = {
       id: generateId(),
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       category: parsed.category,
       description: parsed.description || null,
       amount: parsed.amount,

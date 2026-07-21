@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { CreditDebitNote, Invoice, PurchaseInvoice } from "../types/index.js";
@@ -18,11 +18,11 @@ const router = Router();
 // ── GET /api/credit-debit-notes ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const notes = await scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES);
+    const notes = await scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
 
@@ -82,6 +82,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const note: CreditDebitNote = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: parsed.type,
       note_number: parsed.note_number,
       date: parsed.date || new Date().toISOString().slice(0, 10),
@@ -103,6 +104,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
 
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: "invoice_created",
       severity: "info",
       message: `${parsed.type === "credit" ? "Credit" : "Debit"} note ${parsed.note_number} created for $${parsed.amount.toLocaleString()} — pending review`,
@@ -187,8 +189,9 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
           } as any);
 
           createActivityAlert({
-            client_id: inv.client_id || note.client_id,
-            type: "payment_received",
+          client_id: inv.client_id || note.client_id,
+          company_id: inv.company_id || note.company_id,
+          type: "payment_received",
             severity: "info",
             message: `${note.type === "credit" ? "Credit" : "Debit"} note ${note.note_number} settled — invoice amount ${note.type === "credit" ? "reduced" : "increased"} from $${currentAmount.toLocaleString()} to $${newAmount.toLocaleString()}`,
             created_by: req.user!.id,
@@ -270,6 +273,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
         const note = {
           id,
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           type,
           note_number: row.note_number,
           date: row.date || new Date().toISOString().slice(0, 10),

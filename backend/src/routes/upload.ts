@@ -77,13 +77,13 @@ router.delete("/", requireAuth, requireWriteAccess("upload"), async (req: AuthRe
 router.get("/signed-url/**", async (req: AuthRequest, res: Response) => {
   try {
     // Support auth via query param ?token= (for opening in a new tab) or via Bearer header
-    let user: { id: string; email: string; roles: any[] } | null = null;
+    let user: { id: string; email: string; roles: any[]; company_id: string | null } | null = null;
 
     const queryToken = req.query.token as string | undefined;
     if (queryToken) {
       try {
         const decoded = verifyToken(queryToken);
-        user = { id: decoded.sub, email: decoded.email, roles: decoded.roles };
+        user = { id: decoded.sub, email: decoded.email, roles: decoded.roles, company_id: decoded.company_id ?? null };
       } catch { /* fall through to header check */ }
     }
 
@@ -92,7 +92,7 @@ router.get("/signed-url/**", async (req: AuthRequest, res: Response) => {
       if (authHeader && authHeader.startsWith("Bearer ")) {
         try {
           const decoded = verifyToken(authHeader.replace("Bearer ", ""));
-          user = { id: decoded.sub, email: decoded.email, roles: decoded.roles };
+          user = { id: decoded.sub, email: decoded.email, roles: decoded.roles, company_id: decoded.company_id ?? null };
         } catch { /* ignore */ }
       }
     }

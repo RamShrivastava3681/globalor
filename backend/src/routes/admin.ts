@@ -9,7 +9,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireRole, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js";
 import { sendWelcomeEmail } from "../utils/email.js";
 import { config } from "../config.js";
@@ -61,13 +61,17 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
+    // Determine company_id: super admin creates users for their own company; otherwise use null
+    const assignedCompanyId = req.user!.company_id ?? null;
+
     // Create user
-    const user: User = { id, email, password_hash, created_at: now };
+    const user: User = { id, email, password_hash, company_id: assignedCompanyId, created_at: now };
     await putItem(TABLES.USERS, user as any);
 
     // Create profile
     const profile: Profile = {
       id, email, company_name,
+      company_id: assignedCompanyId,
       contact_name: contact_name || null,
       last_seen_at: null,
       created_at: now, updated_at: now,
@@ -109,7 +113,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
 // ── GET /api/admin/profiles ──
 router.get("/profiles", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
-    const profiles = await scanTable<Profile>(TABLES.PROFILES);
+    const profiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     res.json(profiles.map((p) => ({ id: p.id, email: p.email, company_name: p.company_name, contact_name: p.contact_name, last_seen_at: p.last_seen_at })));
   } catch (err) {
     console.error("Get profiles error:", err);
@@ -235,8 +239,8 @@ router.delete("/users/:userId", requireAuth, requireRole("factor_admin"), async 
 // ── POST /api/admin/generate-alerts ──
 router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS);
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
 
     const alertsToCreate: Alert[] = [];
 
@@ -247,6 +251,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
         alertsToCreate.push({
           id: generateId(),
           client_id: i.client_id,
+          company_id: i.company_id,
           invoice_id: i.id,
           debtor_id: i.debtor_id,
           type: "overdue",
@@ -262,6 +267,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
         alertsToCreate.push({
           id: generateId(),
           client_id: i.client_id,
+          company_id: i.company_id,
           invoice_id: i.id,
           debtor_id: i.debtor_id,
           type: "large_invoice",

@@ -7,7 +7,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Alert, AlertSeverity, AlertType } from "../types/index.js";
 
@@ -16,7 +16,7 @@ const router = Router();
 // ── GET /api/alerts ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const alerts = await scanTable<Alert>(TABLES.ALERTS);
+    const alerts = await scanTable<Alert>(TABLES.ALERTS, getCompanyFilter(req.user!));
 
     // Enrich alerts with creator names from profiles
     const userIds = [...new Set(alerts.map((a) => a.created_by).filter(Boolean))] as string[];
@@ -56,6 +56,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const alert: Alert = {
       id: generateId(),
       client_id: parsed.client_id || null,
+      company_id: req.user?.company_id ?? null,
       debtor_id: parsed.debtor_id || null,
       invoice_id: parsed.invoice_id || null,
       type: parsed.type as AlertType,

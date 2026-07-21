@@ -10,7 +10,7 @@ import {
   batchPutItems,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateNoaToken, nowISO } from "../utils/helpers.js";
 import { config } from "../config.js";
 import { sendNoaEmail } from "../utils/email.js";
@@ -55,13 +55,13 @@ const router = Router();
 router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     // Scan both sales and purchase invoices
-    const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES);
-    const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
 
     // Preload debtors, vendors, and profiles for enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -170,14 +170,14 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
 
     // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
@@ -287,7 +287,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── GET /api/invoices/mini ── (minimal list for dropdowns)
 router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const sortOrder = req.query.sort === "asc" ? 1 : -1;
     res.json(
       invoices
@@ -377,6 +377,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: parsed.debtor_id,
       supplier_id: null,
       invoice_number: parsed.invoice_number,
@@ -436,6 +437,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
         const movement: StockMovement = {
           id: generateId(),
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           direction: "out",
           item_name: item.item_name,
           sku: item.sku || null,
@@ -457,6 +459,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: parsed.debtor_id,
       invoice_id: id,
       type: "invoice_created",
@@ -523,6 +526,7 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (r
 
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: invoice.debtor_id,
       invoice_id: invoice.id,
       type: "invoice_created",
@@ -639,6 +643,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
         const invoice: Invoice = {
           id,
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           debtor_id: parsed.debtor_id,
           supplier_id: null,
           invoice_number: item.invoice_number,
@@ -704,6 +709,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
 
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       debtor_id: parsed.debtor_id,
       type: "invoice_created",
       severity: "info",
@@ -739,7 +745,7 @@ router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), as
     const now = nowISO();
 
     // Scan all invoices and build lookup by invoice_number
-    const allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const invoiceByNumber = new Map<string, Invoice>();
     for (const inv of allInvoices) {
       invoiceByNumber.set(inv.invoice_number, inv);
@@ -1101,9 +1107,9 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
 
     // Preload all invoices, debtors, and profiles
     const [allInvoices, allDebtors, allProfiles] = await Promise.all([
-      scanTable<Invoice>(TABLES.INVOICES),
-      scanTable<Debtor>(TABLES.DEBTORS),
-      scanTable<Profile>(TABLES.PROFILES),
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
     ]);
 
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));

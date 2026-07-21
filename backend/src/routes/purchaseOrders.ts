@@ -10,7 +10,7 @@ import {
   batchPutItems,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, requireAnyWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta } from "../types/index.js";
 
@@ -19,12 +19,12 @@ const router = Router();
 // ── GET /api/purchase-orders (proformas) ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
+    const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -99,6 +99,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
     const po: PurchaseOrder = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       side: parsed.side as AdvanceSide,
       debtor_id: parsed.debtor_id || null,
       vendor_id: parsed.vendor_id || null,
@@ -193,6 +194,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
         const po: PurchaseOrder = {
           id,
           client_id: req.user!.id,
+          company_id: req.user!.company_id,
           side: parsed.side as AdvanceSide,
           debtor_id: parsed.side === "sales" ? parsed.debtor_id || null : null,
           vendor_id: parsed.side === "purchase" ? parsed.vendor_id || null : null,
@@ -308,6 +310,7 @@ router.post("/:id/fund", requireAuth, requireAnyWriteAccess("purchase-orders", "
     const advance = {
       id: advanceId,
       client_id: po.client_id,
+      company_id: po.company_id,
       side: po.side,
       purchase_order_id: po.id,
       amount: Number(amount),

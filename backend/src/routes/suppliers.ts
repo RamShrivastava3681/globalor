@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Supplier } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
@@ -18,7 +18,7 @@ const router = Router();
 // ── GET /api/suppliers ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const suppliers = await scanTable<Supplier>(TABLES.SUPPLIERS);
+    const suppliers = await scanTable<Supplier>(TABLES.SUPPLIERS, getCompanyFilter(req.user!));
     res.json(suppliers.sort((a, b) => a.company_name.localeCompare(b.company_name)));
   } catch (err) {
     console.error("Get suppliers error:", err);
@@ -54,6 +54,7 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
 
     const supplier: Supplier = {
       id,
+      company_id: req.user!.company_id,
       company_name: parsed.company_name,
       industry: parsed.industry || null,
       website: parsed.website || null,
@@ -80,6 +81,7 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
     // Create activity alert
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: "supplier_created",
       severity: "info",
       message: `Factor supplier "${parsed.company_name}" added to the system`,

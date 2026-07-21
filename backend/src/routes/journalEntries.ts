@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { TABLES, putItem, getItem, scanTable, updateItem, deleteItem } from "../db/client.js";
 
 const router = Router();
@@ -9,9 +9,9 @@ const router = Router();
 router.use(requireAuth);
 
 // ── GET / — List all journal entries ──
-router.get("/", async (_req: Request, res: Response) => {
+router.get("/", async (req: AuthRequest, res: Response) => {
   try {
-    const entries = await scanTable(TABLES.JOURNAL_ENTRIES);
+    const entries = await scanTable(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!));
     // Sort by entry date descending, then created at descending
     entries.sort((a: any, b: any) => {
       const dateCmp = (b.entry_date ?? "").localeCompare(a.entry_date ?? "");

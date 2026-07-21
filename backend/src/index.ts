@@ -106,6 +106,10 @@ app.use("/api/reports/balance-sheet", balanceSheetRoutes);
 import balanceSheetItemRoutes from "./routes/balanceSheetItems.js";
 app.use("/api/balance-sheet-items", requireAuth, balanceSheetItemRoutes);
 
+// Companies (super admin company switcher)
+import companyRoutes from "./routes/companies.js";
+app.use("/api/companies", companyRoutes);
+
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

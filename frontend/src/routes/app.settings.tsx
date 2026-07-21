@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card } from "@/components/ledger-ui";
-import { Shield, Loader2, Plus, Users, X } from "lucide-react";
+import { Shield, Loader2, Plus, Users, X, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/settings")({
@@ -20,7 +20,7 @@ const ALL_ROLES = [
 ] as const;
 
 function SettingsPage() {
-  const { user, isAdmin, isSuperAdmin, refreshRoles } = useAuth();
+  const { user, isAdmin, isSuperAdmin, company_id, company_name, refreshRoles } = useAuth();
   const [profile, setProfile] = useState({ company_name: "", contact_name: "" });
   const [loading, setLoading] = useState(false);
 
@@ -39,9 +39,10 @@ function SettingsPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    // Load users for admins (both company admins and super admins)
+    if (!isAdmin) return;
     loadUsers();
-  }, [isSuperAdmin]);
+  }, [isAdmin]);
 
   const loadUsers = async () => {
     try {
@@ -137,10 +138,28 @@ function SettingsPage() {
           </div>
         </Card>
 
-        {/* Super admin: User management */}
-        {isSuperAdmin && (
+        {/* Company info card */}
+        <Card title="Company">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              <div>
+                <div className="font-medium">{company_name || "No company"}</div>
+                {company_id && (
+                  <div className="text-[10px] font-mono text-muted-foreground">ID: {company_id.slice(0, 12)}…</div>
+                )}
+                {!company_id && isSuperAdmin && (
+                  <div className="text-[10px] text-amber-400">Super admin — sees all companies</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Team management — visible to all admins (company & super) */}
+        {isAdmin && (
           <div className="md:col-span-2">
-            <Card title="User management">
+            <Card title="Team management">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">Manage user roles and create new accounts.</p>

@@ -7,7 +7,7 @@ import {
   batchPutItems,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { InventoryItem } from "../types/index.js";
 
@@ -16,10 +16,8 @@ const router = Router();
 // ── GET /api/inventory-items ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS);
-    // Filter to current user's items
+    const items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS, getCompanyFilter(req.user!));
     const userItems = items
-      .filter((i) => i.client_id === req.user!.id)
       .sort((a, b) => a.item.localeCompare(b.item));
     res.json(userItems);
   } catch (err) {
@@ -51,6 +49,7 @@ router.post("/batch", requireAuth, requireWriteAccess("stock-movements"), async 
       return {
         id: generateId(),
         client_id: clientId,
+        company_id: req.user!.company_id,
         item: item.item.trim(),
         description: item.description?.trim() || null,
         closing_quantity: item.closing_quantity,

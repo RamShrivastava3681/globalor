@@ -51,6 +51,7 @@ export const TABLES = {
   CHART_OF_ACCOUNTS: `${p()}_chart_of_accounts`,
   JOURNAL_ENTRIES: `${p()}_journal_entries`,
   BALANCE_SHEET_ITEMS: `${p()}_balance_sheet_items`,
+  COMPANIES: `${p()}_companies`,
 } as const;
 
 // ── Generic helpers ──

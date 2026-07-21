@@ -2,13 +2,13 @@ import bcrypt from "bcryptjs";
 import { config } from "./config.js";
 import { putItem, scanTable, TABLES } from "./db/client.js";
 import { generateId, nowISO } from "./utils/helpers.js";
-import type { User, Profile, UserRole, AppRole } from "./types/index.js";
+import type { User, Profile, UserRole, AppRole, Company } from "./types/index.js";
 
 /**
- * Seeds the admin user from ADMIN_EMAIL / ADMIN_PASSWORD env vars on startup.
+ * Seeds the super admin user from ADMIN_EMAIL / ADMIN_PASSWORD env vars on startup.
  * If the vars are set and the user doesn't exist yet, creates the user with
- * factor_admin role. Safe to call on every startup — it's a no-op if the
- * admin already exists.
+ * factor_admin role and a dedicated company. Safe to call on every startup —
+ * it's a no-op if the admin already exists.
  */
 export async function seedAdmin(): Promise<void> {
   const { email, password } = config.admin;
@@ -40,11 +40,31 @@ export async function seedAdmin(): Promise<void> {
     }
 
     const id = generateId();
+    const companyId = generateId();
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
+    const companyName = email.split('@')[0] || "Administrator";
 
-    // Create user
-    const user: User = { id, email, password_hash, created_at: now };
+    // Create super admin's company
+    const company: Company = {
+      id: companyId,
+      name: companyName,
+      email: email,
+      phone: null,
+      address: null,
+      settings: null,
+      created_at: now,
+      updated_at: now,
+    };
+    try {
+      await putItem(TABLES.COMPANIES, company as any);
+    } catch (err: any) {
+      console.error(`   ❌ Failed to create company record: ${err.name === "ResourceNotFoundException" ? "Table not found" : err.message}`);
+      return;
+    }
+
+    // Create user (with company_id)
+    const user: User = { id, email, password_hash, company_id: companyId, created_at: now };
     try {
       await putItem(TABLES.USERS, user as any);
     } catch (err: any) {
@@ -52,10 +72,11 @@ export async function seedAdmin(): Promise<void> {
       return;
     }
 
-    // Create profile
+    // Create profile (with company_id)
     const profile: Profile = {
       id, email,
-      company_name: email.split('@')[0] || "Administrator",
+      company_name: companyName,
+      company_id: companyId,
       contact_name: email.split('@')[0] || "Admin",
       last_seen_at: null,
       created_at: now,
@@ -78,7 +99,7 @@ export async function seedAdmin(): Promise<void> {
       return;
     }
 
-    console.log(`   ✅ Admin user created: ${email}`);
+    console.log(`   ✅ Super admin user created: ${email} (company: ${companyName})`);
   } catch (err) {
     console.error("   ❌ Failed to seed admin user:", err);
   }

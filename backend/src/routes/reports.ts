@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
 import { diffDaysUTC } from "../utils/helpers.js";
 import type {
@@ -53,7 +53,7 @@ function dateRangeFilter(req: AuthRequest) {
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    let invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     if (from || to) {
       invoices = invoices.filter((inv) => isInRange(inv.issue_date));
     }
@@ -61,9 +61,9 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 
     // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
@@ -79,7 +79,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
     }
     const purchaseInvoiceMap = new Map<string, PurchaseInvoice & { vendor?: Vendor }>();
     if (referencedPiIds.size > 0) {
-      const allPis = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+      const allPis = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
       for (const pi of allPis) {
         if (referencedPiIds.has(pi.id)) {
           if (pi.vendor_id) {
@@ -163,7 +163,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES);
+    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     if (from || to) {
       invoices = invoices.filter((pi) => isInRange(pi.issue_date));
     }
@@ -220,15 +220,15 @@ router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Resp
 router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
+    let orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
     if (from || to) {
       orders = orders.filter((po) => isInRange(po.proforma_date ?? po.created_at));
     }
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
+    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -253,13 +253,13 @@ router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) =>
 router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     if (from || to) {
       allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
     }
     const [invoices, allDebtors] = await Promise.all([
       Promise.resolve(allInvoices),
-      scanTable<Debtor>(TABLES.DEBTORS),
+      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
     ]);
 
     const now = new Date();
@@ -333,12 +333,12 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
 router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES);
+    let allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     if (from || to) {
       allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
     }
     const [debtors, invoices] = await Promise.all([
-      scanTable<Debtor>(TABLES.DEBTORS),
+      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
       Promise.resolve(allInvoices),
     ]);
 
@@ -438,7 +438,7 @@ router.get("/suppliers", requireAuth, async (req: AuthRequest, res: Response) =>
     const { from, to, isInRange } = dateRangeFilter(req);
     // NOTE: "Suppliers" on the frontend refers to the vendor list (vendors you buy from).
     // The legacy TABLES.SUPPLIERS contains factor-managed supplier data, not your actual suppliers.
-    let vendors = await scanTable<Vendor>(TABLES.VENDORS);
+    let vendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     if (from || to) {
       vendors = vendors.filter((v) => isInRange(v.created_at));
     }
@@ -453,17 +453,17 @@ router.get("/suppliers", requireAuth, async (req: AuthRequest, res: Response) =>
 router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let advances = await scanTable<Advance>(TABLES.ADVANCES);
+    let advances = await scanTable<Advance>(TABLES.ADVANCES, getCompanyFilter(req.user!));
     if (from || to) {
       advances = advances.filter((a) => isInRange(a.advance_date));
     }
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
-    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS);
-    const allDebtors = await scanTable<any>(TABLES.DEBTORS);
-    const allVendors = await scanTable<any>(TABLES.VENDORS);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
+    const allDebtors = await scanTable<any>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
     const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
@@ -520,14 +520,14 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
 router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let expenses = await scanTable<any>(TABLES.EXPENSES);
+    let expenses = await scanTable<any>(TABLES.EXPENSES, getCompanyFilter(req.user!));
     if (from || to) {
       expenses = expenses.filter((e: any) => isInRange(e.expense_date));
     }
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES);
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES);
+    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
 
@@ -729,7 +729,7 @@ router.get("/portfolio", requireAuth, async (req: AuthRequest, res: Response) =>
       return d >= from && d <= to;
     };
 
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES);
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
 
     // Filter by date range (issue_date)
     const filtered = from !== "1970-01-01" || to !== "2099-12-31"
@@ -819,11 +819,11 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 
     // Blind scan — DynamoDB doesn't support date-range queries natively
     const [invoices, purchaseInvoices, expenses, creditDebitNotes, advances] = await Promise.all([
-      scanTable<Invoice>(TABLES.INVOICES),
-      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES),
-      scanTable<Expense>(TABLES.EXPENSES),
-      scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES),
-      scanTable<Advance>(TABLES.ADVANCES),
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Expense>(TABLES.EXPENSES, getCompanyFilter(req.user!)),
+      scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, getCompanyFilter(req.user!)),
+      scanTable<Advance>(TABLES.ADVANCES, getCompanyFilter(req.user!)),
     ]);
 
     const report = computePnL({ invoices, purchaseInvoices, expenses, creditDebitNotes, advances }, from, to);
@@ -843,8 +843,7 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 router.get("/inventory-tracking", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS);
-    items = items.filter((i) => i.client_id === req.user!.id);
+    let items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS, getCompanyFilter(req.user!));
     if (from || to) {
       items = items.filter((i) => isInRange(i.created_at));
     }

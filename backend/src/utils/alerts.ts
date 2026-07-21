@@ -8,6 +8,7 @@ import type { Alert, AlertType, AlertSeverity } from "../types/index.js";
  */
 export async function createActivityAlert(params: {
   client_id?: string | null;
+  company_id?: string | null;
   debtor_id?: string | null;
   invoice_id?: string | null;
   type: AlertType;
@@ -18,6 +19,7 @@ export async function createActivityAlert(params: {
   const alert: Alert = {
     id: generateId(),
     client_id: params.client_id || null,
+    company_id: params.company_id || null,
     debtor_id: params.debtor_id || null,
     invoice_id: params.invoice_id || null,
     type: params.type as AlertType,

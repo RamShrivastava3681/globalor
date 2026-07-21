@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Vendor } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
@@ -18,7 +18,7 @@ const router = Router();
 // ── GET /api/vendors ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const vendors = await scanTable<Vendor>(TABLES.VENDORS);
+    const vendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     res.json(vendors.sort((a, b) => a.name.localeCompare(b.name)));
   } catch (err) {
     console.error("Get vendors error:", err);
@@ -51,6 +51,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const vendor: Vendor = {
       id,
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       name: parsed.name,
       industry: parsed.industry || null,
       address_line: parsed.address_line || null,
@@ -73,6 +74,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // Create activity alert
     createActivityAlert({
       client_id: req.user!.id,
+      company_id: req.user!.company_id,
       type: "vendor_created",
       severity: "info",
       message: `Supplier "${parsed.name}" added to the vendor list`,

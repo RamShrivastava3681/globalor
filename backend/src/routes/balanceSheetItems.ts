@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, getItem, putItem, updateItem, TABLES } from "../db/client.js";
 import { randomUUID } from "crypto";
 
@@ -67,7 +67,7 @@ function computeAmount(item: BalanceSheetItem): number {
 // List all active manual items, optionally filtered by section
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const allItems = await scanTable<BalanceSheetItem>(TABLES.BALANCE_SHEET_ITEMS);
+    const allItems = await scanTable<BalanceSheetItem>(TABLES.BALANCE_SHEET_ITEMS, getCompanyFilter(req.user!));
 
     const sectionFilter = req.query.section as string | undefined;
     const showInactive = req.query.showInactive === "true";
@@ -100,6 +100,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
 // ── GET /api/balance-sheet-items/:id ──
 router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
+  // Single-item access is by ID — company filter not applied
   try {
     const item = await getItem(TABLES.BALANCE_SHEET_ITEMS, { id: req.params.id });
     if (!item) {
@@ -114,6 +115,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 
 // ── POST /api/balance-sheet-items ──
 router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
+  // Note: company_id is not stored on balance sheet items (table has no client_id field)
   try {
     const { section, description, amount, date, account_id, notes, is_opening_balance, sub_fields } = req.body;
 
