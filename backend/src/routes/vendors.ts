@@ -19,7 +19,7 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const vendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    res.json(vendors.sort((a, b) => a.name.localeCompare(b.name)));
+    res.json(vendors.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
   } catch (err) {
     console.error("Get vendors error:", err);
     res.status(500).json({ error: "Internal server error" });

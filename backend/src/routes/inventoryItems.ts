@@ -17,9 +17,10 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const items = await scanTable<InventoryItem>(TABLES.INVENTORY_ITEMS, getCompanyFilter(req.user!));
-    const userItems = items
-      .sort((a, b) => a.item.localeCompare(b.item));
-    res.json(userItems);
+    res.json(
+      items
+        .sort((a, b) => (a.item || "").localeCompare(b.item || ""))
+    );
   } catch (err) {
     console.error("Get inventory items error:", err);
     res.status(500).json({ error: "Internal server error" });

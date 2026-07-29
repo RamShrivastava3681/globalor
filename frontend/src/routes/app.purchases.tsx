@@ -5,7 +5,7 @@ import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 import { AnimatedMoney } from "@/components/animated-number";
-import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Save, Eye, FileText, Building2, Package, Download, User, ArrowUpDown, Upload, DollarSign, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -1757,10 +1757,16 @@ interface ImportRow {
   issue_date: string;
 }
 
+interface ImportRow {
+  supplier_name: string;
+  invoice_number: string;
+  amount: number;
+  issue_date: string;
+}
+
 function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: any[] }) {
   const qc = useQueryClient();
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
-  const [vendorId, setVendorId] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("30");
   const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
   const [blDate, setBlDate] = useState("");
@@ -1768,17 +1774,43 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   const [poDate, setPoDate] = useState("");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState("");
-  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{
+    created: number;
+    errors: string[];
+    suppliers_matched: Array<{ supplier_name: string; vendor_id: string }>;
+    suppliers_created: Array<{ supplier_name: string; vendor_id: string }>;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadTemplate = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const headers = ["Supplier Name", "Invoice Number", "Amount", "Issue Date"];
+      const sampleData = [
+        ["Acme Corp", "INV-2026-001", 12500.00, "2026-07-15"],
+        ["Acme Corp", "INV-2026-002", 8900.50, "2026-07-20"],
+        ["Beta Industries", "INV-2026-101", 34000.00, "2026-07-18"],
+        ["Gamma Supply Co", "PO-2026-050", 5675.25, "2026-07-22"],
+        ["Delta Materials", "INV-2026-200", 22000.00, "2026-07-25"],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleData]);
+      ws["!cols"] = [
+        { wch: 20 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 14 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, "Purchase Invoices");
+      XLSX.writeFile(wb, "purchase-invoice-import-template.xlsx");
+      toast.success("Template downloaded");
+    } catch (err) {
+      toast.error("Failed to download template");
+    }
+  };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!vendorId) {
-      toast.error("Please select a supplier first");
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
     setFileName(file.name);
 
     const reader = new FileReader();
@@ -1789,8 +1821,9 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
 
-        const parsed: ImportRow[] = json.map((row: any, idx: number) => {
+        const parsed: ImportRow[] = json.map((row: any) => {
           // Try common column name variations
+          const supName = row.supplier_name ?? row["Supplier Name"] ?? row["Supplier"] ?? row.supplier ?? row.Vendor ?? row.vendor ?? row["Vendor Name"] ?? "";
           const invNum = row.invoice_number ?? row["Invoice Number"] ?? row.invoiceNum ?? row.Invoice ?? row["Invoice#"] ?? "";
           const amt = Number(row.amount ?? row["Amount"] ?? row.Amount ?? 0);
           const issDate = row.issue_date ?? row["Issue Date"] ?? row.issueDate ?? row.Date ?? row.date ?? "";
@@ -1798,37 +1831,27 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
           // Normalize date if it's a serial number (Excel date)
           let dateStr = "";
           if (typeof issDate === "number" && !isNaN(issDate)) {
-            // Excel serial date
             const d = new Date((issDate - 25569) * 86400 * 1000);
-            if (!isNaN(d.getTime())) {
-              dateStr = d.toISOString().slice(0, 10);
-            }
+            if (!isNaN(d.getTime())) dateStr = d.toISOString().slice(0, 10);
           } else if (typeof issDate === "string") {
-            // For string dates, just take the first 10 characters (YYYY-MM-DD)
             const cleaned = issDate.trim();
             if (cleaned) {
-              // Try parsing directly
               const d = new Date(cleaned);
-              if (!isNaN(d.getTime())) {
-                dateStr = d.toISOString().slice(0, 10);
-              } else {
-                // If it already looks like YYYY-MM-DD, use it directly
-                if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
-                  dateStr = cleaned;
-                }
-              }
+              if (!isNaN(d.getTime())) dateStr = d.toISOString().slice(0, 10);
+              else if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) dateStr = cleaned;
             }
           }
 
           return {
+            supplier_name: String(supName).trim(),
             invoice_number: String(invNum).trim(),
             amount: isNaN(amt) ? 0 : amt,
             issue_date: dateStr,
           };
-        }).filter((r) => r.invoice_number && r.amount !== 0 && r.issue_date);
+        }).filter((r) => r.supplier_name && r.invoice_number && r.amount > 0 && r.issue_date);
 
         if (parsed.length === 0) {
-          toast.error("No valid rows found. Expected columns: invoice_number, amount, issue_date");
+          toast.error("No valid rows found. Expected columns: supplier_name, invoice_number, amount, issue_date");
           return;
         }
 
@@ -1845,53 +1868,86 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        vendor_id: vendorId,
         payment_terms_days: Number(paymentTermsDays) || 30,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
         po_number: poNumber.trim() || null,
         po_date: poDate || null,
         invoices: rows.map((r) => ({
+          supplier_name: r.supplier_name,
           invoice_number: r.invoice_number,
           amount: r.amount,
           issue_date: r.issue_date,
         })),
       };
-      return await api.post<{ created: any[]; errors: Array<{ invoice_number: string; error: string }> }>("/purchase-invoices/batch", payload);
+      return await api.post<{
+        created: number;
+        errors: Array<{ invoice_number: string; error: string }>;
+        suppliers_matched: Array<{ supplier_name: string; vendor_id: string }>;
+        suppliers_created: Array<{ supplier_name: string; vendor_id: string }>;
+      }>("/purchase-invoices/batch-with-suppliers", payload);
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
       const errList = (data.errors ?? []).map((e) => `${e.invoice_number}: ${e.error}`);
-      setResult({ created: data.created.length, errors: errList });
+      setResult({
+        created: data.created,
+        errors: errList,
+        suppliers_matched: data.suppliers_matched ?? [],
+        suppliers_created: data.suppliers_created ?? [],
+      });
       setStep("done");
+      const totalSuppliersCreated = (data.suppliers_created ?? []).length;
+      const totalSuppliersMatched = (data.suppliers_matched ?? []).length;
       if (errList.length === 0) {
-        toast.success(`${data.created.length} purchase invoices created successfully`);
+        toast.success(`${data.created} purchase invoices created (${totalSuppliersMatched} suppliers matched, ${totalSuppliersCreated} created)`);
       } else {
-        toast.success(`${data.created.length} created, ${errList.length} failed`);
+        toast.success(`${data.created} created, ${errList.length} failed`);
       }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const computedDue = useMemo(() => {
-    if (!rows.length) return "";
-    const base = dueDateSource === "bl" && blDate ? blDate : rows[0].issue_date;
-    if (!base) return "";
-    try {
-      const d = new Date(base);
-      if (isNaN(d.getTime())) return "";
-      d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
-      return d.toISOString().slice(0, 10);
-    } catch {
-      return "";
+  // Group rows by supplier_name for the preview
+  const supplierGroups = useMemo(() => {
+    const groups = new Map<string, { invoices: typeof rows; totalAmount: number }>();
+    for (const r of rows) {
+      const key = r.supplier_name.toLowerCase().trim();
+      const existing = groups.get(key) || { invoices: [], totalAmount: 0 };
+      existing.invoices.push(r);
+      existing.totalAmount += r.amount;
+      groups.set(key, existing);
     }
-  }, [rows, dueDateSource, blDate, paymentTermsDays]);
+    return groups;
+  }, [rows]);
+
+  // Check which suppliers already exist in the vendor list
+  const supplierStatus = useMemo(() => {
+    const vendorNameSet = new Set(vendors.map((v: any) => v.name.toLowerCase().trim()));
+    const result: Array<{
+      displayName: string;
+      count: number;
+      amount: number;
+      exists: boolean;
+    }> = [];
+    for (const [key, group] of supplierGroups) {
+      result.push({
+        displayName: group.invoices[0].supplier_name,
+        count: group.invoices.length,
+        amount: group.totalAmount,
+        exists: vendorNameSet.has(key),
+      });
+    }
+    return result;
+  }, [supplierGroups, vendors]);
 
   const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
+  const matchedCount = useMemo(() => supplierStatus.filter((s) => s.exists).length, [supplierStatus]);
+  const newCount = useMemo(() => supplierStatus.filter((s) => !s.exists).length, [supplierStatus]);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
             {step === "form" ? "Mass import purchase invoices" : step === "preview" ? "Preview imported invoices" : "Import complete"}
@@ -1903,18 +1959,12 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
           <div className="space-y-4 p-5">
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
               <strong className="text-primary">Excel format:</strong> Upload a spreadsheet (.xlsx, .xls, .xlsb, .xlsm), CSV, TSV, or ODS file with columns:{' '}
+              <code className="font-mono text-primary">supplier_name</code>,{' '}
               <code className="font-mono text-primary">invoice_number</code>,{' '}
               <code className="font-mono text-primary">amount</code>,{' '}
               <code className="font-mono text-primary">issue_date</code>.
-              Each row becomes a separate purchase invoice. Due dates are auto-calculated from payment terms.
+              Each row becomes a separate purchase invoice. Suppliers are auto-matched by name; new suppliers are created automatically.
             </div>
-
-            <L label="Supplier *">
-              <select required value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="inp">
-                <option value="">Select supplier</option>
-                {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </L>
 
             <div className="grid grid-cols-2 gap-3">
               <L label="Payment terms (days) *">
@@ -1944,15 +1994,27 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
             </div>
 
             <div className="border-t border-border pt-4">
-              <L label="Upload Excel / CSV file *">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
-                  onChange={handleFile}
-                  className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
-                />
-              </L>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <L label="Upload Excel / CSV file *">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept=".xlsx,.xls,.xlsb,.xlsm,.csv,.tsv,.ods"
+                    onChange={handleFile}
+                    className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                  />
+                </L>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={downloadTemplate}
+                    className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
+                  >
+                    <FileDown className="h-4 w-4" />
+                    Download template
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -1966,55 +2028,52 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
             <div className="flex items-center justify-between">
               <div className="text-xs text-muted-foreground">
                 File: <span className="font-mono text-foreground">{fileName}</span> ·
-                Found <strong className="text-foreground">{rows.length}</strong> invoices
+                Found <strong className="text-foreground">{rows.length}</strong> purchase invoices
                 · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
               </div>
               <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
             </div>
 
+            {/* Supplier summary cards */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-success/30 bg-success/5 p-3">
+                <div className="text-xs uppercase tracking-widest text-success mb-1">Suppliers matched</div>
+                <div className="text-lg font-display text-success">{matchedCount}</div>
+                <div className="text-[10px] text-muted-foreground">Already exist in system</div>
+              </div>
+              <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+                <div className="text-xs uppercase tracking-widest text-primary mb-1">Suppliers to create</div>
+                <div className="text-lg font-display text-primary">{newCount}</div>
+                <div className="text-[10px] text-muted-foreground">Will be auto-created</div>
+              </div>
+            </div>
+
+            {/* Supplier group breakdown */}
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Supplier</span><span>{vendors.find((v: any) => v.id === vendorId)?.name ?? "—"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
               {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
             </div>
 
-            <div className="-mx-5 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">#</th>
-                    <th className="px-5 py-2 text-left font-normal">Invoice number</th>
-                    <th className="px-5 py-2 text-left font-normal">Issue date</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Due date (computed)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, idx) => {
-                    let dueStr = "—";
-                    try {
-                      const base = dueDateSource === "bl" && blDate ? blDate : r.issue_date;
-                      if (base) {
-                        const d = new Date(base);
-                        if (!isNaN(d.getTime())) {
-                          d.setDate(d.getDate() + (Number(paymentTermsDays) || 30));
-                          dueStr = d.toISOString().slice(0, 10);
-                        }
-                      }
-                    } catch {}
-                    return (
-                      <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
-                        <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
-                        <td className="px-5 py-3 text-sm">{r.issue_date ? fmtDate(r.issue_date) : <span className="text-muted-foreground">—</span>}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
-                        <td className="px-5 py-3 text-sm font-mono">{dueStr}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              {supplierStatus.map((s) => (
+                <div key={s.displayName} className="rounded-lg border border-border/60 overflow-hidden">
+                  <div className={`flex items-center justify-between px-4 py-2.5 border-b border-border/40 ${s.exists ? "bg-muted/20" : "bg-primary/5"}`}>
+                    <div className="flex items-center gap-2">
+                      <Building2 className={`h-4 w-4 ${s.exists ? "text-success" : "text-primary"}`} />
+                      <span className="text-sm font-medium">{s.displayName}</span>
+                      {s.exists ? (
+                        <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Matched</span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">New</span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-medium num">{fmtMoney(s.amount)}</div>
+                      <div className="text-[10px] text-muted-foreground">{s.count} invoice{s.count !== 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -2025,7 +2084,7 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
               >
                 {batchImport.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Import {rows.length} invoice{rows.length !== 1 ? "s" : ""}
+                Import {rows.length} invoice{rows.length !== 1 ? "s" : ""} ({newCount > 0 ? `${newCount} supplier${newCount !== 1 ? "s" : ""} will be created` : `${matchedCount} supplier${matchedCount !== 1 ? "s" : ""} matched`})
               </button>
             </div>
           </div>
@@ -2033,10 +2092,46 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
 
         {step === "done" && result && (
           <div className="space-y-4 p-5">
+            {/* Invoices created */}
             <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
               <div className="text-2xl font-display text-success">{result.created}</div>
-              <div className="text-xs text-muted-foreground mt-1">Purchase invoices created successfully</div>
+              <div className="text-xs text-muted-foreground mt-1">purchase invoices created</div>
             </div>
+
+            {/* Suppliers matched summary */}
+            {result.suppliers_matched.length > 0 && (
+              <div className="rounded-lg border border-success/20 bg-success/5 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="h-3.5 w-3.5 text-success" />
+                  <span className="text-xs font-medium text-success">Suppliers matched ({result.suppliers_matched.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.suppliers_matched.map((s, i) => (
+                    <span key={i} className="inline-flex items-center rounded-md border border-success/20 bg-success/5 px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {s.supplier_name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Suppliers created summary */}
+            {result.suppliers_created.length > 0 && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Building2 className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary">Suppliers created ({result.suppliers_created.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.suppliers_created.map((s, i) => (
+                    <span key={i} className="inline-flex items-center rounded-md border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {s.supplier_name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {result.errors.length > 0 && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
                 <div className="text-xs uppercase tracking-widest text-destructive mb-2">Failed ({result.errors.length})</div>

@@ -19,7 +19,7 @@ const router = Router();
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    res.json(debtors.sort((a, b) => a.name.localeCompare(b.name)));
+    res.json(debtors.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
   } catch (err) {
     console.error("Get debtors error:", err);
     res.status(500).json({ error: "Internal server error" });

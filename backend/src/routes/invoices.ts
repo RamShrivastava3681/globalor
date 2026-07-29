@@ -143,22 +143,9 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
             ...e,
             client: profileMap.get(e.client_id)
               ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name ?? undefined }
-              : undefined,
-            debtor: e.debtor_id && debtorMap.get(e.debtor_id)
-              ? { name: debtorMap.get(e.debtor_id)?.name }
-              : undefined,
-            vendor: e.vendor_id && vendorMap.get(e.vendor_id)
-              ? { name: vendorMap.get(e.vendor_id)?.name }
-              : undefined,
-          })),
-        });
-      }
-    }
-
-    // Sort by invoice_number alphabetically
-    duplicates.sort((a, b) => a.invoice_number.localeCompare(b.invoice_number));
-
-    res.json({ duplicates, totalDuplicates: duplicates.length });
+    const duplicates = await queryByIndex<any>(TABLES.INVOICES, "company_id-status-index", "company_id = :cid AND #st = :status", { ":cid": req.user!.company_id, ":status": "draft" });
+    duplicates.sort((a, b) => (a.invoice_number || "").localeCompare(b.invoice_number || ""));
+    res.json(duplicates);
   } catch (err) {
     console.error("Check duplicate invoices error:", err);
     res.status(500).json({ error: "Internal server error" });

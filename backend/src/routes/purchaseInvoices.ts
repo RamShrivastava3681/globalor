@@ -442,6 +442,208 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
   }
 });
 
+// ── POST /api/purchase-invoices/batch-with-suppliers ── (mass import with supplier auto-creation/matching)
+const batchWithSuppliersSchema = z.object({
+  payment_terms_days: z.number().min(0).optional().default(30),
+  due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
+  has_contractual_due_date: z.boolean().optional().default(false),
+  bl_date: z.string().nullable().optional(),
+  po_number: z.string().max(80).nullable().optional().default(null),
+  po_date: z.string().nullable().optional().default(null),
+  invoices: z.array(z.object({
+    supplier_name: z.string().transform(s => s.trim()).pipe(z.string().min(1).max(200)),
+    invoice_number: z.string().min(1).max(80),
+    amount: z.number(),
+    issue_date: z.string().min(1),
+  })).min(1),
+});
+
+router.post("/batch-with-suppliers", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = batchWithSuppliersSchema.parse(req.body);
+    const now = nowISO();
+
+    // Scan existing vendors for this company to build a lookup by name
+    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
+
+    // Build case-insensitive vendor name lookup (store all variants)
+    const vendorByName = new Map<string, Vendor>();
+    for (const v of allVendors) {
+      const key = v.name.toLowerCase().trim();
+      vendorByName.set(key, v);
+    }
+
+    // Track original supplier name casing and group invoices by normalized name
+    const grouped = new Map<string, Array<{ invoice_number: string; amount: number; issue_date: string }>>();
+    const originalNameByKey = new Map<string, string>();
+    for (const inv of parsed.invoices) {
+      const key = inv.supplier_name.toLowerCase().trim();
+      if (!grouped.has(key)) {
+        grouped.set(key, []);
+        originalNameByKey.set(key, inv.supplier_name);
+      }
+      grouped.get(key)!.push({
+        invoice_number: inv.invoice_number,
+        amount: inv.amount,
+        issue_date: inv.issue_date,
+      });
+    }
+
+    // Resolve vendor_id for each supplier_name: match existing or create new
+    const supplierToVendorId = new Map<string, string>();
+    const suppliersCreated: Array<{ supplier_name: string; vendor_id: string }> = [];
+    const suppliersMatched: Array<{ supplier_name: string; vendor_id: string }> = [];
+
+    for (const [normalizedName] of grouped) {
+      const originalSupplierName = originalNameByKey.get(normalizedName)!;
+
+      const existing = vendorByName.get(normalizedName);
+      if (existing) {
+        supplierToVendorId.set(normalizedName, existing.id);
+        suppliersMatched.push({ supplier_name: existing.name, vendor_id: existing.id });
+      } else {
+        // Create a new vendor record
+        const vendorId = generateId();
+        const vendor: Vendor = {
+          id: vendorId,
+          client_id: req.user!.id,
+          company_id: req.user!.company_id,
+          name: originalSupplierName,
+          address_line: null,
+          city: null,
+          country: null,
+          postal_code: null,
+          phone: null,
+          website: null,
+          contact_name: null,
+          contact_email: null,
+          contact_designation: null,
+          contact_phone: null,
+          industry: null,
+          notes: null,
+          created_at: now,
+          updated_at: now,
+        };
+        await putItem(TABLES.VENDORS, vendor as any);
+
+        supplierToVendorId.set(normalizedName, vendorId);
+        suppliersCreated.push({ supplier_name: originalSupplierName, vendor_id: vendorId });
+
+        // Alert for new vendor creation
+        createActivityAlert({
+          client_id: req.user!.id,
+          company_id: req.user!.company_id,
+          type: "vendor_created",
+          severity: "info",
+          message: `Vendor "${originalSupplierName}" auto-created during purchase invoice batch import`,
+          created_by: req.user!.id,
+        });
+      }
+    }
+
+    // Build all invoice objects
+    const invoicesToCreate: PurchaseInvoice[] = [];
+    const errors: Array<{ invoice_number: string; error: string }> = [];
+
+    for (const inv of parsed.invoices) {
+      try {
+        const id = generateId();
+        const vendorId = supplierToVendorId.get(inv.supplier_name.toLowerCase().trim());
+        if (!vendorId) {
+          errors.push({ invoice_number: inv.invoice_number, error: `Could not resolve supplier "${inv.supplier_name}"` });
+          continue;
+        }
+
+        const termsDays = parsed.payment_terms_days;
+        const baseDate = parsed.due_date_source === "bl" && parsed.bl_date
+          ? new Date(parsed.bl_date)
+          : new Date(inv.issue_date);
+        const dueDate = new Date(baseDate);
+        dueDate.setDate(dueDate.getDate() + termsDays);
+
+        const invoice: PurchaseInvoice = {
+          id,
+          client_id: req.user!.id,
+          company_id: req.user!.company_id,
+          vendor_id: vendorId,
+          invoice_number: inv.invoice_number,
+          amount: inv.amount,
+          amount_paid: null,
+          advance_rate: 0,
+          po_number: parsed.po_number || null,
+          po_date: parsed.po_date || null,
+          issue_date: inv.issue_date,
+          due_date: dueDate.toISOString().slice(0, 10),
+          paid_date: null,
+          funded_date: null,
+          advance_paid_date: null,
+          paid_note: null,
+          payment_terms_days: parsed.payment_terms_days,
+          bl_date: parsed.bl_date || null,
+          due_date_source: parsed.due_date_source,
+          has_contractual_due_date: parsed.has_contractual_due_date || false,
+          notes: null,
+          status: "draft",
+          documents: [],
+          purchase_order_id: null,
+          linked_sales_invoice_ids: [],
+          created_at: now,
+          updated_at: now,
+        };
+
+        invoicesToCreate.push(invoice);
+      } catch (err) {
+        errors.push({ invoice_number: inv.invoice_number, error: "Invalid invoice data" });
+        console.error(`Batch-with-suppliers build error for invoice ${inv.invoice_number}:`, err);
+      }
+    }
+
+    // Write all invoices in batches
+    const created: PurchaseInvoice[] = [];
+    if (invoicesToCreate.length > 0) {
+      const dbItems = invoicesToCreate.map((inv) => inv as unknown as Record<string, unknown>);
+      try {
+        await batchPutItems(TABLES.PURCHASE_INVOICES, dbItems);
+        created.push(...invoicesToCreate);
+      } catch (err) {
+        console.error("Batch write failed, falling back to individual writes:", err);
+        for (const inv of invoicesToCreate) {
+          try {
+            await putItem(TABLES.PURCHASE_INVOICES, inv as any);
+            created.push(inv);
+          } catch (innerErr) {
+            errors.push({ invoice_number: inv.invoice_number, error: "Failed to create" });
+            console.error(`Fallback error for invoice ${inv.invoice_number}:`, innerErr);
+          }
+        }
+      }
+    }
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      type: "purchase_invoice_created",
+      severity: "info",
+      message: `Batch imported ${created.length} purchase invoice${created.length !== 1 ? "s" : ""} (${suppliersMatched.length} suppliers matched, ${suppliersCreated.length} created)${errors.length > 0 ? `, ${errors.length} failed` : ""}`,
+      created_by: req.user!.id,
+    });
+
+    res.status(201).json({
+      created: created.length,
+      errors,
+      suppliers_matched: suppliersMatched,
+      suppliers_created: suppliersCreated,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Batch create with suppliers error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/purchase-invoices/batch-close ── (mass close payments from import)
 const batchCloseSchema = z.object({
   items: z.array(z.object({
