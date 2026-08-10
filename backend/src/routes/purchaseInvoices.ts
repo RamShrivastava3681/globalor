@@ -828,4 +828,36 @@ router.delete("/:id", requireAuth, requireWriteAccess("purchase-invoices"), asyn
   }
 });
 
+// ── POST /api/purchase-invoices/bulk-delete ──
+const bulkDeleteSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(500),
+});
+
+router.post("/bulk-delete", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = bulkDeleteSchema.parse(req.body);
+    const deleted: string[] = [];
+    const errors: Array<{ id: string; error: string }> = [];
+
+    for (const id of parsed.ids) {
+      try {
+        await deleteItem(TABLES.PURCHASE_INVOICES, { id });
+        deleted.push(id);
+      } catch (err) {
+        errors.push({ id, error: "Failed to delete" });
+        console.error(`Bulk delete error for purchase invoice ${id}:`, err);
+      }
+    }
+
+    res.json({ deleted, errors });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Bulk delete purchase invoices error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

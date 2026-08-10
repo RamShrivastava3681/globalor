@@ -46,7 +46,9 @@ function PurchasesPage() {
   const [sortField, setSortField] = useState<"created" | "issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
-  const limit = 50;
+  const [limit, setLimit] = useState(50);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[]; label: string } | null>(null);
 
   const [duplicateCheckOpen, setDuplicateCheckOpen] = useState(false);
   const [bulkSearchOpen, setBulkSearchOpen] = useState(false);
@@ -147,10 +149,11 @@ function PurchasesPage() {
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
 
-  // Reset to page 1 when filters or sort change
+  // Reset to page 1 and drop the selection when filters, sort, or page size change
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filter, issueDateFrom, issueDateTo, createdFrom, createdTo, sortField, sortOrder]);
+    setSelectedIds(new Set());
+  }, [searchQuery, filter, issueDateFrom, issueDateTo, createdFrom, createdTo, sortField, sortOrder, limit]);
 
   // Auto-open detail modal when navigating from a linked invoice
   useEffect(() => {
@@ -170,6 +173,26 @@ function PurchasesPage() {
     },
     onSuccess: () => {
       toast.success("Purchase invoice removed");
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await api.post<{ deleted: string[]; errors: Array<{ id: string; error: string }> }>("/purchase-invoices/bulk-delete", { ids });
+      return res;
+    },
+    onSuccess: (res, ids) => {
+      const count = res?.deleted?.length ?? ids.length;
+      const failed = res?.errors?.length ?? 0;
+      if (failed > 0) {
+        toast.warning(`${count} purchase invoice${count !== 1 ? "s" : ""} removed · ${failed} failed`);
+      } else {
+        toast.success(`${count} purchase invoice${count !== 1 ? "s" : ""} removed`);
+      }
+      setSelectedIds(new Set());
+      setDeleteConfirm(null);
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -209,6 +232,26 @@ function PurchasesPage() {
     },
     { all: 0, open: 0 },
   );
+
+  // Selection helpers — operate on the rows currently visible on this page
+  const allSelected = filtered.length > 0 && filtered.every((p: any) => selectedIds.has(p.id));
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map((p: any) => p.id)));
+  };
+
+  // After a bulk delete, step back if we end up past the last page
+  useEffect(() => {
+    if (page > 1 && totalPages > 0 && page > totalPages) setPage(Math.max(1, totalPages));
+  }, [totalPages, page]);
 
   return (
     <div>
@@ -389,10 +432,57 @@ function PurchasesPage() {
           ) : filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No purchase invoices.</div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <>
+              {canEdit && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-2.5">
+                  <div className="flex items-center gap-2">
+                    {selectedIds.size > 0 && (
+                      <>
+                        <span className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{selectedIds.size}</span> selected
+                        </span>
+                        <button
+                          onClick={() => setSelectedIds(new Set())}
+                          className="rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Clear selection
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm({ ids: [...selectedIds], label: `${selectedIds.size} selected purchase invoice${selectedIds.size !== 1 ? "s" : ""}` })}
+                          disabled={bulkRemove.isPending}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-2.5 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                        >
+                          {bulkRemove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                          Delete selected
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setDeleteConfirm({ ids: filtered.map((p: any) => p.id), label: `${filtered.length} purchase invoice${filtered.length !== 1 ? "s" : ""} on this page` })}
+                    disabled={bulkRemove.isPending}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                  >
+                    {bulkRemove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                    Delete page ({filtered.length})
+                  </button>
+                </div>
+              )}
+              <div className="-mx-5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    {canEdit && (
+                      <th className="px-3 py-2 text-left">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 rounded border-border accent-primary"
+                          aria-label="Select all on page"
+                        />
+                      </th>
+                    )}
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
                     <th className="px-5 py-2 text-left font-normal">Client</th>
@@ -419,7 +509,18 @@ function PurchasesPage() {
                     }
                     const links = linkedSales(p.id);
                     return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <tr key={p.id} className={`border-b border-border/60 hover:bg-muted/30 ${selectedIds.has(p.id) ? "bg-primary/5" : ""}`}>
+                        {canEdit && (
+                          <td className="px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(p.id)}
+                              onChange={() => toggleSelect(p.id)}
+                              className="h-4 w-4 rounded border-border accent-primary"
+                              aria-label={`Select ${p.invoice_number}`}
+                            />
+                          </td>
+                        )}
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
                         <td className="px-5 py-3 text-muted-foreground">{p.client?.company_name || p.client?.contact_name || "—"}</td>
@@ -517,14 +618,30 @@ function PurchasesPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Card>
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between pt-4">
+        <div className="flex items-center justify-between pt-4">
+          <div className="flex items-center gap-3">
             <div className="text-xs text-muted-foreground">
-              {totalItems.toLocaleString()} total purchase invoices · Page {page} of {totalPages}
+              {totalItems.toLocaleString()} total purchase invoices{totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
             </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground">Show</label>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                {[10, 20, 50, 100, 200, 500].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-muted-foreground">per page</span>
+            </div>
+          </div>
+          {totalPages > 1 && (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -568,8 +685,8 @@ function PurchasesPage() {
                 Next →
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
       )}
 
@@ -637,6 +754,21 @@ function PurchasesPage() {
             .finally(() => setBulkConfirmOpen(false));
         }}
         icon={<CheckCircle className="h-5 w-5 text-primary" />}
+      />
+
+      {/* Confirm bulk delete (selected invoices or entire page) */}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        onOpenChange={(o) => { if (!o) setDeleteConfirm(null); }}
+        title="Delete purchase invoices?"
+        description={`Permanently delete ${deleteConfirm?.label ?? ""}? This cannot be undone.`}
+        confirmLabel={`Delete ${deleteConfirm?.ids.length ?? 0}`}
+        onConfirm={() => {
+          if (deleteConfirm) bulkRemove.mutate(deleteConfirm.ids);
+        }}
+        loading={bulkRemove.isPending}
+        variant="destructive"
+        icon={<Trash2 className="h-5 w-5 text-destructive" />}
       />
 
       {bulkSearchOpen && (
