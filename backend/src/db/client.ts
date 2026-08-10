@@ -52,12 +52,26 @@ export const TABLES = {
   JOURNAL_ENTRIES: `${p()}_journal_entries`,
   BALANCE_SHEET_ITEMS: `${p()}_balance_sheet_items`,
   COMPANIES: `${p()}_companies`,
+  /**
+   * email → user_id registry. Used to look up users by email without a full
+   * table scan, and as an atomic uniqueness constraint on signup (conditional
+   * write) so two concurrent signups with the same email can't both succeed.
+   */
+  EMAIL_REGISTRY: `${p()}_email_registry`,
 } as const;
 
 // ── Generic helpers ──
 
-export async function putItem(tableName: string, item: Record<string, unknown>) {
-  const params: PutCommandInput = { TableName: tableName, Item: item };
+export async function putItem(
+  tableName: string,
+  item: Record<string, unknown>,
+  conditionExpression?: string,
+) {
+  const params: PutCommandInput = {
+    TableName: tableName,
+    Item: item,
+    ...(conditionExpression ? { ConditionExpression: conditionExpression } : {}),
+  };
   await docClient.send(new PutCommand(params));
   return item;
 }

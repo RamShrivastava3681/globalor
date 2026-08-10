@@ -5,7 +5,7 @@ import { config } from "./config.js";
 import { requireAuth } from "./middleware/auth.js";
 
 // Rate limiters
-import { apiLimiter, authLimiter, uploadLimiter, publicLimiter } from "./middleware/rateLimiter.js";
+import { apiLimiter, uploadLimiter, publicLimiter } from "./middleware/rateLimiter.js";
 
 // Admin seed
 import { seedAdmin } from "./seed.js";
@@ -52,8 +52,11 @@ app.use((req, _res, next) => {
 // ── Routes ──
 // All routes mounted under /api to match frontend API_BASE
 
-// Auth endpoints get a stricter rate limiter
-app.use("/api/auth", authLimiter, authRoutes);
+// Auth endpoints — the strict limiter is applied per-route inside auth.ts
+// (only to /signin and /signup). Authenticated endpoints like /me, /ping and
+// /refresh-token fall under the general apiLimiter so the heartbeat never
+// exhausts the brute-force budget for everyone on the same IP.
+app.use("/api/auth", authRoutes);
 
 // Standard API routes
 app.use("/api/profiles", profileRoutes);

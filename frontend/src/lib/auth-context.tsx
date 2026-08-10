@@ -1,7 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { api, getToken, setToken, clearToken, setCompanyOverride } from "./api-client";
+import {
+  api,
+  getToken,
+  setToken,
+  clearToken,
+  setCompanyOverride,
+  broadcastSignOut,
+  SIGNOUT_MARKER_KEY,
+} from "./api-client";
 
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 
@@ -75,11 +83,22 @@ type MeResponse = {
   is_super_admin?: boolean;
 };
 
-async function fetchMe(): Promise<MeResponse | null> {
+type MeResult =
+  | { status: "ok"; me: MeResponse }
+  | { status: "logged_out" } // 401/403 — token invalid or expired
+  | { status: "transient" }; // 429/5xx/network — keep the current session
+
+async function fetchMe(): Promise<MeResult> {
   try {
-    return await api.get<MeResponse>("/auth/me");
-  } catch {
-    return null;
+    const me = await api.get<MeResponse>("/auth/me");
+    return { status: "ok", me };
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status === 401 || status === 403) return { status: "logged_out" };
+    // A rate-limit or server error must NOT log the user out — clearing a
+    // still-valid token here is what made simultaneous logins look like a
+    // race condition (login succeeds, then the user is silently kicked out).
+    return { status: "transient" };
   }
 }
 
@@ -94,6 +113,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const router = useRouter();
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Always-current user identity, so the cross-tab sign-out listener can
+  // compare against the latest session without re-subscribing.
+  const userRef = useRef<{ id: string; email: string } | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // ── Heartbeat ping ──
   // Send a periodic ping to update the user's last_seen_at timestamp
@@ -126,20 +152,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setRoles([]);
       setIsSuperAdmin(false);
-      setLoading(false);
+      setCompanyId(null);
+      setCompanyName("");
+      setImpersonatedCompany(null);
       stopPing();
+      setLoading(false);
       return;
     }
 
-    const me = await fetchMe();
-    if (me) {
+    let result = await fetchMe();
+    if (result.status === "transient") {
+      // Retry once — transient failures (rate limit / server hiccup) usually
+      // clear immediately, and a valid session shouldn't bounce to the login
+      // page because of one blip.
+      await new Promise((r) => setTimeout(r, 1000));
+      result = await fetchMe();
+    }
+    if (result.status === "ok") {
+      const me = result.me;
       setUser({ id: me.id, email: me.email });
       setRoles(me.roles);
       setCompanyId(me.company_id ?? null);
       setCompanyName(me.company_name ?? "");
       setIsSuperAdmin(!!me.is_super_admin);
       startPing();
-    } else {
+    } else if (result.status === "logged_out") {
+      // Token is genuinely invalid/expired — end the session
       clearToken();
       setUser(null);
       setRoles([]);
@@ -149,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setImpersonatedCompany(null);
       stopPing();
     }
+    // transient → keep whatever session state we have; never clear a valid token
     setLoading(false);
   };
 
@@ -158,9 +197,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshRoles = async () => {
-    const me = await fetchMe();
-    if (me) {
-      setRoles(me.roles);
+    const result = await fetchMe();
+    if (result.status === "ok") {
+      setRoles(result.me.roles);
     }
   };
 
@@ -173,6 +212,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     stopPing();
     qc.clear();
+    // Broadcast so other tabs logged in as the SAME user sign out too
+    broadcastSignOut({ email: userRef.current?.email ?? null });
     clearToken();
     setUser(null);
     setRoles([]);
@@ -181,6 +222,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setImpersonatedCompany(null);
     router.navigate({ to: "/auth", replace: true });
   };
+
+  // Cross-tab sign-out: if another tab broadcasts a sign-out for the user
+  // this tab is logged in as, clear this tab's session as well.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== SIGNOUT_MARKER_KEY || !e.newValue) return;
+      try {
+        const marker = JSON.parse(e.newValue) as {
+          email?: string | null;
+          at?: number;
+        };
+        if (
+          marker.email &&
+          userRef.current?.email &&
+          userRef.current.email === marker.email
+        ) {
+          stopPing();
+          qc.clear();
+          clearToken();
+          setUser(null);
+          setRoles([]);
+          setCompanyId(null);
+          setCompanyName("");
+          setImpersonatedCompany(null);
+          router.navigate({ to: "/auth", replace: true });
+        }
+      } catch {
+        // Ignore malformed markers
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const handleSetImpersonatedCompany = (company: ImpersonatedCompany | null) => {
     setImpersonatedCompany(company);

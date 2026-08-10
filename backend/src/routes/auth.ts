@@ -8,6 +8,8 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
+import { findUserByEmail, reserveEmail, releaseEmail, finalizeEmailReservation } from "../db/users.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 import { generateToken, requireAuth, countUsers, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import { config } from "../config.js";
@@ -24,70 +26,90 @@ const signupSchema = z.object({
   contact_name: z.string().optional(),
 });
 
-router.post("/signup", async (req: Request, res: Response) => {
+// The strict brute-force limiter applies ONLY to credential endpoints —
+// not to /me, /ping or /refresh-token (which would exhaust the shared budget
+// under concurrent logins).
+router.post("/signup", authLimiter, async (req: Request, res: Response) => {
   try {
     const parsed = signupSchema.parse(req.body);
-    const { email, password, company_name, contact_name } = parsed;
+    const { password, company_name, contact_name } = parsed;
+    // Normalize emails to lowercase so case-variant duplicates are impossible
+    const email = parsed.email.trim().toLowerCase();
 
-    // Check if user exists
-    const existingUsers = await scanTable<User>(TABLES.USERS, {
-      filterExpression: "email = :email",
-      expressionAttributeValues: { ":email": email },
-    });
-
-    if (existingUsers.length > 0) {
+    // Fast indexed check (covers users created before the registry migration)
+    const existing = await findUserByEmail(email);
+    if (existing) {
       res.status(409).json({ error: "Email already registered" });
       return;
     }
 
     const id = generateId();
     const companyId = generateId();
-    const password_hash = await bcrypt.hash(password, 10);
-    const now = nowISO();
 
-    // Create company
-    const company: Company = {
-      id: companyId,
-      name: company_name,
-      email: email,
-      phone: null,
-      address: null,
-      settings: null,
-      created_at: now,
-      updated_at: now,
-    };
-    await putItem(TABLES.COMPANIES, company as any);
+    // Atomically reserve the email — closes the duplicate-signup race window.
+    // Only one concurrent signup per email can win this conditional write.
+    const reserved = await reserveEmail(email, id);
+    if (!reserved) {
+      res.status(409).json({ error: "Email already registered" });
+      return;
+    }
 
-    // Create user (now with company_id)
-    const user: User = { id, email, password_hash, company_id: companyId, created_at: now };
-    await putItem(TABLES.USERS, user as any);
+    try {
+      const password_hash = await bcrypt.hash(password, 10);
+      const now = nowISO();
 
-    // Create profile (now with company_id)
-    const profile: Profile = {
-      id, email, company_name,
-      company_id: companyId,
-      contact_name: contact_name || null,
-      last_seen_at: null,
-      created_at: now, updated_at: now,
-    };
-    await putItem(TABLES.PROFILES, profile as any);
+      // Create company
+      const company: Company = {
+        id: companyId,
+        name: company_name,
+        email: email,
+        phone: null,
+        address: null,
+        settings: null,
+        created_at: now,
+        updated_at: now,
+      };
+      await putItem(TABLES.COMPANIES, company as any);
 
-    // Assign factor_admin role to the company admin
-    const roleId = generateId();
-    const userRole: UserRole = { id: roleId, user_id: id, role: "factor_admin" };
-    await putItem(TABLES.USER_ROLES, userRole as any);
+      // Create user (now with company_id)
+      const user: User = { id, email, password_hash, company_id: companyId, created_at: now };
+      await putItem(TABLES.USERS, user as any);
 
-    const token = generateToken({ id, email, roles: ["factor_admin"], company_id: companyId });
-
-    res.status(201).json({
-      token,
-      user: {
+      // Create profile (now with company_id)
+      const profile: Profile = {
         id, email, company_name,
         company_id: companyId,
-        contact_name: profile.contact_name,
-        roles: ["factor_admin"],
-      },
-    });
+        contact_name: contact_name || null,
+        last_seen_at: null,
+        created_at: now, updated_at: now,
+      };
+      await putItem(TABLES.PROFILES, profile as any);
+
+      // Assign factor_admin role to the company admin
+      const roleId = generateId();
+      const userRole: UserRole = { id: roleId, user_id: id, role: "factor_admin" };
+      await putItem(TABLES.USER_ROLES, userRole as any);
+
+      // Account fully created — make the email reservation permanent
+      // (otherwise the 24h TTL would expire the index entry).
+      await finalizeEmailReservation(email).catch(() => {});
+
+      const token = generateToken({ id, email, roles: ["factor_admin"], company_id: companyId });
+
+      res.status(201).json({
+        token,
+        user: {
+          id, email, company_name,
+          company_id: companyId,
+          contact_name: profile.contact_name,
+          roles: ["factor_admin"],
+        },
+      });
+    } catch (err) {
+      // Roll back the reservation so the address isn't permanently locked
+      await releaseEmail(email).catch(() => {});
+      throw err;
+    }
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });
@@ -104,22 +126,20 @@ const signinSchema = z.object({
   password: z.string().min(1),
 });
 
-router.post("/signin", async (req: Request, res: Response) => {
+router.post("/signin", authLimiter, async (req: Request, res: Response) => {
   try {
     const parsed = signinSchema.parse(req.body);
     const { email, password } = parsed;
 
-    const users = await scanTable<User>(TABLES.USERS, {
-      filterExpression: "email = :email",
-      expressionAttributeValues: { ":email": email },
-    });
+    // Indexed lookup (registry, with legacy scan fallback) — no full-table
+    // scan per login, so concurrent logins stay fast.
+    const user = await findUserByEmail(email);
 
-    if (users.length === 0) {
+    if (!user) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
 
-    const user = users[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       res.status(401).json({ error: "Invalid email or password" });

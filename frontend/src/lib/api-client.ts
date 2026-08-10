@@ -1,5 +1,19 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4444/api";
 
+/**
+ * The session token lives in sessionStorage (per-tab) rather than
+ * localStorage (shared across ALL tabs). This prevents two tabs logging in
+ * at the same time from clobbering each other's token — the classic
+ * login race on a shared browser.
+ */
+const TOKEN_KEY = "ledger_token";
+
+/**
+ * localStorage key used to broadcast a sign-out to other tabs that share
+ * the same identity, so they can clear their own per-tab session.
+ */
+export const SIGNOUT_MARKER_KEY = "ledger_signout_marker";
+
 let _token: string | null | undefined = undefined;
 let _companyOverride: string | null = null;
 
@@ -14,8 +28,8 @@ export function getCompanyOverride(): string | null {
 export function getToken(): string | null {
   if (_token === undefined) {
     _token =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem("ledger_token")
+      typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem(TOKEN_KEY)
         : null;
   }
   return _token;
@@ -23,17 +37,34 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null) {
   _token = token;
-  if (typeof localStorage !== "undefined") {
+  if (typeof sessionStorage !== "undefined") {
     if (token) {
-      localStorage.setItem("ledger_token", token);
+      sessionStorage.setItem(TOKEN_KEY, token);
     } else {
-      localStorage.removeItem("ledger_token");
+      sessionStorage.removeItem(TOKEN_KEY);
     }
   }
 }
 
 export function clearToken() {
   setToken(null);
+}
+
+/**
+ * Notify other tabs that this identity signed out. The marker carries the
+ * signed-out user's email, so only tabs logged in as the SAME user clear
+ * their session — a different user logged in on another tab is left alone.
+ * (Matching by raw JWT wouldn't work: every separate login mints a fresh token.)
+ */
+export function broadcastSignOut(payload: { email?: string | null }) {
+  try {
+    localStorage.setItem(
+      SIGNOUT_MARKER_KEY,
+      JSON.stringify({ email: payload.email ?? null, at: Date.now() }),
+    );
+  } catch {
+    // Ignore (e.g. private browsing mode)
+  }
 }
 
 async function request<T = unknown>(
@@ -72,7 +103,13 @@ async function request<T = unknown>(
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(errorBody.error ?? `Request failed: ${res.status}`);
+    const err = new Error(
+      errorBody.error ?? `Request failed: ${res.status}`,
+    ) as Error & { status?: number };
+    // Attach the HTTP status so callers can distinguish "invalid token"
+    // (401/403) from transient failures (429/5xx).
+    err.status = res.status;
+    throw err;
   }
 
   // Handle 204 No Content

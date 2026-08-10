@@ -1,4 +1,4 @@
-import { CreateTableCommand } from "@aws-sdk/client-dynamodb";
+import { CreateTableCommand, UpdateTimeToLiveCommand } from "@aws-sdk/client-dynamodb";
 import { TABLES, ddbClient } from "./client.js";
 
 const tableDefs = [
@@ -162,6 +162,15 @@ const tableDefs = [
     ],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    // Email → user_id registry: fast lookup by email and atomic signup
+    // uniqueness (conditional writes). Auto-created on startup for new
+    // deployments; existing deployments should run migrate-email-registry.ts.
+    TableName: TABLES.EMAIL_REGISTRY,
+    KeySchema: [{ AttributeName: "email", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "email", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ] as const;
 
 export async function createTables() {
@@ -176,6 +185,21 @@ export async function createTables() {
         console.error(`Error creating table ${table.TableName}:`, err);
       }
     }
+  }
+
+  // Enable TTL on the email registry so abandoned signup reservations
+  // expire automatically. Successful signups set a far-future TTL on their
+  // entry, so real index entries are never purged.
+  try {
+    await ddbClient.send(
+      new UpdateTimeToLiveCommand({
+        TableName: TABLES.EMAIL_REGISTRY,
+        TimeToLiveSpecification: { Enabled: true, AttributeName: "ttl" },
+      }),
+    );
+    console.log(`Enabled TTL on ${TABLES.EMAIL_REGISTRY}`);
+  } catch (err: any) {
+    console.log(`TTL status for ${TABLES.EMAIL_REGISTRY}: ${err.message}`);
   }
 }
 
