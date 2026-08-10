@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, getItem, TABLES } from "../db/client.js";
+import { computePurchaseCreditNoteDeduction } from "../utils/creditNotes.js";
 
 const router = Router();
 
@@ -25,7 +26,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const { from, to, isInRange } = dateRangeFilter(req);
 
     // ── Fetch all source data in parallel ──
-    const [allAccounts, allJournalEntries, allInvoices, allPurchaseInvoices, allAdvances, allPurchaseOrders] =
+    const [allAccounts, allJournalEntries, allInvoices, allPurchaseInvoices, allAdvances, allPurchaseOrders, allCreditNotes, allPayments] =
       await Promise.all([
         scanTable<any>(TABLES.CHART_OF_ACCOUNTS, getCompanyFilter(req.user!)),
         scanTable<any>(TABLES.JOURNAL_ENTRIES, getCompanyFilter(req.user!)),
@@ -33,6 +34,8 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
         scanTable<any>(TABLES.ADVANCES, getCompanyFilter(req.user!)),
         scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.CREDIT_DEBIT_NOTES, getCompanyFilter(req.user!)),
+        scanTable<any>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
       ]);
 
     // ── Compute account balances from journal entries ──
@@ -189,6 +192,19 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       0,
     );
 
+    // ── Credit Notes Payable ──
+    // Credit notes reduce what we owe suppliers. Notes settled via the
+    // credit/debit-note PATCH flow already lowered their linked purchase
+    // invoice's amount, so they are reflected in the invoice amounts above.
+    // Notes settled via bulk payment (PAYMENTS.credit_note_ids) did not touch
+    // the invoice, so they are deducted here. Every credit note therefore nets
+    // exactly once against creditors.
+    const { unappliedNotes, deduction: creditNotesDeduction } = computePurchaseCreditNoteDeduction(
+      allCreditNotes as any,
+      allPayments,
+      isInRange,
+    );
+
     // Advance received from Customers: open advances linked to sales purchase orders
     const salesAdvances = allAdvances.filter((a: any) => a.side === "sales" && a.status === "open");
     const advanceFromCustomers = salesAdvances.reduce(
@@ -218,7 +234,12 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const totalOtherCurrentLiabilities = otherCurrentLiabilityAccounts.reduce((s, a) => s + a.net_balance, 0);
 
     const totalCreditorsOneYear =
-      accountsPayable + advanceFromCustomers + corpTaxTotal + roundingTotal + totalOtherCurrentLiabilities;
+      accountsPayable -
+      creditNotesDeduction +
+      advanceFromCustomers +
+      corpTaxTotal +
+      roundingTotal +
+      totalOtherCurrentLiabilities;
 
     const currentLiabilitiesSection = {
       label: "Creditors: amounts falling due within one year",
@@ -228,6 +249,15 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           label: "Accounts Payable",
           total: accountsPayable,
           accounts: [],
+        },
+        {
+          label: "Credit Notes Payable",
+          total: -creditNotesDeduction,
+          accounts: unappliedNotes.map((n) => ({
+            id: n.id,
+            name: n.note_number,
+            balance: -Number(n.amount),
+          })),
         },
         {
           label: "Advance received from Customers",

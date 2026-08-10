@@ -371,6 +371,8 @@ export interface PnLReport {
   salesReturns: number;
   totalTurnover: number;
   grossPurchases: number;
+  purchaseReturns: number;
+  netPurchases: number;
   logisticsAndProcurement: number;
   principalCost: number;
   referralFees: number;

@@ -301,6 +301,7 @@ function ReportViewPage() {
 
     push("COST OF SALES", 0, { accent: true });
     push("Gross Purchases", d.grossPurchases, { depth: 1 });
+    push("Credit Notes (Purchase Returns)", -d.purchaseReturns, { depth: 1 });
     push("Logistics & Procurement Cost", d.logisticsAndProcurement, { depth: 1 });
     push("Principal Cost", d.principalCost, { depth: 1 });
     push("Referral Fees", d.referralFees, { depth: 1 });
@@ -907,6 +908,7 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             {/* Cost of Sales Section */}
             <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50/50 dark:text-emerald-400 dark:bg-emerald-950/30">Cost of Sales</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Gross Purchases</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.grossPurchases)}</td></tr>
+            <tr><td className="py-1.5 pl-10 text-muted-foreground">Credit Notes (Purchase Returns)</td><td className="py-1.5 pr-6 text-right num text-rose-600">{fmtPnlMoney(-d.purchaseReturns)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Logistics & Procurement</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.logisticsAndProcurement)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Principal Cost</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.principalCost)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Referral Fees</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.referralFees)}</td></tr>

@@ -172,6 +172,8 @@ const signinSchema = z.object({
 
 #### `GET /`
 - **Authentication:** Required
+- Computes the balance sheet from journal entries, invoice balances, advances, and credit/debit notes.
+- The `Creditors: amounts falling due within one year` section includes a **`Credit Notes Payable`** subsection: the total of purchase credit notes (linked to purchase invoices or unlinked) that have not yet reduced an invoice amount. Its `total` is negative and reduces `totalCreditorsOneYear`. Notes that already lowered their linked invoice's amount (legacy PATCH-settled, or auto-settled at creation with a linked invoice) are excluded; notes settled via bulk payment (`PAYMENTS.credit_note_ids`), unlinked notes, and any remaining pending/approved notes are included.
 
 #### `GET /section-transactions`
 - **Authentication:** Required
@@ -272,14 +274,18 @@ const createSchema = z.object({
   date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   amount: z.number().positive(),
   debtor_supplier_name: z.string().max(200).nullable().optional(),
+  supplier_name: z.string().max(200).nullable().optional(),
   linked_invoice_id: z.string().nullable().optional(),
   linked_invoice_type: z.enum(["sales", "purchase"]).nullable().optional(),
   reason: z.string().max(500).nullable().optional(),
 })
 ```
+- **Immediate settlement:** the checker → funding-queue workflow is bypassed. Notes are created as **`received`** (credit) or **`paid`** (debit) with `settled_at_creation: true`, and a linked invoice amount is adjusted immediately (credit → reduced, debit → increased, credit clamped at 0). The note is stored with `reviewed_at`/`reviewed_by` null.
+- **`supplier_name`:** resolved against the company's vendors (case-insensitive); unknown names auto-create a vendor (same behavior as batch).
 
 #### `PATCH /:id`
 - **Authentication:** Required
+- Kept for legacy pending/approved notes. Approval (`approved`/`rejected`) and settlement (`received`/`paid`, which adjusts the linked invoice) work as before; notes created via the new flow are already settled and cannot be re-settled.
 
 #### `POST /batch`
 - **Authentication:** Required
@@ -292,14 +298,19 @@ const batchCreateSchema = z.object({
     date: z.string().optional(),
     amount: z.number().positive(),
     debtor_supplier_name: z.string().max(200).nullable().optional(),
+    supplier_name: z.string().max(200).nullable().optional(),
     linked_invoice_number: z.string().max(80).nullable().optional(),
     reason: z.string().max(500).nullable().optional(),
   })).min(1).max(500),
 })
 ```
+- **`supplier_name` behavior:** each row's supplier name is resolved against the company's vendors (case-insensitive). Existing vendors are matched; unknown names auto-create a new vendor record. The resolved vendor id is stored on the note as `supplier_id`. When a `supplier_name` is provided together with a `linked_invoice_number`, a purchase invoice belonging to that supplier is preferred for the link.
+- **Immediate settlement:** same as single create — notes are created as `received`/`paid` with `settled_at_creation: true`, and each linked invoice's amount is adjusted right away.
+- **Response additions:** `suppliers_matched` and `suppliers_created` arrays (`{ supplier_name, supplier_id }`) reporting which suppliers were linked vs auto-created.
 
 #### `DELETE /:id`
 - **Authentication:** Required
+- Pending notes (no effect yet) can be deleted freely. Notes auto-settled at creation (`settled_at_creation: true`) can also be deleted — the linked invoice amount is **reversed** automatically (credit → amount added back, debit → amount subtracted back). Notes settled through the legacy review flow cannot be deleted.
 
 
 ### debtors
@@ -753,6 +764,20 @@ const batchProformaSchema = z.object({
 
 #### `GET /profit-loss`
 - **Authentication:** Required
+- Query params: `from`, `to` (YYYY-MM-DD, optional).
+- Response additions under Cost of Sales:
+  - `purchaseReturns`: total of purchase credit notes (linked to purchase invoices or unlinked) that have not yet reduced an invoice amount — deducted from cost of purchases.
+  - `netPurchases`: `grossPurchases - purchaseReturns`. `totalCostOfSales` is computed from `netPurchases`.
+- Notes that already lowered their linked invoice's amount are excluded from `purchaseReturns`: notes settled via the legacy PATCH flow and notes auto-settled at creation with a linked invoice (the new immediate-settlement flow). Notes settled via bulk payment (`PAYMENTS.credit_note_ids`), unlinked notes, and any remaining pending/approved notes are included.
+
+#### `GET /credit-notes`
+- **Authentication:** Required
+- Query params: `from`, `to` (YYYY-MM-DD, optional).
+- Returns credit-note totals for dashboard KPIs, computed with the same shared logic as `/profit-loss` and the balance sheet:
+  - `salesReturns`: total of credit notes linked to sales invoices — reduces turnover.
+  - `purchaseReturns`: total of unapplied purchase credit notes — reduces cost of purchases (same exclusion rules as `/profit-loss`).
+  - `unappliedNotesCount`: number of purchase credit notes not yet applied to an invoice.
+  - `applicableNotesCount`: number of purchase credit notes in range.
 
 #### `GET /inventory-tracking`
 - **Authentication:** Required

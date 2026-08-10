@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
 import { diffDaysUTC } from "../utils/helpers.js";
+import { computeCreditNoteTotals } from "../utils/creditNotes.js";
 import type {
   Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
   PurchaseOrder, Advance, Expense, CreditDebitNote, InventoryItem,
@@ -579,6 +580,7 @@ function computePnL(data: {
   expenses: Expense[];
   creditDebitNotes: CreditDebitNote[];
   advances: Advance[];
+  payments: Array<{ credit_note_ids?: string[] | null }>;
 }, fromDate: string, toDate: string) {
   const isInRange = (dateStr: string | null | undefined) => {
     if (!dateStr) return false;
@@ -595,9 +597,18 @@ function computePnL(data: {
 
   const otherSalesIncome = 0;
 
-  const salesReturns = creditDebitNotes
-    .filter((n) => n.type === "credit" && n.linked_invoice_type === "sales" && isInRange(n.date))
-    .reduce((sum, n) => sum + Number(n.amount), 0);
+  // Credit-note totals are computed once through the shared helper so the P&L,
+  // balance sheet, and dashboard all report identical figures:
+  //  - salesReturns: credit notes linked to sales invoices (reduce turnover)
+  //  - purchaseReturns: unapplied purchase credit notes (reduce cost of
+  //    purchases). PATCH-settled notes already lowered their linked invoice's
+  //    amount and are excluded; bulk-payment-settled notes did not touch the
+  //    invoice and are included. Every credit note nets exactly once.
+  const { salesReturns, purchaseReturns } = computeCreditNoteTotals(
+    creditDebitNotes,
+    data.payments,
+    isInRange,
+  );
 
   const totalTurnover = grossSales + otherSalesIncome - salesReturns;
 
@@ -605,6 +616,8 @@ function computePnL(data: {
   const grossPurchases = purchaseInvoices
     .filter((pi) => isInRange(pi.issue_date))
     .reduce((sum, pi) => sum + Number(pi.amount), 0);
+
+  const netPurchases = grossPurchases - purchaseReturns;
 
   const costOfSalesExpenses = expenses.filter((e) => COST_OF_SALES_CATEGORIES.has(e.category) && isInRange(e.expense_date));
 
@@ -631,7 +644,7 @@ function computePnL(data: {
   const otherDirectCosts = 0;
 
   const totalCostOfSales =
-    grossPurchases +
+    netPurchases +
     logisticsAndProcurement +
     principalCost +
     referralFees +
@@ -687,6 +700,8 @@ function computePnL(data: {
 
     // Cost of Sales
     grossPurchases,
+    purchaseReturns,
+    netPurchases,
     logisticsAndProcurement,
     principalCost,
     referralFees,
@@ -818,15 +833,16 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
     const to = (req.query.to as string) || "2099-12-31";
 
     // Blind scan — DynamoDB doesn't support date-range queries natively
-    const [invoices, purchaseInvoices, expenses, creditDebitNotes, advances] = await Promise.all([
+    const [invoices, purchaseInvoices, expenses, creditDebitNotes, advances, payments] = await Promise.all([
       scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
       scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
       scanTable<Expense>(TABLES.EXPENSES, getCompanyFilter(req.user!)),
       scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, getCompanyFilter(req.user!)),
       scanTable<Advance>(TABLES.ADVANCES, getCompanyFilter(req.user!)),
+      scanTable<{ credit_note_ids?: string[] | null }>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
     ]);
 
-    const report = computePnL({ invoices, purchaseInvoices, expenses, creditDebitNotes, advances }, from, to);
+    const report = computePnL({ invoices, purchaseInvoices, expenses, creditDebitNotes, advances, payments }, from, to);
 
     res.json({
       from,
@@ -835,6 +851,40 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
     });
   } catch (err) {
     console.error("Reports profit-loss error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/credit-notes ──
+// Credit-note totals for the dashboard. Computed with the same shared helper as
+// the P&L and balance sheet so every surface reports identical figures:
+//  - salesReturns: credit notes linked to sales invoices (reduce turnover)
+//  - purchaseReturns: unapplied purchase credit notes (reduce cost of purchases)
+router.get("/credit-notes", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const from = (req.query.from as string) || "1970-01-01";
+    const to = (req.query.to as string) || "2099-12-31";
+
+    const isInRange = (dateStr: string | null | undefined) => {
+      if (!dateStr) return false;
+      const d = dateStr.slice(0, 10);
+      return d >= from && d <= to;
+    };
+
+    const [creditDebitNotes, payments] = await Promise.all([
+      scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, getCompanyFilter(req.user!)),
+      scanTable<{ credit_note_ids?: string[] | null }>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
+    ]);
+
+    const totals = computeCreditNoteTotals(creditDebitNotes, payments, isInRange);
+
+    res.json({
+      from,
+      to,
+      ...totals,
+    });
+  } catch (err) {
+    console.error("Reports credit-notes error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

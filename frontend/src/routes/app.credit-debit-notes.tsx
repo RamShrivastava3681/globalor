@@ -24,6 +24,8 @@ interface NoteEntry {
   date: string;
   amount: number;
   debtor_supplier_name: string | null;
+  supplier_id: string | null;
+  supplier?: { id: string; name: string } | null;
   linked_invoice_id: string | null;
   linked_invoice_type: "sales" | "purchase" | null;
   reason: string | null;
@@ -32,6 +34,7 @@ interface NoteEntry {
   reviewed_by: string | null;
   settled_at: string | null;
   settled_by: string | null;
+  settled_at_creation?: boolean;
   created_at: string;
   updated_at: string;
   linkedInvoice?: { invoice_number: string; amount: number; status: string } | null;
@@ -45,6 +48,7 @@ function CreditDebitNotesPage() {
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<NoteEntry | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<NoteEntry | null>(null);
 
   const notesQ = useQuery({
     queryKey: ["credit-debit-notes"],
@@ -81,7 +85,10 @@ function CreditDebitNotesPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
-      toast.success("Note submitted for checker review");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["credit-note-totals"] });
+      toast.success("Note created — applied immediately");
       setOpen(false);
       setEditing(null);
     },
@@ -89,12 +96,20 @@ function CreditDebitNotesPage() {
   });
 
   const deleteNote = useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/credit-debit-notes/${id}`);
+    mutationFn: async (note: NoteEntry) => {
+      await api.delete(`/credit-debit-notes/${note.id}`);
     },
-    onSuccess: () => {
+    onSuccess: (_d, note) => {
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
-      toast.success("Note removed");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["credit-note-totals"] });
+      toast.success(
+        note.status !== "pending" && note.linkedInvoice
+          ? "Note deleted — linked invoice adjustment reversed"
+          : "Note deleted",
+      );
+      setConfirmDelete(null);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -110,7 +125,7 @@ function CreditDebitNotesPage() {
       <PageHeader
         eyebrow="Credit & Debit Notes"
         title="Credit / Debit notes"
-        description="Record credit and debit adjustments with full traceability. Notes go to checker for approval, then to funding queue for settlement."
+        description="Record credit and debit adjustments with full traceability. Notes take effect immediately — no checker approval or funding-queue settlement is needed, and linked invoices are adjusted right away."
         actions={
           canCreate ? (
             <div className="flex gap-2">
@@ -215,7 +230,17 @@ function CreditDebitNotesPage() {
                       <td className={`px-5 py-3 text-right num ${e.type === "credit" ? "text-success" : "text-warning"}`}>
                         {fmtMoney(e.amount)}
                       </td>
-                      <td className="px-5 py-3 text-muted-foreground">{e.debtor_supplier_name || "—"}</td>
+                      <td className="px-5 py-3">
+                        {e.supplier ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <ShoppingCart className="h-3 w-3 text-warning" />
+                            <span className="text-xs">{e.supplier.name}</span>
+                            <span className="rounded border border-primary/30 bg-primary/5 px-1 py-0.5 text-[9px] uppercase tracking-widest text-primary">Supplier</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">{e.debtor_supplier_name || "—"}</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3">
                         {e.linkedInvoice ? (
                           <span className="inline-flex items-center gap-1 text-xs">
@@ -238,16 +263,14 @@ function CreditDebitNotesPage() {
                       </td>
                       <td className="px-5 py-3 text-right">
                         <div className="inline-flex gap-1">
-                          {e.status === "pending" && canCreate && (
-                            <>
-                              <button
-                                onClick={() => deleteNote.mutate(e.id)}
-                                className="text-muted-foreground hover:text-destructive transition-colors"
-                                aria-label="Delete entry"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </>
+                          {(e.status === "pending" || e.settled_at_creation) && canCreate && (
+                            <button
+                              onClick={() => setConfirmDelete(e)}
+                              className="text-muted-foreground hover:text-destructive transition-colors"
+                              aria-label="Delete entry"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           )}
                           {e.status !== "pending" && (
                             <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -282,6 +305,14 @@ function CreditDebitNotesPage() {
           onClose={() => setImportOpen(false)}
         />
       )}
+
+      {confirmDelete && (
+        <ConfirmDeleteNoteModal
+          note={confirmDelete}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => deleteNote.mutate(confirmDelete)}
+        />
+      )}
     </div>
   );
 }
@@ -296,6 +327,49 @@ function NoteStatusPill({ status }: { status: string }) {
   };
   const v = map[status] ?? { label: status, cls: "border-border text-muted-foreground" };
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
+}
+
+function ConfirmDeleteNoteModal({
+  note,
+  onCancel,
+  onConfirm,
+}: {
+  note: NoteEntry;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const reversesInvoice = note.status !== "pending" && !!note.linkedInvoice;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onCancel}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-2 font-display text-lg">Delete {note.type} note {note.note_number}?</h3>
+        <p className="text-sm text-muted-foreground">
+          {reversesInvoice ? (
+            <>
+              This note was applied immediately. Deleting it will{" "}
+              <strong className="text-foreground">reverse its effect on linked invoice {note.linkedInvoice?.invoice_number}</strong>{" "}
+              ({note.type === "credit" ? "add" : "subtract"} {fmtMoney(note.amount)} back to its amount).
+            </>
+          ) : note.status === "pending" ? (
+            <>This note has not been applied yet. Deleting it removes the entry.</>
+          ) : (
+            <>This will permanently remove this entry.</>
+          )}
+          {" "}This action cannot be undone.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onCancel} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors">Cancel</button>
+          <button
+            onClick={onConfirm}
+            className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete note
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NewNoteModal({
@@ -415,7 +489,7 @@ function NewNoteModal({
             <input className="inp" placeholder="Debtor or supplier company name" value={debtorSupplierName} onChange={(e) => setDebtorSupplierName(e.target.value)} />
           </Field>
 
-          <Field label="Link to invoice (adjusts invoice amount on settlement)">
+          <Field label="Link to invoice (adjusts invoice amount immediately)">
             <div className="relative" ref={invRef}>
               {selectedInv ? (
                 <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
@@ -479,13 +553,13 @@ function NewNoteModal({
           <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
             <div className="flex items-center gap-2">
               <Send className="h-3.5 w-3.5" />
-              <span>This note will be submitted to the <strong>checker</strong> for approval, then routed to the <strong>funding queue</strong> for settlement.</span>
+              <span>This note takes effect <strong>immediately</strong> — no checker approval or funding-queue settlement is needed.</span>
             </div>
             {selectedInv && (
               <div className="mt-2 text-muted-foreground">
                 {type === "credit"
-                  ? `When received, $${fmtMoney(Number(amount || 0))} will be deducted from invoice ${selectedInv.invoice_number}.`
-                  : `When paid, $${fmtMoney(Number(amount || 0))} will be added to invoice ${selectedInv.invoice_number}.`
+                  ? `Creating this note immediately reduces invoice ${selectedInv.invoice_number} by ${fmtMoney(Number(amount || 0))}.`
+                  : `Creating this note immediately increases invoice ${selectedInv.invoice_number} by ${fmtMoney(Number(amount || 0))}.`
                 }
               </div>
             )}
@@ -495,7 +569,7 @@ function NewNoteModal({
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors">Cancel</button>
             <button type="submit" className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity">
               <Save className="h-4 w-4" />
-              Submit for review
+              Create {type === "credit" ? "credit" : "debit"} note
             </button>
           </div>
         </form>
@@ -511,6 +585,7 @@ interface ImportRow {
   note_number: string;
   amount: number;
   date: string;
+  supplier_name: string;
   debtor_supplier_name: string;
   invoice_number: string;
 }
@@ -533,7 +608,12 @@ function MassImportNotesModal({
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState("");
-  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{
+    created: number;
+    errors: string[];
+    suppliers_matched: Array<{ supplier_name: string; supplier_id: string }>;
+    suppliers_created: Array<{ supplier_name: string; supplier_id: string }>;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const invoiceLookup = useMemo(() => {
@@ -543,6 +623,11 @@ function MassImportNotesModal({
     }
     return m;
   }, [allInvoices]);
+
+  const vendorsQ = useQuery({
+    queryKey: ["vendors"],
+    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+  });
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -561,7 +646,8 @@ function MassImportNotesModal({
           const noteNum = row.note_number ?? row["Note Number"] ?? row["Note#"] ?? "";
           const amt = Number(row.amount ?? row["Amount"] ?? row.Amount ?? 0);
           const dt = row.date ?? row["Date"] ?? row.Date ?? "";
-          const debtorSupplier = row.debtor_supplier_name ?? row.supplier ?? row.debtor ?? row["Debtor/Supplier"] ?? "";
+          const supplierName = row.supplier_name ?? row["Supplier Name"] ?? row.supplier ?? row.Supplier ?? row.vendor ?? row.Vendor ?? row["Vendor Name"] ?? "";
+          const debtorSupplier = row.debtor_supplier_name ?? row.debtor ?? row.Debtor ?? row["Debtor/Supplier"] ?? "";
           const invNum = row.invoice_number ?? row["Invoice Number"] ?? row["Invoice#"] ?? "";
 
           // Normalize date if serial number
@@ -582,6 +668,7 @@ function MassImportNotesModal({
             note_number: String(noteNum).trim(),
             amount: isNaN(amt) ? 0 : amt,
             date: dateStr,
+            supplier_name: String(supplierName).trim(),
             debtor_supplier_name: String(debtorSupplier).trim(),
             invoice_number: String(invNum).trim(),
           };
@@ -605,12 +692,18 @@ function MassImportNotesModal({
 
   const batchImport = useMutation({
     mutationFn: async () => {
-      return await api.post<{ created: number; errors: Array<{ row: number; error: string }> }>("/credit-debit-notes/batch", {
+      return await api.post<{
+        created: number;
+        errors: Array<{ row: number; error: string }>;
+        suppliers_matched: Array<{ supplier_name: string; supplier_id: string }>;
+        suppliers_created: Array<{ supplier_name: string; supplier_id: string }>;
+      }>("/credit-debit-notes/batch", {
         type,
         notes: rows.map((r) => ({
           note_number: r.note_number,
           amount: r.amount,
           date: r.date,
+          supplier_name: r.supplier_name || null,
           debtor_supplier_name: r.debtor_supplier_name || null,
           linked_invoice_number: r.invoice_number || null,
           reason: null,
@@ -620,7 +713,12 @@ function MassImportNotesModal({
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
       const errList = (data.errors ?? []).map((e) => `Row ${e.row}: ${e.error}`);
-      setResult({ created: data.created, errors: errList });
+      setResult({
+        created: data.created,
+        errors: errList,
+        suppliers_matched: data.suppliers_matched ?? [],
+        suppliers_created: data.suppliers_created ?? [],
+      });
       setStep("done");
       if (errList.length === 0) {
         toast.success(`${data.created} ${type} notes created successfully`);
@@ -638,6 +736,32 @@ function MassImportNotesModal({
       invoice_found: r.invoice_number ? invoiceLookup.has(r.invoice_number.toLowerCase()) : null,
     })),
     [rows, invoiceLookup],
+  );
+
+  const vendorNames = useMemo(
+    () => new Set((vendorsQ.data ?? []).map((v: any) => String(v.name).toLowerCase().trim())),
+    [vendorsQ.data],
+  );
+
+  const notesWithSupplierStatus = useMemo(
+    () =>
+      notesWithInvoiceStatus.map((r) => {
+        const hasSupplier = !!r.supplier_name;
+        return {
+          ...r,
+          // Wait until vendors have loaded before classifying, so nothing
+          // flashes "new" just because the vendor list hasn't arrived yet
+          supplier_status:
+            hasSupplier && !vendorsQ.isLoading
+              ? vendorNames.has(r.supplier_name.toLowerCase().trim())
+                ? ("match" as const)
+                : ("new" as const)
+              : hasSupplier
+                ? ("checking" as const)
+                : null,
+        };
+      }),
+    [notesWithInvoiceStatus, vendorNames, vendorsQ.isLoading],
   );
 
   return (
@@ -658,9 +782,10 @@ function MassImportNotesModal({
               <code className="font-mono text-primary">amount</code>,{' '}
               <code className="font-mono text-primary">date</code>.
               Optional columns:{' '}
+              <code className="font-mono text-muted-foreground">supplier_name</code> (links to an existing supplier or creates one),{' '}
               <code className="font-mono text-muted-foreground">debtor_supplier_name</code>,{' '}
               <code className="font-mono text-muted-foreground">invoice_number</code>.
-              Each row becomes a {type} note. All notes will be created as <strong>pending</strong> and go to the checker for approval.
+              Each row becomes a {type} note that takes effect <strong>immediately</strong> — linked invoices are adjusted right away, with no checker or funding-queue step.
             </div>
 
             <div className="border-t border-border pt-4">
@@ -700,17 +825,34 @@ function MassImportNotesModal({
                     <th className="px-5 py-2 text-left font-normal">Note #</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">Debtor / Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {notesWithInvoiceStatus.map((r, idx) => (
+                  {notesWithSupplierStatus.map((r, idx) => (
                     <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3 text-xs text-muted-foreground">{idx + 1}</td>
                       <td className="px-5 py-3 font-mono text-xs">{r.note_number}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(r.date)}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                      <td className="px-5 py-3 text-xs">
+                        {r.supplier_name ? (
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            r.supplier_status === "match"
+                              ? "border-success/40 bg-success/5 text-success"
+                              : "border-primary/40 bg-primary/5 text-primary"
+                          }`}>
+                            {r.supplier_name}
+                            <span className="opacity-70">
+                              {r.supplier_status === "match" ? "linked" : r.supplier_status === "checking" ? "…" : "new"}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3 text-xs text-muted-foreground">{r.debtor_supplier_name || "—"}</td>
                       <td className="px-5 py-3 text-xs">
                         {r.invoice_number ? (
@@ -756,6 +898,31 @@ function MassImportNotesModal({
                     <li key={i} className="text-xs text-destructive">{err}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {(result.suppliers_matched.length > 0 || result.suppliers_created.length > 0) && (
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Suppliers</div>
+                {result.suppliers_matched.length > 0 && (
+                  <div className="mb-2">
+                    <div className="mb-1 text-xs font-medium text-success">Linked to existing ({result.suppliers_matched.length})</div>
+                    <ul className="space-y-0.5">
+                      {result.suppliers_matched.map((s, i) => (
+                        <li key={`m-${i}`} className="text-xs text-muted-foreground">{s.supplier_name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {result.suppliers_created.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-primary">Created ({result.suppliers_created.length})</div>
+                    <ul className="space-y-0.5">
+                      {result.suppliers_created.map((s, i) => (
+                        <li key={`c-${i}`} className="text-xs text-muted-foreground">{s.supplier_name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">

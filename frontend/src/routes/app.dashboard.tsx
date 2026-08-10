@@ -79,6 +79,13 @@ function Dashboard() {
     refetchInterval: 30_000,
   });
 
+  const creditNotesQ = useQuery({
+    queryKey: ["credit-note-totals"],
+    queryFn: async () =>
+      (await api.get<any>("/reports/credit-notes")) ?? { salesReturns: 0, purchaseReturns: 0 },
+    refetchInterval: 30_000,
+  });
+
   const invoices = invoicesQ.data ?? [];
   const purchases = purchasesQ.data ?? [];
   const expenses = expensesQ.data ?? [];
@@ -119,9 +126,18 @@ function Dashboard() {
   const salesTotal = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
   const purchaseTotal = purchases.reduce((s: number, p: any) => s + Number(p.amount), 0);
   const expenseTotal = expenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
-  const gross = salesTotal - purchaseTotal;
+
+  // Credit notes affect the income calculations exactly as they do in the P&L:
+  // sales returns (credit notes linked to sales invoices) reduce turnover, and
+  // unapplied purchase credit notes reduce the cost of goods. Figures come from
+  // /reports/credit-notes, computed with the same shared logic as the P&L.
+  const salesReturns = Number(creditNotesQ.data?.salesReturns ?? 0);
+  const purchaseReturns = Number(creditNotesQ.data?.purchaseReturns ?? 0);
+  const netSales = salesTotal - salesReturns;
+  const netPurchases = purchaseTotal - purchaseReturns;
+  const gross = netSales - netPurchases;
   const net = gross - expenseTotal;
-  const marginPct = salesTotal > 0 ? (gross / salesTotal) * 100 : 0;
+  const marginPct = netSales > 0 ? (gross / netSales) * 100 : 0;
   const collectionRate = salesTotal > 0 ? +((collectedAmount / salesTotal) * 100).toFixed(2) : 0;
 
   const yearMap = new Map<string, number>();
@@ -174,8 +190,22 @@ function Dashboard() {
       <div className="space-y-6 p-4 md:p-6">
         {!isTreasury && (
           <div className="grid gap-4 md:grid-cols-4">
-            <Stat label="Sales (gross)" value={fmtMoney(Math.round(salesTotal))} animate numValue={Math.round(salesTotal)} delta={`${invoices.length} invoices`} />
-            <Stat label="Cost of goods" value={fmtMoney(Math.round(purchaseTotal))} animate numValue={Math.round(purchaseTotal)} delta={`${purchases.length} supplier invoices`} />
+            <Stat label="Sales (net)" value={fmtMoney(Math.round(netSales))} animate numValue={Math.round(netSales)} delta={salesReturns > 0 ? `${invoices.length} invoices · −${fmtMoney(Math.round(salesReturns))} returns` : `${invoices.length} invoices`} />
+            <Stat
+              label="Cost of goods (net of credit notes)"
+              value={fmtMoney(Math.round(netPurchases))}
+              animate
+              numValue={Math.round(netPurchases)}
+              delta={
+                creditNotesQ.isError
+                  ? `${purchases.length} supplier invoices · credit notes unavailable`
+                  : creditNotesQ.isSuccess
+                    ? purchaseReturns > 0
+                      ? `${purchases.length} supplier invoices · −${fmtMoney(Math.round(purchaseReturns))} credit notes`
+                      : `${purchases.length} supplier invoices · no open credit notes`
+                    : `${purchases.length} supplier invoices`
+              }
+            />
             <Stat label="Gross income" value={fmtMoney(Math.round(gross))} animate numValue={Math.round(gross)} delta={`${marginPct.toFixed(1)}% margin`} tone={gross >= 0 ? "good" : "bad"} />
             <Stat label="Net income" value={fmtMoney(Math.round(net))} animate numValue={Math.round(net)} delta={`After ${fmtMoney(expenseTotal)} expenses`} tone={net >= 0 ? "good" : "bad"} />
           </div>

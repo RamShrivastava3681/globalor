@@ -370,6 +370,8 @@ export interface CreditDebitNote {
   date: string;
   amount: number;
   debtor_supplier_name: string | null;
+  /** Resolved vendor (supplier) id when the note is linked to a supplier. */
+  supplier_id: string | null;
   linked_invoice_id: string | null;
   linked_invoice_type: "sales" | "purchase" | null;
   reason: string | null;
@@ -378,6 +380,8 @@ export interface CreditDebitNote {
   reviewed_by: string | null;
   settled_at: string | null;
   settled_by: string | null;
+  /** True when the note was settled immediately at creation (workflow bypassed). */
+  settled_at_creation?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -12,7 +12,7 @@ export const Route = createFileRoute("/app/checker")({
 });
 
 type Row = {
-  kind: "sale" | "purchase" | "proforma" | "cd_credit" | "cd_debit";
+  kind: "sale" | "purchase" | "proforma";
   id: string;
   invoice_number: string;
   amount: number;
@@ -37,7 +37,7 @@ function CheckerPage() {
   const canReview = canWrite("checker-desk");
   const qc = useQueryClient();
   const [approveAllOpen, setApproveAllOpen] = useState(false);
-  const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma" | "credit_note" | "debit_note">("all");
+  const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -66,12 +66,17 @@ function CheckerPage() {
     },
   });
 
-  const creditDebitNotesQ = useQuery({
-    queryKey: ["checker-credit-debit-notes"],
-    queryFn: async () => {
-      const data = await api.get<any[]>("/credit-debit-notes") ?? [];
-      return data.filter((n: any) => n.status === "pending");
+  const reviewProforma = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
+      await api.post(`/purchase-orders/${id}/review`, { decision });
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-proformas"] });
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      toast.success("Proforma reviewed");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const reviewSale = useMutation({
@@ -100,32 +105,6 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const reviewProforma = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
-      await api.post(`/purchase-orders/${id}/review`, { decision });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["checker-proformas"] });
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
-      toast.success("Proforma reviewed");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const reviewCreditDebitNote = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
-      await api.patch(`/credit-debit-notes/${id}`, { status: decision });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["checker-credit-debit-notes"] });
-      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
-      qc.invalidateQueries({ queryKey: ["queue-credit-debit-notes"] });
-      toast.success("Credit/debit note reviewed");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
   const approveAllMutation = useMutation({
     mutationFn: async () => {
       const results = { approved: 0, failed: 0 };
@@ -133,8 +112,6 @@ function CheckerPage() {
         try {
           if (row.kind === "proforma") {
             await api.post(`/purchase-orders/${row.id}/review`, { decision: "approved" });
-          } else if (row.kind === "cd_credit" || row.kind === "cd_debit") {
-            await api.patch(`/credit-debit-notes/${row.id}`, { status: "approved" });
           } else if (row.kind === "sale") {
             await api.patch(`/invoices/${row.id}`, { status: "approved" });
           } else if (row.kind === "purchase") {
@@ -151,15 +128,12 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
       qc.invalidateQueries({ queryKey: ["checker-purchases"] });
       qc.invalidateQueries({ queryKey: ["checker-proformas"] });
-      qc.invalidateQueries({ queryKey: ["checker-credit-debit-notes"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
-      qc.invalidateQueries({ queryKey: ["queue-credit-debit-notes"] });
       toast.success(`Approved ${results.approved} item${results.approved !== 1 ? "s" : ""}${results.failed > 0 ? `, ${results.failed} failed` : ""}`);
       setApproveAllOpen(false);
     },
@@ -204,28 +178,7 @@ function CheckerPage() {
     return k ? Number(advMap[k] ?? 0) : 0;
   };
 
-  const cdNotes: Row[] = ((creditDebitNotesQ.data ?? []) as Array<Record<string, any>>).map((n): Row => {
-    const amt = Number(n.amount);
-    return {
-      kind: n.type === "credit" ? "cd_credit" : "cd_debit",
-      id: n.id,
-      invoice_number: n.note_number,
-      amount: amt,
-      po_number: n.linked_invoice_id ? `Linked: ${n.linkedInvoice?.invoice_number || "..."}` : null,
-      advance: 0,
-      net: amt,
-      issue_date: n.date,
-      due_date: null,
-      party: n.debtor_supplier_name || "—",
-      client: "—",
-      client_id: n.client_id,
-      noa_status: n.type === "credit" ? "credit_note" : "debit_note",
-      noa_comments: n.reason || null,
-    };
-  });
-
   const rows: Row[] = [
-    ...cdNotes,
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
       const adv = advFor("sales", i.po_number);
       const amt = Number(i.amount);
@@ -267,12 +220,8 @@ function CheckerPage() {
       has_contractual_due_date: p.has_contractual_due_date,
     })),
   ].filter((r) => {
-    const isCdCredit = r.kind === "cd_credit";
-    const isCdDebit = r.kind === "cd_debit";
     let sideMatch: boolean;
     if (side === "all") sideMatch = true;
-    else if (side === "credit_note") sideMatch = isCdCredit;
-    else if (side === "debit_note") sideMatch = isCdDebit;
     else if (side === "sale") sideMatch = r.kind === "sale" || (r.kind === "proforma" && r.side === "sales");
     else if (side === "purchase") sideMatch = r.kind === "purchase" || (r.kind === "proforma" && r.side === "purchase");
     else if (side === "proforma") sideMatch = r.kind === "proforma";
@@ -292,7 +241,6 @@ function CheckerPage() {
   const pendingSales = (salesQ.data ?? []).length;
   const pendingPurchases = (purchasesQ.data ?? []).length;
   const pendingProformas = (proformasQ.data ?? []).length;
-  const pendingCreditDebitNotes = (creditDebitNotesQ.data ?? []).length;
 
   return (
     <div>
@@ -320,18 +268,14 @@ function CheckerPage() {
             <div className="num text-3xl text-primary">{pendingProformas}</div>
             <div className="mt-1 text-xs text-muted-foreground">Proforma advances awaiting review</div>
           </Card>
-          <Card title="Pending credit/debit notes">
-            <div className={`num text-3xl ${pendingCreditDebitNotes > 0 ? "text-warning" : "text-muted-foreground"}`}>{pendingCreditDebitNotes}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Credit/debit notes awaiting approval</div>
-          </Card>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {(["all", "sale", "purchase", "proforma", "credit_note", "debit_note"] as const).map((s) => (
+          {(["all", "sale", "purchase", "proforma"] as const).map((s) => (
             <button key={s} onClick={() => setSide(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : s === "sale" ? "Sales (AR)" : s === "purchase" ? "Purchases (AP)" : s === "proforma" ? "Proformas" : s === "credit_note" ? "Credit notes" : "Debit notes"}</button>
+              }`}>{s === "all" ? "All" : s === "sale" ? "Sales (AR)" : s === "purchase" ? "Purchases (AP)" : "Proformas"}</button>
           ))}
         </div>
 
@@ -394,7 +338,7 @@ function CheckerPage() {
                 {(() => {
                   const counts: Record<string, number> = {};
                   for (const r of rows) {
-                    const label = r.kind === "sale" ? "Sales (AR)" : r.kind === "purchase" ? "Purchases (AP)" : r.kind === "proforma" ? "Proformas" : r.kind === "cd_credit" ? "Credit notes" : "Debit notes";
+                    const label = r.kind === "sale" ? "Sales (AR)" : r.kind === "purchase" ? "Purchases (AP)" : "Proformas";
                     counts[label] = (counts[label] || 0) + 1;
                   }
                   return Object.entries(counts).map(([label, count]) => (
@@ -421,7 +365,7 @@ function CheckerPage() {
         )}
 
         <Card>
-          {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading || creditDebitNotesQ.isLoading ? (
+          {salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
@@ -454,8 +398,8 @@ function CheckerPage() {
                       <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={r.id}>#{r.id.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-3">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                          r.kind === "sale" ? "bg-primary/15 text-primary" : r.kind === "proforma" ? "bg-purple-500/15 text-purple-500" : r.kind === "cd_credit" ? "bg-emerald-500/15 text-emerald-500" : r.kind === "cd_debit" ? "bg-orange-500/15 text-orange-500" : "bg-warning/15 text-warning"
-                        }`}>{r.kind === "sale" ? "Sale (AR)" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : r.kind === "cd_credit" ? "Credit note" : r.kind === "cd_debit" ? "Debit note" : "Purchase (AP)"}</span>
+                          r.kind === "sale" ? "bg-primary/15 text-primary" : r.kind === "proforma" ? "bg-purple-500/15 text-purple-500" : "bg-warning/15 text-warning"
+                        }`}>{r.kind === "sale" ? "Sale (AR)" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : "Purchase (AP)"}</span>
                       </td>
                       <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
                       <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
@@ -478,11 +422,6 @@ function CheckerPage() {
                             <NoaPill status={r.noa_status ?? "not_sent"} />
                             {r.noa_comments && <div className="mt-1 max-w-[180px] truncate text-[10px] text-muted-foreground" title={r.noa_comments}>“{r.noa_comments}”</div>}
                           </div>
-                        ) : r.kind === "cd_credit" || r.kind === "cd_debit" ? (
-                          <div>
-                            <CdNoteTypePill kind={r.kind === "cd_credit" ? "credit" : "debit"} />
-                            {r.noa_comments && <div className="mt-1 max-w-[180px] truncate text-[10px] text-muted-foreground" title={r.noa_comments}>“{r.noa_comments}”</div>}
-                          </div>
                         ) : r.kind === "proforma" && r.proforma_review_comments ? (
                           <span className="text-xs text-warning" title={r.proforma_review_comments}>“{r.proforma_review_comments}”</span>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
@@ -502,7 +441,6 @@ function CheckerPage() {
                             <div className="inline-flex gap-1">
                               <button onClick={() => {
                                 if (r.kind === "proforma") reviewProforma.mutate({ id: r.id, decision: "approved" });
-                                else if (r.kind === "cd_credit" || r.kind === "cd_debit") reviewCreditDebitNote.mutate({ id: r.id, decision: "approved" });
                                 else if (r.kind === "sale") reviewSale.mutate({ id: r.id, decision: "approved" });
                                 else reviewPurchase.mutate({ id: r.id, decision: "approved" });
                               }}
@@ -511,7 +449,6 @@ function CheckerPage() {
                               </button>
                               <button onClick={() => {
                                 if (r.kind === "proforma") reviewProforma.mutate({ id: r.id, decision: "rejected" });
-                                else if (r.kind === "cd_credit" || r.kind === "cd_debit") reviewCreditDebitNote.mutate({ id: r.id, decision: "rejected" });
                                 else if (r.kind === "sale") reviewSale.mutate({ id: r.id, decision: "rejected" });
                                 else reviewPurchase.mutate({ id: r.id, decision: "disputed" });
                               }}
@@ -535,16 +472,6 @@ function CheckerPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function CdNoteTypePill({ kind }: { kind: "credit" | "debit" }) {
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-      kind === "credit" ? "border-emerald-500/50 text-emerald-500" : "border-orange-500/50 text-orange-500"
-    }`}>
-      {kind === "credit" ? "Credit note" : "Debit note"}
-    </span>
   );
 }
 
