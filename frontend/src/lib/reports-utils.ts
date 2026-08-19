@@ -379,6 +379,7 @@ export interface PnLReport {
   customsDuties: number;
   freightCharges: number;
   otherDirectCosts: number;
+  debitNoteAdjustments: number;
   totalCostOfSales: number;
   grossProfit: number;
   adminCostByCategory: Record<string, number>;

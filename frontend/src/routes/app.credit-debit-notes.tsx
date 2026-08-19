@@ -235,7 +235,7 @@ function CreditDebitNotesPage() {
                           <span className="inline-flex items-center gap-1.5">
                             <ShoppingCart className="h-3 w-3 text-warning" />
                             <span className="text-xs">{e.supplier.name}</span>
-                            <span className="rounded border border-primary/30 bg-primary/5 px-1 py-0.5 text-[9px] uppercase tracking-widest text-primary">Supplier</span>
+                            <span className="rounded border border-primary/30 bg-primary/5 px-1 py-0.5 text-[9px] uppercase tracking-widest text-primary">{e.type === "debit" ? "Debtor" : "Supplier"}</span>
                           </span>
                         ) : (
                           <span className="text-muted-foreground">{e.debtor_supplier_name || "—"}</span>

@@ -308,6 +308,7 @@ function ReportViewPage() {
     push("Customs / Duties", d.customsDuties, { depth: 1 });
     push("Freight Charges", d.freightCharges, { depth: 1 });
     push("Other Direct Costs", d.otherDirectCosts, { depth: 1 });
+    push("Debit Note Adjustments", -d.debitNoteAdjustments, { depth: 1 });
     push("Total Cost of Sales", d.totalCostOfSales, { bold: true, doubleLine: true });
 
     push("Gross Profit", d.grossProfit, { bold: true, doubleLine: true });
@@ -915,6 +916,7 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Customs / Duties</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.customsDuties)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Freight Charges</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.freightCharges)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Other Direct Costs</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.otherDirectCosts)}</td></tr>
+            <tr><td className="py-1.5 pl-10 text-muted-foreground">Debit Note Adjustments</td><td className="py-1.5 pr-6 text-right num text-rose-600">{fmtPnlMoney(-d.debitNoteAdjustments)}</td></tr>
             <tr className="border-t-2 border-emerald-200"><td className="py-2 pl-10 font-bold">Total Cost of Sales</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalCostOfSales)}</td></tr>
 
             {/* Gross Profit */}

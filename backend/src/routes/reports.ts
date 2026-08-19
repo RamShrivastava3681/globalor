@@ -652,8 +652,15 @@ function computePnL(data: {
     freightCharges +
     otherDirectCosts;
 
+  // ── Debit Notes (reduce cost of sales — debtors issue debit notes) ──
+  const debitNoteAdjustments = creditDebitNotes
+    .filter((n) => n.type === "debit" && isInRange(n.date))
+    .reduce((sum, n) => sum + Number(n.amount), 0);
+
+  const totalCostOfSalesWithDebitNotes = totalCostOfSales - debitNoteAdjustments;
+
   // ── Gross Profit ──
-  const grossProfit = totalTurnover - totalCostOfSales;
+  const grossProfit = totalTurnover - totalCostOfSalesWithDebitNotes;
 
   // ── Administrative Costs ──
   const adminExpenses = expenses.filter(
@@ -708,7 +715,8 @@ function computePnL(data: {
     customsDuties,
     freightCharges,
     otherDirectCosts,
-    totalCostOfSales,
+    debitNoteAdjustments,
+    totalCostOfSales: totalCostOfSalesWithDebitNotes,
 
     // Gross Profit
     grossProfit,
