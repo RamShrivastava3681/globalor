@@ -714,15 +714,28 @@ router.post("/batch-close", requireAuth, requireWriteAccess("purchase-invoices")
   }
 });
 
-// ── POST /api/purchase-invoices/bulk-search ── (search purchase invoices by uploaded Excel invoice numbers)
+// ── POST /api/purchase-invoices/bulk-search ── (search purchase invoices by uploaded Excel invoice numbers & optional amounts)
 router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { invoiceNumbers } = z.object({
-      invoiceNumbers: z.array(z.string().min(1)).min(1).max(10000),
+    const parsed = z.object({
+      // Legacy: plain invoice number strings
+      invoiceNumbers: z.array(z.string().min(1)).min(1).max(10000).optional(),
+      // New: objects with invoice_number + optional amount
+      items: z.array(z.object({
+        invoice_number: z.string().min(1),
+        amount: z.number().optional(),
+      })).min(1).max(10000).optional(),
     }).parse(req.body);
 
+    // Normalise into a unified list: [{ invoice_number, amount? }]
+    const excelItems: Array<{ invoice_number: string; amount?: number }> =
+      parsed.items ?? (parsed.invoiceNumbers ?? []).map((n) => ({ invoice_number: n }));
+
     // Normalize input invoice numbers for case-insensitive matching
-    const searchSet = new Set(invoiceNumbers.map((n) => n.toLowerCase().trim()));
+    const searchMap = new Map<string, number | undefined>();
+    for (const item of excelItems) {
+      searchMap.set(item.invoice_number.toLowerCase().trim(), item.amount);
+    }
 
     // Preload all purchase invoices, vendors, and profiles
     const [allPi, allVendors, allProfiles] = await Promise.all([
@@ -735,9 +748,10 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     // Separate invoices into found vs not-in-excel
-    const found: Array<PurchaseInvoice & { vendor?: Vendor; client?: Profile }> = [];
+    const found: Array<PurchaseInvoice & { vendor?: Vendor; client?: Profile; excel_amount?: number; amount_mismatch?: boolean; amount_difference?: number }> = [];
     const platformInvoiceNumbers = new Set<string>();
     const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; vendor_id: string | null }> = [];
+    const amountMismatches: Array<{ invoice_number: string; excel_amount: number; platform_amount: number; difference: number }> = [];
 
     for (const inv of allPi) {
       const normalized = inv.invoice_number.toLowerCase().trim();
@@ -750,24 +764,46 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         vendor_id: inv.vendor_id,
       });
 
-      if (searchSet.has(normalized)) {
-        found.push({
+      if (searchMap.has(normalized)) {
+        const excelAmount = searchMap.get(normalized);
+        const foundInv: any = {
           ...inv,
           vendor: inv.vendor_id ? vendorMap.get(inv.vendor_id) : undefined,
           client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
-        });
+        };
+
+        if (excelAmount !== undefined && excelAmount !== null) {
+          const platformAmt = Number(inv.amount);
+          const excelAmt = Number(excelAmount);
+          const diff = +(platformAmt - excelAmt).toFixed(2);
+          if (diff !== 0) {
+            foundInv.excel_amount = excelAmt;
+            foundInv.amount_mismatch = true;
+            foundInv.amount_difference = diff;
+            amountMismatches.push({
+              invoice_number: inv.invoice_number,
+              excel_amount: excelAmt,
+              platform_amount: platformAmt,
+              difference: diff,
+            });
+          }
+        }
+
+        found.push(foundInv);
       }
     }
 
     // Invoice numbers in the Excel that were NOT found in the platform
-    const notFoundInPlatform = invoiceNumbers.filter((n) => !platformInvoiceNumbers.has(n.toLowerCase().trim()));
+    const notFoundInPlatform = excelItems
+      .filter((item) => !platformInvoiceNumbers.has(item.invoice_number.toLowerCase().trim()))
+      .map((item) => item.invoice_number);
 
     // Platform invoices NOT in the Excel (limit to 500 for performance)
     const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; vendor_name: string | null }> = [];
     let notInExcelTotal = 0;
 
     for (const pi of platformInvoices) {
-      if (!searchSet.has(pi.invoice_number.toLowerCase().trim())) {
+      if (!searchMap.has(pi.invoice_number.toLowerCase().trim())) {
         notInExcelTotal++;
         if (notInExcel.length < 500) {
           notInExcel.push({
@@ -783,12 +819,14 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
       notFoundInPlatform,
       notInExcel,
       notInExcelTotal,
+      amountMismatches,
       summary: {
-        excelCount: invoiceNumbers.length,
+        excelCount: excelItems.length,
         foundCount: found.length,
         notFoundCount: notFoundInPlatform.length,
         platformCount: platformInvoiceNumbers.size,
         notInExcelCount: notInExcelTotal,
+        amountMismatchCount: amountMismatches.length,
       },
     });
   } catch (err) {

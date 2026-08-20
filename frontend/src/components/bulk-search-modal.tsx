@@ -10,12 +10,14 @@ export interface BulkSearchResult {
   notFoundInPlatform: string[];
   notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name?: string | null; vendor_name?: string | null }>;
   notInExcelTotal: number;
+  amountMismatches: Array<{ invoice_number: string; excel_amount: number; platform_amount: number; difference: number }>;
   summary: {
     excelCount: number;
     foundCount: number;
     notFoundCount: number;
     platformCount: number;
     notInExcelCount: number;
+    amountMismatchCount: number;
   };
 }
 
@@ -54,8 +56,9 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
   const [step, setStep] = useState<"upload" | "results">("upload");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BulkSearchResult | null>(null);
-  const [invoiceNumbers, setInvoiceNumbers] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"found" | "missingPlatform" | "missingExcel">("found");
+  const [invoiceCount, setInvoiceCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<"found" | "missingPlatform" | "missingExcel" | "amountMismatch">("found");
+  const [hasAmounts, setHasAmounts] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,12 +82,32 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
             h.toLowerCase().includes("inv")
         );
 
-        let numbers: string[];
+        // Try to find a column that looks like an amount
+        const amtCol = headers.find(
+          (h) =>
+            h.toLowerCase().includes("amount") ||
+            h.toLowerCase().includes("total") ||
+            h.toLowerCase().includes("value")
+        );
+
+        let items: Array<{ invoice_number: string; amount?: number }>;
+
         if (invCol) {
-          // Extract from the invoice column
-          numbers = json
-            .map((row) => String(row[invCol] ?? "").trim())
-            .filter((n) => n.length > 0);
+          items = json
+            .map((row) => {
+              const invNum = String(row[invCol] ?? "").trim();
+              if (!invNum) return null;
+              const result: { invoice_number: string; amount?: number } = { invoice_number: invNum };
+              if (amtCol) {
+                const rawAmt = String(row[amtCol] ?? "").replace(/[$,€£\s]/g, "");
+                if (rawAmt) {
+                  const parsedAmt = Number(rawAmt);
+                  if (!isNaN(parsedAmt)) result.amount = parsedAmt;
+                }
+              }
+              return result;
+            })
+            .filter((item): item is { invoice_number: string; amount?: number } => item !== null);
         } else {
           // Try the first column
           const firstCol = headers[0];
@@ -92,23 +115,29 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
             toast.error("Could not find any columns in the file");
             return;
           }
-          numbers = json
-            .map((row) => String(row[firstCol] ?? "").trim())
-            .filter((n) => n.length > 0);
+          items = json
+            .map((row) => {
+              const invNum = String(row[firstCol] ?? "").trim();
+              if (!invNum) return null;
+              return { invoice_number: invNum } as { invoice_number: string; amount?: number };
+            })
+            .filter((item): item is { invoice_number: string; amount?: number } => item !== null);
         }
 
-        if (numbers.length === 0) {
+        if (items.length === 0) {
           toast.error("No invoice numbers found in the file. Make sure there's a column with invoice numbers.");
           return;
         }
 
-        if (numbers.length > 10000) {
-          toast.error(`Too many invoice numbers (${numbers.length}). Maximum is 10,000.`);
+        if (items.length > 10000) {
+          toast.error(`Too many invoice numbers (${items.length}). Maximum is 10,000.`);
           return;
         }
 
-        setInvoiceNumbers(numbers);
-        await performSearch(numbers);
+        const detectedAmounts = items.some((i) => i.amount !== undefined);
+        setHasAmounts(detectedAmounts);
+        setInvoiceCount(items.length);
+        await performSearch(items);
       } catch (err) {
         toast.error("Could not parse the file. Please upload a valid Excel or CSV file.");
         console.error(err);
@@ -117,14 +146,19 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
     reader.readAsArrayBuffer(file);
   };
 
-  const performSearch = async (numbers: string[]) => {
+  const performSearch = async (items: Array<{ invoice_number: string; amount?: number }>) => {
     setLoading(true);
     try {
       const endpoint = mode === "purchase" ? "/purchase-invoices/bulk-search" : "/invoices/bulk-search";
-      const res = await api.post<BulkSearchResult>(endpoint, { invoiceNumbers: numbers });
+      // Send items array (with optional amounts) for amount checking
+      const res = await api.post<BulkSearchResult>(endpoint, { items });
       setResult(res);
       setStep("results");
-      setActiveTab(res.found.length > 0 ? "found" : "missingPlatform");
+      if (res.amountMismatches?.length > 0) {
+        setActiveTab("amountMismatch");
+      } else {
+        setActiveTab(res.found.length > 0 ? "found" : "missingPlatform");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Search failed");
     } finally {
@@ -147,24 +181,26 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
           {step === "upload" && (
             <div className="space-y-4">
               <div className="rounded-md border border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
-                <strong className="text-primary">How it works:</strong> Upload an Excel or CSV file containing invoice numbers.
+                <strong className="text-primary">How it works:</strong> Upload an Excel or CSV file containing invoice numbers (and optionally an <strong>Amount</strong> column).
                 The system will search your {mode === "purchase" ? "purchase" : "sales"} invoices and show:
                 <ul className="mt-2 list-disc pl-4 space-y-1">
                   <li>Invoices that match your file</li>
                   <li>Invoice numbers from your file that are <strong>not</strong> in the platform</li>
                   <li>Platform invoices that are <strong>not</strong> in your file</li>
+                  <li><strong>Amount mismatches</strong> between your file and the platform (when an Amount column is present)</li>
                 </ul>
               </div>
 
               {loading ? (
                 <div className="flex flex-col items-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-primary mb-3" />
-                  <p className="text-sm text-muted-foreground">Searching {invoiceNumbers.length} invoice numbers across your platform...</p>
+                  <p className="text-sm text-muted-foreground">Searching {invoiceCount} invoice numbers across your platform...</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border p-12">
                   <FileText className="h-12 w-12 text-muted-foreground/40 mb-4" />
                   <p className="text-sm text-muted-foreground mb-4">Upload Excel or CSV file with invoice numbers</p>
+                  <p className="text-xs text-muted-foreground/70 mb-4">Optionally include an <strong>Amount</strong> column to check for mismatches</p>
                   <input
                     ref={fileRef}
                     type="file"
@@ -180,7 +216,7 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
           {step === "results" && result && (
             <div className="space-y-5">
               {/* Summary cards */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <div className={`grid gap-3 ${hasAmounts && (result.summary.amountMismatchCount ?? 0) > 0 ? "grid-cols-3 md:grid-cols-6" : "grid-cols-2 md:grid-cols-5"}`}>
                 <SummaryCard
                   label="In file"
                   value={result.summary.excelCount.toLocaleString()}
@@ -206,10 +242,17 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                   value={result.summary.notInExcelCount.toLocaleString()}
                   color="warning"
                 />
+                {hasAmounts && (result.summary.amountMismatchCount ?? 0) > 0 && (
+                  <SummaryCard
+                    label="Amount mismatch ⚠"
+                    value={result.summary.amountMismatchCount.toLocaleString()}
+                    color="warning"
+                  />
+                )}
               </div>
 
               {/* Tabs for different result views */}
-              <div className="flex gap-1 border-b border-border">
+              <div className="flex gap-1 border-b border-border overflow-x-auto">
                 <TabButton
                   active={activeTab === "found"}
                   onClick={() => setActiveTab("found")}
@@ -225,6 +268,13 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                   onClick={() => setActiveTab("missingExcel")}
                   label={`Not in file (${result.notInExcelTotal.toLocaleString()})`}
                 />
+                {hasAmounts && (result.amountMismatches?.length ?? 0) > 0 && (
+                  <TabButton
+                    active={activeTab === "amountMismatch"}
+                    onClick={() => setActiveTab("amountMismatch")}
+                    label={`Amount mismatch (${result.amountMismatches.length})`}
+                  />
+                )}
               </div>
 
               {/* Found in platform */}
@@ -241,7 +291,9 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                           <th className="px-5 py-2 text-left font-normal">Invoice #</th>
                           <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Debtor"}</th>
                           <th className="px-5 py-2 text-left font-normal">Issue date</th>
-                          <th className="px-5 py-2 text-right font-normal">Amount</th>
+                          <th className="px-5 py-2 text-right font-normal">Platform amount</th>
+                          {hasAmounts && <th className="px-5 py-2 text-right font-normal">File amount</th>}
+                          {hasAmounts && <th className="px-5 py-2 text-right font-normal">Difference</th>}
                           <th className="px-5 py-2 text-right font-normal">Received</th>
                           <th className="px-5 py-2 text-left font-normal">Status</th>
                           <th className="px-5 py-2 text-left font-normal">Due date</th>
@@ -249,11 +301,25 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                       </thead>
                       <tbody>
                         {result.found.map((inv: any) => (
-                          <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <tr key={inv.id} className={`border-b border-border/60 hover:bg-muted/30 ${inv.amount_mismatch ? "bg-warning/5" : ""}`}>
                             <td className="px-5 py-3 font-mono text-xs font-medium">{inv.invoice_number}</td>
                             <td className="px-5 py-3">{mode === "purchase" ? (inv.vendor?.name ?? "—") : (inv.debtor?.name ?? "—")}</td>
                             <td className="px-5 py-3 text-sm">{fmtDate(inv.issue_date)}</td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(inv.amount)}</td>
+                            {hasAmounts && (
+                              <td className="px-5 py-3 text-right num">
+                                {inv.excel_amount != null ? fmtMoney(inv.excel_amount) : "—"}
+                              </td>
+                            )}
+                            {hasAmounts && (
+                              <td className="px-5 py-3 text-right num">
+                                {inv.amount_difference != null ? (
+                                  <span className={inv.amount_mismatch ? "text-destructive font-medium" : ""}>
+                                    {inv.amount_difference > 0 ? "+" : ""}{fmtMoney(inv.amount_difference)}
+                                  </span>
+                                ) : "—"}
+                              </td>
+                            )}
                             <td className="px-5 py-3 text-right num text-muted-foreground">{inv.amount_received != null ? fmtMoney(inv.amount_received) : "—"}</td>
                             <td className="px-5 py-3"><StatusPill status={inv.status} /></td>
                             <td className="px-5 py-3 text-sm">{fmtDate(inv.due_date)}</td>
@@ -261,6 +327,47 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                         ))}
                       </tbody>
                     </table>
+                  )}
+                </div>
+              )}
+
+              {/* Amount Mismatch */}
+              {activeTab === "amountMismatch" && result.amountMismatches && (
+                <div>
+                  {result.amountMismatches.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-success">
+                      All amounts match between your file and the platform! ✓
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-3 text-xs text-muted-foreground">
+                        <strong className="text-warning">{result.amountMismatches.length}</strong> invoice{result.amountMismatches.length !== 1 ? "s have" : " has"} an <strong className="text-warning">amount mismatch</strong> between your file and the platform.
+                      </div>
+                      <div className="-mx-5 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                            <tr className="border-b border-border">
+                              <th className="px-5 py-2 text-left font-normal">Invoice #</th>
+                              <th className="px-5 py-2 text-right font-normal">File amount</th>
+                              <th className="px-5 py-2 text-right font-normal">Platform amount</th>
+                              <th className="px-5 py-2 text-right font-normal">Difference</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.amountMismatches.map((mismatch, idx) => (
+                              <tr key={idx} className="border-b border-border/60 hover:bg-warning/5">
+                                <td className="px-5 py-3 font-mono text-xs font-medium">{mismatch.invoice_number}</td>
+                                <td className="px-5 py-3 text-right num">{fmtMoney(mismatch.excel_amount)}</td>
+                                <td className="px-5 py-3 text-right num">{fmtMoney(mismatch.platform_amount)}</td>
+                                <td className="px-5 py-3 text-right num text-destructive font-medium">
+                                  {mismatch.difference > 0 ? "+" : ""}{fmtMoney(mismatch.difference)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -337,7 +444,9 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                   onClick={() => {
                     setStep("upload");
                     setResult(null);
-                    setInvoiceNumbers([]);
+                    setInvoiceCount(0);
+                    setHasAmounts(false);
+                    setActiveTab("found");
                     if (fileRef.current) fileRef.current.value = "";
                   }}
                   className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted transition-colors"
