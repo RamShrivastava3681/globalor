@@ -514,6 +514,12 @@ function BulkPaymentsPage() {
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
       qc.invalidateQueries({ queryKey: ["bulk-payment-credits"] });
       qc.invalidateQueries({ queryKey: ["bulk-payment-history"] });
+
+      // Clear the input amount and selection state so the UI refreshes to zero
+      setInputAmount("");
+      setSelectedInvoiceIds(new Set());
+      setUseBalance(false);
+      setApplyCredit(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Payment failed");
     } finally {
