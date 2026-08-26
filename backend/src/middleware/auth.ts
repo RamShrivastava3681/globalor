@@ -55,14 +55,25 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       company_id: decoded.company_id ?? null,
     };
 
+    // ── Super-admin bypass ──
+    // Super admins (identified by the admin email in config) should see
+    // ALL data by default. Strip their company_id so getCompanyFilter()
+    // returns no filter. The X-Company-Override header then lets them
+    // scope to a specific company when the frontend company-switcher is used.
+    const isSuperAdmin = req.user!.email === config.admin.email;
+    if (isSuperAdmin) {
+      req.user!.originalCompanyId = req.user!.company_id;
+      req.user!.company_id = null;
+    }
+
     // Company override for super admins (X-Company-Override header)
     // Store the original JWT company_id before applying the override
     // so routes can check `originalCompanyId` to verify super admin status.
-    if (!req.user.company_id) {
+    if (!req.user!.company_id) {
       const override = req.headers["x-company-override"] as string | undefined;
       if (override) {
-        req.user.originalCompanyId = req.user.company_id;
-        req.user.company_id = override;
+        req.user!.originalCompanyId = req.user!.company_id;
+        req.user!.company_id = override;
       }
     }
 
@@ -96,7 +107,8 @@ export function requireRole(...roles: AppRole[]) {
 // Resource names used with requireWriteAccess():
 //   "suppliers", "debtors", "invoices", "purchase-invoices",
 //   "purchase-orders", "stock-movements", "advances", "expenses",
-//   "vendors", "checker-desk", "funding-queue", "upload", "admin"
+//   "vendors", "products", "goods-purchase-orders", "goods-sales-orders",
+//   "quotations", "checker-desk", "funding-queue", "upload", "admin"
 
 type ResourcePermission = {
   read: string[];   // '*' means all
@@ -120,6 +132,10 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
       "advances",
       "expenses",
       "vendors",
+      "products",
+      "goods-purchase-orders",
+      "goods-sales-orders",
+      "quotations",
     ],
   },
   checker: {
@@ -132,7 +148,10 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
   },
   client: {
     read: ["*"],
-    write: [], // clients write through the normal flow (their own data)
+    // Clients write through the normal flow (their own data); they also
+    // maintain their own product catalogue and place their own purchase
+    // orders + goods receipts + sales orders/dispatches + quotations (maker model).
+    write: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
   },
   viewer: {
     read: ["*"],

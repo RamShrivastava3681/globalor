@@ -46,50 +46,48 @@ function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-main relative">
-      <div className="absolute inset-0 grid-lines opacity-20 pointer-events-none" aria-hidden />
-      
+    <div className="grid min-h-screen bg-background md:grid-cols-2">
       {/* Left brand */}
-      <div className="relative hidden border-r border-border bg-[radial-gradient(ellipse_at_left,rgba(0,191,255,0.08),transparent_70%)] p-12 md:flex md:flex-col md:justify-between z-10">
+      <div className="relative hidden border-r border-border bg-[radial-gradient(ellipse_at_left,rgba(0,111,207,0.07),transparent_70%)] p-12 md:flex md:flex-col md:justify-between">
         <Link to="/" className="relative flex items-center gap-2">
-          <img src="/logo.png" alt="Globalor Limited" className="h-10 w-auto object-contain bg-white p-1 rounded-md" />
+          <img src="/logo.png" alt="Globalor Limited" className="h-10 w-auto rounded-md bg-white p-1 object-contain" />
         </Link>
         <div className="relative">
           <p className="text-xs uppercase tracking-[0.2em] text-primary">Trading Intelligence</p>
-          <h2 className="mt-3 font-display text-4xl leading-tight text-balance font-medium">
+          <h2 className="mt-3 font-display text-4xl font-medium leading-tight text-balance">
             Deploy capital at the speed of computation.
           </h2>
-          <p className="mt-4 max-w-md text-sm text-muted-foreground leading-relaxed">
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             Submit invoices, access global liquidity, and monitor enterprise credit risk from a single intelligence dashboard.
           </p>
         </div>
-        <div className="relative text-xs font-mono tracking-widest text-muted-foreground uppercase">
+        <div className="relative font-mono text-xs uppercase tracking-widest text-muted-foreground">
           Enterprise Grade · End-to-End Encryption
         </div>
       </div>
 
       {/* Right form */}
-      <div className="relative flex items-center justify-center p-6 md:p-12 z-10">
-        <div className="w-full max-w-md bg-glass-card p-8 shadow-2xl">
-          <h1 className="font-display text-3xl font-medium">{mode === "signup" ? "Access portal" : "Sign in"}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+      <div className="relative flex items-center justify-center p-6 md:p-12">
+        <div className="w-full max-w-md rounded-lg border border-border bg-card p-8 shadow-card">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">{mode === "signup" ? "Access portal" : "Sign in"}</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
             {mode === "signup" ? "Initialize your trading workspace." : "Resume terminal access."}
           </p>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-4">
+          <form onSubmit={onSubmit} className="mt-8 space-y-5">
             {mode === "signup" && (
               <Field label="Company name">
-                <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className="input" placeholder="Acme Global" />
+                <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className={inputCls} placeholder="Acme Global" />
               </Field>
             )}
             <Field label="Email">
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="input" placeholder="you@enterprise.com" />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputCls} placeholder="you@enterprise.com" />
             </Field>
             <Field label="Password">
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="input" placeholder="••••••••" />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className={inputCls} placeholder="••••••••" />
             </Field>
 
-            <button disabled={loading} type="submit" className="mt-4 inline-flex w-full items-center justify-center gap-2 btn-primary px-4 py-3 text-sm font-medium disabled:opacity-60">
+            <button disabled={loading} type="submit" className="btn-primary mt-2 inline-flex h-10 w-full items-center justify-center gap-2 px-4 text-sm font-medium disabled:opacity-60">
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               {mode === "signup" ? "Initialize Account" : "Access Terminal"}
             </button>
@@ -97,37 +95,18 @@ function AuthPage() {
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {mode === "signup" ? "Already deployed?" : "New to the network?"}{" "}
-            <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="text-primary font-medium underline-offset-4 hover:underline transition-all">
+            <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="font-medium text-primary underline-offset-4 transition-colors hover:underline">
               {mode === "signup" ? "Sign in" : "Create account"}
             </button>
           </p>
         </div>
       </div>
-
-      <style>{`
-        .input {
-          width: 100%;
-          background: rgba(0,0,0,0.2);
-          border: 1px solid rgba(56,189,248,0.2);
-          color: #fff;
-          border-radius: 10px;
-          padding: 0.75rem 1rem;
-          font-size: 0.875rem;
-          transition: all 0.2s ease;
-        }
-        .input:focus { 
-          outline: none; 
-          border-color: #00BFFF; 
-          background: rgba(0,0,0,0.4);
-          box-shadow: 0 0 0 3px rgba(0,191,255,0.15); 
-        }
-        .input::placeholder {
-          color: rgba(148, 163, 184, 0.5);
-        }
-      `}</style>
     </div>
   );
 }
+
+const inputCls =
+  "flex h-10 w-full rounded-md border border-input bg-card px-3 py-1 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/20";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

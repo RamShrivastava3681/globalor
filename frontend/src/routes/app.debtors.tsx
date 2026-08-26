@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2, AlertTriangle, DollarSign, ArrowUpDown } from "lucide-react";
+import { AnimatedMoney } from "@/components/animated-number";
+import { Plus, X, Loader2, ShieldAlert, Trash2, Eye, FileText, Building2, AlertTriangle, DollarSign, ArrowUpDown, TrendingUp, Users, Clock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -17,6 +19,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
+import { CounterpartyDashboard } from "@/components/counterparty-dashboard";
 
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
@@ -71,6 +74,30 @@ function DebtorsPage() {
       />
 
       <div className="p-6 md:p-10">
+        {/* ── Dashboard ── */}
+        <CounterpartyDashboard
+          kind="debtor"
+          parties={(debtorsQ.data ?? []).map((d: any) => ({ id: d.id, name: d.name, industry: d.industry }))}
+          invoices={(invoicesQ.data ?? []).map((i: any) => ({
+            id: i.id,
+            amount: i.amount,
+            status: i.status,
+            issue_date: i.issue_date,
+            due_date: i.due_date,
+            paid_date: i.paid_date,
+            debtor_id: i.debtor_id,
+          }))}
+          loading={debtorsQ.isLoading || invoicesQ.isLoading}
+        />
+
+        {/* ── Debtor Directory ── */}
+        <div className="mt-8">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+              <Users className="h-3.5 w-3.5 text-muted-foreground/50" />
+              Debtor directory ({(debtorsQ.data ?? []).length})
+            </h3>
+          </div>
         <Card>
           {(debtorsQ.data ?? []).length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
@@ -131,6 +158,7 @@ function DebtorsPage() {
             </div>
           )}
         </Card>
+        </div>
       </div>
 
       {open && <DebtorFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} onDone={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
@@ -215,7 +243,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{editing ? "Edit debtor" : "Add debtor"}</h3>
@@ -366,7 +394,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
   const closedCount = paidInvoices.length;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -433,37 +461,27 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
               )}
             </div>
             {/* Filter & sort controls */}
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {["all", "open", "closed"].map((s) => (
-                <button key={s} onClick={() => setFilter(s)}
-                  className={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-widest transition ${
-                    filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                  }`}>{s === "all" ? "All" : s === "open" ? "Open" : "Closed"}</button>
-              ))}
-              <span className="ml-2 h-4 w-px bg-border" />
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort</span>
-              {(["issue", "due"] as const).map((field) => (
-                <button key={field}
-                  onClick={() => {
-                    if (sortField === field) {
-                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                    } else {
-                      setSortField(field);
-                      setSortOrder("asc");
-                    }
-                  }}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] transition ${
-                    sortField === field
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {field === "issue" ? "Issue date" : "Due date"}
-                  {sortField === field && (
-                    <span className="text-[9px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                  )}
-                </button>
-              ))}
+            <div className="mb-3">
+              <FilterBar
+                searchPlaceholder="Search invoices…"
+                searchValue=""
+                onSearchChange={() => {}}
+                statusOptions={[
+                  { label: "All", value: "all" },
+                  { label: "Open", value: "open" },
+                  { label: "Closed", value: "closed" },
+                ]}
+                statusValue={filter}
+                onStatusChange={(v) => setFilter(v)}
+                sortOptions={[
+                  { field: "issue", label: "Issue date" },
+                  { field: "due", label: "Due date" },
+                ]}
+                sortField={sortField}
+                sortOrder={sortOrder}
+                onSortChange={(f) => setSortField(f as typeof sortField)}
+                onSortOrderChange={(o) => setSortOrder(o)}
+              />
             </div>
             {visibleInvoices.length === 0 ? (
               <div className="text-xs text-muted-foreground">No invoices match the current filter.</div>
@@ -670,7 +688,7 @@ function BulkPaymentModal({ debtor, invoices, onClose, onDone }: { debtor: any; 
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">

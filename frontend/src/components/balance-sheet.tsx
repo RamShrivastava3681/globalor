@@ -194,52 +194,51 @@ export function BalanceSheetView({
 
       {/* Verification Banner */}
       {d.verification.isBalanced ? (
-        <div className="group relative overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-50/50 px-5 py-4 dark:border-emerald-800 dark:from-emerald-950 dark:to-emerald-950/50">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-emerald-200/20 via-transparent to-transparent dark:from-emerald-800/20" />
-          <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <div className="rounded-lg border border-success/30 bg-success/10 px-5 py-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900">
-                <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success/15">
+                <Check className="h-4 w-4 text-success" />
               </span>
               <div>
-                <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                <span className="font-semibold text-success">
                   In Balance
                 </span>
-                <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70">
+                <p className="text-xs text-muted-foreground">
                   The accounting equation holds
                 </p>
               </div>
             </div>
-            <div className="hidden sm:block h-8 w-px bg-emerald-200 dark:bg-emerald-800" />
+            <div className="hidden sm:block h-8 w-px bg-success/20" />
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <span className="text-emerald-700 dark:text-emerald-300">
-                <span className="text-emerald-500">Assets</span>{' '}
+              <span className="text-success">
+                <span className="text-success">Assets</span>{' '}
                 <span className="font-semibold num">{fmtMoney(d.verification.totalAssets)}</span>
               </span>
-              <span className="text-emerald-600/60 dark:text-emerald-400/60">=</span>
-              <span className="text-emerald-700 dark:text-emerald-300">
-                <span className="text-emerald-500">Liabilities</span>{' '}
+              <span className="text-muted-foreground">=</span>
+              <span className="text-success">
+                <span className="text-success">Liabilities</span>{' '}
                 <span className="font-semibold num">{fmtMoney(d.verification.totalLiabilities)}</span>
               </span>
-              <span className="text-emerald-600/60 dark:text-emerald-400/60">+</span>
-              <span className="text-emerald-700 dark:text-emerald-300">
-                <span className="text-emerald-500">Equity</span>{' '}
+              <span className="text-muted-foreground">+</span>
+              <span className="text-success">
+                <span className="text-success">Equity</span>{' '}
                 <span className="font-semibold num">{fmtMoney(d.verification.totalEquity)}</span>
               </span>
             </div>
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-rose-200 bg-gradient-to-r from-rose-50 to-rose-50/50 px-5 py-4 dark:border-rose-800 dark:from-rose-950 dark:to-rose-950/50">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-5 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-900">
-              <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-destructive/15">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
             </span>
             <div>
-              <span className="font-semibold text-rose-800 dark:text-rose-300">
+              <span className="font-semibold text-destructive">
                 Out of Balance
               </span>
-              <p className="text-xs text-rose-600/70 dark:text-rose-400/70">
+              <p className="text-xs text-muted-foreground">
                 Difference of {fmtMoney(Math.abs(d.verification.difference))}
               </p>
             </div>
@@ -256,7 +255,7 @@ export function BalanceSheetView({
             return sec ? (
               <SectionBlock
                 section={sec}
-                accentColor="border-l-blue-500"
+                accentColor="border-l-primary"
                 icon={Building2}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
@@ -273,7 +272,7 @@ export function BalanceSheetView({
             return sec ? (
               <SectionBlock
                 section={sec}
-                accentColor="border-l-sky-500"
+                accentColor="border-l-primary"
                 icon={Banknote}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
@@ -290,7 +289,7 @@ export function BalanceSheetView({
             return sec ? (
               <SectionBlock
                 section={sec}
-                accentColor="border-l-amber-500"
+                accentColor="border-l-warning"
                 icon={Users}
                 onAccountClick={(id) => setDrillDownAccount(id)}
                 onTotalClick={() => {
@@ -357,7 +356,7 @@ export function BalanceSheetView({
             return sec ? (
               <SectionBlock
                 section={sec}
-                accentColor="border-l-emerald-500"
+                accentColor="border-l-success"
                 icon={Landmark}
                 isCapital
                 onAccountClick={(id) => setDrillDownAccount(id)}
@@ -404,22 +403,22 @@ export function BalanceSheetView({
             <span className="text-2xl font-light">=</span>
           </div>
           <div className="space-y-2">
-            <div className="rounded-lg border-l-4 border-l-amber-500 bg-amber-50/50 px-4 py-2.5 dark:bg-amber-950/20">
-              <div className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400">
+            <div className="rounded-lg border-l-4 border-l-warning bg-warning/10 px-4 py-2.5">
+              <div className="label-micro">
                 Total Liabilities
               </div>
-              <div className="mt-0.5 text-base font-bold tabular-nums text-amber-700 dark:text-amber-300">
+              <div className="mt-0.5 text-base font-bold tabular-nums text-foreground">
                 {fmtMoney(d.verification.totalLiabilities)}
               </div>
             </div>
             <div className="flex items-center justify-center text-xs text-muted-foreground">
               <span className="font-medium">+</span>
             </div>
-            <div className="rounded-lg border-l-4 border-l-emerald-500 bg-emerald-50/50 px-4 py-2.5 dark:bg-emerald-950/20">
-              <div className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+            <div className="rounded-lg border-l-4 border-l-success bg-success/10 px-4 py-2.5">
+              <div className="text-[10px] uppercase tracking-wider text-success">
                 Total Equity
               </div>
-              <div className="mt-0.5 text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+              <div className="mt-0.5 text-base font-bold tabular-nums text-success">
                 {fmtMoney(d.verification.totalEquity)}
               </div>
             </div>
@@ -428,12 +427,12 @@ export function BalanceSheetView({
         <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-3 text-[10px] text-muted-foreground">
           {isAccountingBalanced ? (
             <>
-              <Check className="h-3 w-3 text-emerald-500" />
+              <Check className="h-3 w-3 text-success" />
               <span>Assets = Liabilities + Equity — the balance sheet is consistent</span>
             </>
           ) : (
             <>
-              <AlertTriangle className="h-3 w-3 text-rose-500" />
+              <AlertTriangle className="h-3 w-3 text-destructive" />
               <span>Difference: {fmtMoney(accountingDiff)}</span>
             </>
           )}
@@ -501,7 +500,7 @@ function SectionTransactionsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
@@ -534,8 +533,8 @@ function SectionTransactionsModal({
           </div>
         ) : isError ? (
           <div className="flex flex-col items-center gap-2 py-16 text-sm">
-            <AlertTriangle className="h-6 w-6 text-rose-500" />
-            <p className="text-rose-600 dark:text-rose-400">Failed to load section transactions.</p>
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <p className="text-destructive">Failed to load section transactions.</p>
           </div>
         ) : !data || data.transactions.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">
@@ -697,7 +696,7 @@ function AccountTransactionsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
@@ -734,8 +733,8 @@ function AccountTransactionsModal({
           </div>
         ) : isError ? (
           <div className="flex flex-col items-center gap-2 py-16 text-sm">
-            <AlertTriangle className="h-6 w-6 text-rose-500" />
-            <p className="text-rose-600 dark:text-rose-400">Failed to load account transactions.</p>
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <p className="text-destructive">Failed to load account transactions.</p>
             <p className="text-muted-foreground">The account may have been deleted or a network error occurred.</p>
           </div>
         ) : !data || data.transactions.length === 0 ? (
@@ -809,8 +808,8 @@ function AccountTransactionsModal({
                       <td
                         className={`px-4 py-2.5 text-right num font-medium ${
                           t.running_balance >= 0
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-rose-600 dark:text-rose-400"
+                            ? "text-success"
+                            : "text-destructive"
                         }`}
                       >
                         {fmtMoney(Math.abs(t.running_balance))}

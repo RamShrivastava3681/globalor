@@ -1,9 +1,10 @@
-import { Router, Response } from "express";
+import { Router, Response, Request } from "express";
 import { z } from "zod";
 import {
   putItem,
   getItem,
   updateItem,
+  updateItemConditional,
   deleteItem,
   scanTable,
   queryByIndex,
@@ -11,10 +12,11 @@ import {
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
-import { generateId, generateNoaToken, nowISO } from "../utils/helpers.js";
+import { generateId, generateNoaToken, generateDocNumber, nowISO } from "../utils/helpers.js";
+import { generateMovementNumber } from "../utils/stock.js";
 import { config } from "../config.js";
-import { sendNoaEmail } from "../utils/email.js";
-import type { Invoice, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta } from "../types/index.js";
+import { sendNoaEmail, sendReminderEmail } from "../utils/email.js";
+import type { Invoice, InvoiceLine, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { getFileStream } from "../s3/client.js";
@@ -350,6 +352,318 @@ const createInvoiceSchema = z.object({
   })).optional(),
 });
 
+// ── POST /api/invoices/from-so ── (goods invoice from a confirmed sales order)
+// Billing after dispatch: every line is validated against the live SO and the
+// invoice NEVER reduces stock — only a confirmed dispatch does.
+const fromSoLineSchema = z.object({
+  product_id: z.string().nullable().optional(),
+  sku: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  unit: z.string().max(40).optional().default("unit"),
+  quantity: z.number().positive("Quantity must be > 0"),
+  unit_price: z.number().min(0, "Unit price must be >= 0"),
+  discount_pct: z.number().min(0).max(100).optional().default(0),
+  gst_rate: z.number().min(0).max(100).nullable().optional(),
+});
+
+const fromSoSchema = z.object({
+  goods_sales_order_id: z.string().min(1),
+  issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
+  due_date: z.string().nullable().optional(),
+  payment_terms_days: z.number().min(0).max(365).optional().default(30),
+  /** Agreed funding advance % — used with received advances for the deduction. */
+  advance_rate: z.number().min(0).max(100).optional().default(0),
+  freight: z.number().min(0).nullable().optional().default(0),
+  /** Customer proforma reference — advances against it are deducted. */
+  po_number: z.string().max(80).nullable().optional(),
+  po_date: z.string().nullable().optional(),
+  documents: z.array(z.any()).optional().default([]),
+  lines: z.array(fromSoLineSchema).min(1, "Add at least one line"),
+});
+
+const CONFIRMED_SO_STATUSES = ["confirmed", "partially_dispatched", "fully_dispatched"];
+
+router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = fromSoSchema.parse(req.body);
+    const id = generateId();
+    const now = nowISO();
+    const noa_token = generateNoaToken();
+
+    // 1. The SO must exist, be in-scope, and be CONFIRMED (or beyond).
+    const so = await getItem(TABLES.GOODS_SALES_ORDERS, { id: parsed.goods_sales_order_id }) as GoodsSalesOrder | undefined;
+    if (!so) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && so.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (!CONFIRMED_SO_STATUSES.includes(so.status)) {
+      res.status(400).json({ error: `Only confirmed sales orders can be invoiced (current: ${so.status})` });
+      return;
+    }
+    if (!so.customer_id) {
+      res.status(400).json({ error: "This sales order has no customer — assign a debtor before invoicing" });
+      return;
+    }
+
+    // 2. Every line must be on the SO and within the ordered quantity — and the
+    //    same goods can't be billed twice: sum what invoices linked to this SO
+    //    already billed per line, so re-invoicing can't exceed ordered qty.
+    const linkedInvoices = await scanTable<any>(TABLES.INVOICES, {
+      filterExpression: "goods_sales_order_id = :soid",
+      expressionAttributeValues: { ":soid": so.id },
+    });
+    const invoicedByLine = new Map<string, number>();
+    for (const inv of linkedInvoices) {
+      for (const l of (inv.lines ?? []) as any[]) {
+        const key = l.sku || l.name || "";
+        invoicedByLine.set(key, (invoicedByLine.get(key) ?? 0) + Number(l.quantity || 0));
+      }
+    }
+    for (const line of parsed.lines) {
+      const soLine = so.lines.find((l) => l.sku === line.sku || l.name === line.name);
+      if (!soLine) {
+        res.status(400).json({ error: `"${line.name}" is not on sales order ${so.so_number}` });
+        return;
+      }
+      const alreadyInvoiced = invoicedByLine.get(line.sku || line.name) ?? 0;
+      if (line.quantity + alreadyInvoiced > soLine.ordered_qty) {
+        const remaining = Math.max(0, soLine.ordered_qty - alreadyInvoiced);
+        res.status(400).json({ error: `Quantity on "${line.name}" (${line.quantity}) exceeds the remaining orderable quantity (${remaining}) — ${alreadyInvoiced} already invoiced against ${so.so_number}` });
+        return;
+      }
+    }
+
+    // 3. Totals (money rounded to 2dp).
+    let subtotal = 0, totalDiscount = 0, gstTotal = 0;
+    const lines: InvoiceLine[] = parsed.lines.map((l) => {
+      const gross = Number(l.quantity) * Number(l.unit_price);
+      const lineDiscount = (gross * Math.min(100, Math.max(0, l.discount_pct))) / 100;
+      subtotal += gross;
+      totalDiscount += lineDiscount;
+      gstTotal += ((gross - lineDiscount) * (Number(l.gst_rate) || 0)) / 100;
+      return {
+        product_id: l.product_id ?? null,
+        sku: l.sku,
+        name: l.name,
+        unit: l.unit || "unit",
+        quantity: l.quantity,
+        unit_price: Math.round(l.unit_price * 100) / 100,
+        discount_pct: l.discount_pct,
+        gst_rate: l.gst_rate ?? null,
+        line_total: Math.round((gross - lineDiscount) * 100) / 100,
+      };
+    });
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const grandTotal = round2(subtotal - totalDiscount + gstTotal + (parsed.freight ?? 0));
+
+    // 4. Advance deduction — computed server-side, never trusted from the client.
+    // deduct = max(advances actually applied to THIS invoice,
+    //             remaining agreed advance % across the linked proformas).
+    // Each mechanism is consumed ONLY for what this invoice actually uses:
+    //  (a) received advances — applied one-by-one in date order; an advance is
+    //      applied only when it fits entirely within the deduction, so a lump
+    //      sum larger than the invoice stays OPEN for a later invoice (advance
+    //      value is never destroyed and never double-counted), and
+    //  (b) the agreed advance % — tracked per proforma (`advance_deducted`),
+    //      so a second invoice against the same proforma can't deduct it twice.
+    const salesProformas: any[] = [];
+    const openAdvances: any[] = [];
+    if (parsed.po_number) {
+      const orders = await queryByIndex<any>(TABLES.PURCHASE_ORDERS, "po_number-index", "po_number = :pn", { ":pn": parsed.po_number });
+      // Company-scoped: a client's proforma number must never match another
+      // company's proforma (tenant isolation).
+      const matched = orders.filter(
+        (o: any) => o.side === "sales" && (!req.user!.company_id || o.company_id === req.user!.company_id)
+      );
+      salesProformas.push(...matched);
+      for (const pf of matched) {
+        const advs = await scanTable<any>(TABLES.ADVANCES, {
+          filterExpression: "purchase_order_id = :poid AND #status = :status",
+          expressionAttributeNames: { "#status": "status" },
+          expressionAttributeValues: { ":poid": pf.id, ":status": "open" },
+        });
+        openAdvances.push(...advs);
+      }
+    }
+    openAdvances.sort((a: any, b: any) => (a.advance_date || "").localeCompare(b.advance_date || ""));
+    // (a) The advances this invoice can actually consume — greedy in date
+    //     order, skipping any advance larger than the remaining deduction.
+    let appliable = 0;
+    for (const adv of openAdvances) {
+      const remaining = round2(grandTotal - appliable);
+      if (remaining <= 0) break;
+      const amount = Number(adv.amount || 0);
+      if (amount > 0 && amount <= remaining) appliable = round2(appliable + amount);
+    }
+    // (b) Remaining agreed allowance: Σ per proforma max(0, amount × rate% − used).
+    const agreedAllowance = salesProformas.reduce((s, pf) => {
+      const pfTotal = Number(pf.amount || 0);
+      const used = Number(pf.advance_deducted ?? 0);
+      const allowance = pfTotal > 0 ? (pfTotal * parsed.advance_rate) / 100 : 0;
+      return s + Math.max(0, allowance - used);
+    }, 0);
+    const advanceDeducted = round2(Math.min(grandTotal, Math.max(appliable, agreedAllowance)));
+    const netReceivable = round2(grandTotal - advanceDeducted);
+    // How much of the deduction is backed by real received advances vs the
+    // agreed allowance (the part charged to the per-proforma ledger).
+    const fromReceived = round2(Math.min(advanceDeducted, appliable));
+    const fromAgreed = round2(advanceDeducted - fromReceived);
+
+    // 5. Create the invoice — `amount` is the NET receivable (what funding reads).
+    const invoice: Invoice = {
+      id,
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      debtor_id: so.customer_id,
+      supplier_id: null,
+      invoice_number: generateDocNumber("INV"),
+      amount: netReceivable,
+      advance_rate: parsed.advance_rate,
+      fee_rate: 0,
+      amount_received: null,
+      issue_date: parsed.issue_date,
+      due_date: parsed.due_date || null,
+      paid_date: null,
+      receipt_date: null,
+      advance_received_date: null,
+      short_payment: null,
+      late_days: null,
+      paid_note: null,
+      status: "draft",
+      payment_type: "manual_pay",
+      noa_status: "not_sent",
+      noa_token,
+      noa_sent_at: null,
+      noa_responded_at: null,
+      noa_comments: null,
+      last_overdue_reminder_date: null,
+      reminder_log: [],
+      po_number: parsed.po_number || null,
+      po_date: parsed.po_date || null,
+      purchase_invoice_ids: [],
+      purchase_order_id: null,
+      payment_terms_days: parsed.payment_terms_days,
+      bl_date: null,
+      due_date_source: "invoice",
+      has_contractual_due_date: false,
+      goods_sales_order_id: so.id,
+      goods_sales_order_number: so.so_number,
+      lines,
+      subtotal_goods: round2(subtotal),
+      total_discount: round2(totalDiscount),
+      gst_total: round2(gstTotal),
+      freight: parsed.freight ?? null,
+      grand_total: grandTotal,
+      advance_deducted: advanceDeducted,
+      net_receivable: netReceivable,
+      customer_contact: so.contact_person,
+      billing_address: so.billing_address,
+      delivery_address: so.delivery_address,
+      documents: parsed.documents as DocMeta[],
+      created_at: now,
+      updated_at: now,
+    };
+
+    // 6. Apply the received advances that back this deduction BEFORE the
+    //    invoice is written, so a concurrent invoice can never claim the same
+    //    advance twice. An advance is applied only when it fits entirely
+    //    (oversized lump sums stay open for a later invoice). If any expected
+    //    application fails (someone else claimed it first) the advances
+    //    already applied are rolled back and the request is rejected — no
+    //    invoice, no lost advance value.
+    const appliedAdvanceIds: string[] = [];
+    const rollbackAppliedAdvances = async () => {
+      for (const advId of appliedAdvanceIds) {
+        // Conditional reverse — never clobber an advance that a concurrent
+        // invoice may have already claimed.
+        await updateItemConditional(
+          TABLES.ADVANCES,
+          { id: advId },
+          { status: "open", invoice_id: null, updated_at: now },
+          "#status = :applied",
+          { "#status": "status" },
+          { ":applied": "applied" },
+        );
+      }
+    };
+    let toApply = fromReceived;
+    for (const adv of openAdvances) {
+      if (toApply <= 0) break;
+      const amount = Number(adv.amount || 0);
+      if (amount <= 0 || amount > toApply) continue; // oversized → stays open
+      const applied = await updateItemConditional(
+        TABLES.ADVANCES,
+        { id: adv.id },
+        { status: "applied", invoice_id: id, updated_at: now },
+        "#status = :expected",
+        { "#status": "status" },
+        { ":expected": "open" },
+      );
+      if (!applied) {
+        await rollbackAppliedAdvances();
+        res.status(409).json({ error: "An advance was already applied by another invoice — refresh and retry" });
+        return;
+      }
+      appliedAdvanceIds.push(adv.id);
+      toApply = round2(toApply - amount);
+    }
+
+    // 7. Charge the agreed-allowance portion to the proforma ledger BEFORE the
+    //    invoice is written, so two concurrent invoices can't both deduct the
+    //    same agreed % — the conditional guard means only one wins; the loser
+    //    rolls its advances back and is rejected with 409.
+    let toConsume = fromAgreed;
+    for (const pf of salesProformas) {
+      if (toConsume <= 0) break;
+      const pfTotal = Number(pf.amount || 0);
+      if (pfTotal <= 0) continue;
+      const allowance = (pfTotal * parsed.advance_rate) / 100;
+      const used = Number(pf.advance_deducted ?? 0);
+      const consume = round2(Math.min(toConsume, Math.max(0, allowance - used)));
+      if (consume <= 0) continue;
+      const consumed = await updateItemConditional(
+        TABLES.PURCHASE_ORDERS,
+        { id: pf.id },
+        { advance_deducted: round2(used + consume), updated_at: now },
+        "(attribute_not_exists(#ad) OR #ad = :used)",
+        { "#ad": "advance_deducted" },
+        { ":used": used },
+      );
+      if (!consumed) {
+        await rollbackAppliedAdvances();
+        res.status(409).json({ error: "Another invoice already claimed this proforma's advance — refresh and retry" });
+        return;
+      }
+      toConsume = round2(toConsume - consume);
+    }
+
+    await putItem(TABLES.INVOICES, invoice as any);
+
+    // No stock movements — only a confirmed dispatch debits inventory.
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      debtor_id: so.customer_id,
+      invoice_id: id,
+      type: "invoice_created",
+      severity: "info",
+      message: `Invoice ${invoice.invoice_number} created from ${so.so_number} — goods $${grandTotal.toLocaleString()}, net $${netReceivable.toLocaleString()} after $${advanceDeducted.toLocaleString()} advance`,
+      created_by: req.user!.id,
+    });
+
+    res.status(201).json(invoice);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Create invoice from SO error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
     const parsed = createInvoiceSchema.parse(req.body);
@@ -387,13 +701,14 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       late_days: null,
       paid_note: null,
       status: "draft",
-      payment_type: "manual_pay",
-      noa_status: "not_sent",
-      noa_token,
-      noa_sent_at: null,
-      noa_responded_at: null,
-      noa_comments: null,
-      po_number: parsed.po_number || null,
+      payment_type: "manual_pay",          noa_status: "not_sent",
+          noa_token,
+          noa_sent_at: null,
+          noa_responded_at: null,
+          noa_comments: null,
+          last_overdue_reminder_date: null,
+          reminder_log: [],
+          po_number: parsed.po_number || null,
       po_date: parsed.po_date || null,
       purchase_invoice_ids: parsed.purchase_invoice_ids || [],
       purchase_order_id: null,
@@ -441,6 +756,17 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
           invoice_id: id,
           purchase_invoice_id: null,
           movement_date: parsed.issue_date,
+          product_id: null,
+          status: "confirmed",
+          reason: "sale",
+          warehouse: null,
+          movement_number: generateMovementNumber(),
+          linked_document_type: "Invoice",
+          linked_document_number: parsed.invoice_number,
+          is_system: true,
+          created_by: req.user!.id,
+          confirmed_by: req.user!.id,
+          confirmed_at: now,
           created_at: now,
           updated_at: now,
         };
@@ -480,6 +806,9 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const debtor = invoice.debtor_id ? await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined : undefined;
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
+    const salesOrder = invoice.goods_sales_order_id
+      ? await getItem(TABLES.GOODS_SALES_ORDERS, { id: invoice.goods_sales_order_id }) as GoodsSalesOrder | undefined
+      : undefined;
     let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
     if (invoice.purchase_invoice_ids && invoice.purchase_invoice_ids.length > 0) {
       const results = await Promise.all(
@@ -495,7 +824,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
     }
 
-    res.json({ ...invoice, debtor, client, purchases });
+    res.json({ ...invoice, debtor, client, purchases, sales_order: salesOrder });
   } catch (err) {
     console.error("Get invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -510,6 +839,15 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (r
     if (invoice.status !== "draft") {
       res.status(400).json({ error: `Cannot submit invoice with status "${invoice.status}". Only draft invoices can be submitted.` });
       return;
+    }
+
+    // SO-linked invoices stay honest: the linked sales order must still be live.
+    if (invoice.goods_sales_order_id) {
+      const so = await getItem(TABLES.GOODS_SALES_ORDERS, { id: invoice.goods_sales_order_id }) as GoodsSalesOrder | undefined;
+      if (!so || (so.status !== "confirmed" && so.status !== "partially_dispatched" && so.status !== "fully_dispatched")) {
+        res.status(400).json({ error: "This invoice is linked to a sales order that is no longer open for invoicing" });
+        return;
+      }
     }
 
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, {
@@ -654,14 +992,16 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           paid_note: null,
           status: "draft",
           payment_type: "mass_upload",
-          noa_status: "not_sent",
-          noa_token,
-          noa_sent_at: null,
-          noa_responded_at: null,
-          noa_comments: null,
-          po_number: parsed.po_number || null,
-          po_date: parsed.po_date || null,
-          purchase_invoice_ids: [],
+      noa_status: "not_sent",
+      noa_token,
+      noa_sent_at: null,
+      noa_responded_at: null,
+      noa_comments: null,
+      last_overdue_reminder_date: null,
+      reminder_log: [],
+      po_number: parsed.po_number || null,
+      po_date: parsed.po_date || null,
+      purchase_invoice_ids: [],
           purchase_order_id: null,
           payment_terms_days: parsed.payment_terms_days,
           bl_date: parsed.bl_date || null,
@@ -1186,9 +1526,17 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
     const companyName = client?.company_name || "A client";
 
+    const noaEntry: ReminderEntry = {
+      sent_at: nowISO(),
+      type: "noa",
+      to: debtor?.contact_email || "",
+      note: debtor?.contact_email ? "Notice of Assignment sent" : "NOA sent — no debtor email on file",
+    };
+    const reminderLog = [...(invoice.reminder_log ?? []), noaEntry];
     await updateItem(TABLES.INVOICES, { id: req.params.id }, {
       noa_status: "sent",
       noa_sent_at: nowISO(),
+      reminder_log: reminderLog,
       updated_at: nowISO(),
     });
 
@@ -1213,6 +1561,201 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     res.json({ noa_status: "sent", noa_link: link });
   } catch (err) {
     console.error("Send NOA error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/invoices/:id/payment ── (record a payment — accumulates amount_received)
+// Treasury/admin action. Derives paid / late days / short payment, mirrors the
+// batch-close derivation but for a single invoice, and freezes paid invoices.
+const recordPaymentSchema = z.object({
+  amount_received: z.number().positive("Amount must be > 0"),
+  date_received: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
+  paid_note: z.string().max(500).nullable().optional().default(null),
+});
+
+router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "funding-queue", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    const parsed = recordPaymentSchema.parse(req.body);
+    const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+    if (req.user!.company_id && invoice.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    if (invoice.status === "paid" || invoice.status === "rejected") {
+      res.status(400).json({ error: `Cannot record payment on a ${invoice.status} invoice` });
+      return;
+    }
+
+    const amount = Number(invoice.amount);
+    const payment = Math.round(Number(parsed.amount_received) * 100) / 100;
+
+    // Money step — never a blind read-modify-write. Conditional on the
+    // previously-read `amount_received` with a bounded retry, so two concurrent
+    // payments can't lose each other's contribution.
+    let current = invoice;
+    let updated: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const receivedSoFar = Number(current.amount_received ?? 0);
+      const received = Math.round((receivedSoFar + payment) * 100) / 100;
+      const isPaid = received >= amount;
+      const shortPayment = Math.max(0, +(amount - received).toFixed(2));
+      const lateDays = current.due_date
+        ? Math.max(0, Math.round((new Date(parsed.date_received).getTime() - new Date(current.due_date).getTime()) / 86400000))
+        : 0;
+
+      const entry: ReminderEntry = {
+        sent_at: nowISO(),
+        type: "manual",
+        to: req.user!.email || "",
+        note: `Payment recorded: $${payment.toLocaleString()}${parsed.paid_note ? ` — ${parsed.paid_note}` : ""}`,
+      };
+
+      const updates: Record<string, any> = {
+        amount_received: received,
+        receipt_date: parsed.date_received,
+        short_payment: isPaid ? shortPayment : null,
+        late_days: lateDays,
+        paid_note: parsed.paid_note ?? current.paid_note ?? null,
+        payment_type: "treasury_pay",
+        reminder_log: [...(current.reminder_log ?? []), entry],
+        updated_at: nowISO(),
+      };
+      if (isPaid) {
+        updates.status = "paid";
+        updates.paid_date = parsed.date_received;
+      }
+
+      updated = await updateItemConditional(
+        TABLES.INVOICES,
+        { id: req.params.id },
+        updates,
+        "amount_received = :expected",
+        undefined,
+        { ":expected": current.amount_received ?? 0 },
+      );
+      if (updated) break;
+      // Lost the race — re-read and retry with the fresh amount_received.
+      const fresh = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+      if (!fresh) { res.status(404).json({ error: "Invoice not found" }); return; }
+      current = fresh;
+    }
+    if (!updated) {
+      res.status(409).json({ error: "Could not record payment — concurrent payment in progress, try again" });
+      return;
+    }
+
+    createActivityAlert({
+      client_id: invoice.client_id,
+      company_id: invoice.company_id,
+      debtor_id: invoice.debtor_id,
+      invoice_id: invoice.id,
+      type: "payment_received",
+      severity: "info",
+      message: updated.status === "paid"
+        ? `Payment received for ${invoice.invoice_number}: $${updated.amount_received.toLocaleString()} (fully paid)`
+        : `Partial payment for ${invoice.invoice_number}: $${payment.toLocaleString()} ($${updated.amount_received.toLocaleString()} of $${amount.toLocaleString()})`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
+    console.error("Record payment error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/invoices/:id/remind ── (manual reminder — admin/treasury action)
+// Sends an overdue reminder email immediately and logs it. Idempotent-ish: a
+// same-day manual reminder is allowed (it supersedes the daily sweep stamp).
+router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "funding-queue", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+    if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
+    if (req.user!.company_id && invoice.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    if (invoice.status === "paid" || invoice.status === "rejected") {
+      res.status(400).json({ error: `Cannot remind on a ${invoice.status} invoice` });
+      return;
+    }
+
+    const debtor = await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined;
+    const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
+    if (!debtor?.contact_email) {
+      res.status(400).json({ error: "This debtor has no contact email on file — add one before reminding" });
+      return;
+    }
+
+    const daysOverdue = invoice.due_date
+      ? Math.max(1, Math.round((Date.now() - new Date(invoice.due_date).getTime()) / 86400000))
+      : 0;
+    const invoiceUrl = `${config.appUrl}/noa/${invoice.noa_token}`;
+    sendReminderEmail({
+      to: debtor.contact_email,
+      debtorName: debtor.name,
+      debtorContactName: debtor.contact_name ?? null,
+      invoiceNumber: invoice.invoice_number,
+      amount: invoice.amount,
+      dueDate: invoice.due_date,
+      daysOverdue,
+      companyName: client?.company_name || "A client",
+      invoiceUrl,
+    });
+
+    const entry: ReminderEntry = {
+      sent_at: nowISO(),
+      type: "manual",
+      to: debtor.contact_email,
+      note: `Manual reminder sent (overdue ${daysOverdue} day${daysOverdue === 1 ? "" : "s"})`,
+    };
+    const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, {
+      last_overdue_reminder_date: new Date().toISOString().slice(0, 10),
+      reminder_log: [...(invoice.reminder_log ?? []), entry],
+      updated_at: nowISO(),
+    });
+
+    createActivityAlert({
+      client_id: invoice.client_id,
+      company_id: invoice.company_id,
+      debtor_id: invoice.debtor_id,
+      invoice_id: invoice.id,
+      type: "invoice_created",
+      severity: "info",
+      message: `Manual overdue reminder emailed for ${invoice.invoice_number}`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Send reminder error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/invoices/:id/remind-debtor/:token ── (public, token-authenticated)
+// The link a reminder email points at: the debtor's one-time token verifies
+// they can see this invoice's summary without a login (mirrors /api/noa/:token).
+router.get("/:id/remind-debtor/:token", async (req: Request, res: Response) => {
+  try {
+    const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+    if (!invoice || !invoice.noa_token || invoice.noa_token !== req.params.token) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    res.json({
+      invoice_number: invoice.invoice_number,
+      amount: invoice.amount,
+      due_date: invoice.due_date,
+      status: invoice.status,
+      noa_status: invoice.noa_status,
+    });
+  } catch (err) {
+    console.error("Reminder token lookup error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

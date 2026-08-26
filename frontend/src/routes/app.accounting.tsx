@@ -36,10 +36,10 @@ const SUB_TYPES: { value: string; label: string; type: string }[] = [
 
 const TYPE_COLORS: Record<string, string> = {
   asset: "text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-950 dark:border-blue-800",
-  liability: "text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-400 dark:bg-amber-950 dark:border-amber-800",
-  equity: "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950 dark:border-emerald-800",
-  revenue: "text-violet-600 bg-violet-50 border-violet-200 dark:text-violet-400 dark:bg-violet-950 dark:border-violet-800",
-  expense: "text-rose-600 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-950 dark:border-rose-800",
+  liability: "text-warning bg-warning/10 border-warning/30",
+  equity: "text-success bg-success/10 border-success/30",
+  revenue: "text-info bg-info/10 border-info/30",
+  expense: "text-destructive bg-destructive/10 border-destructive/30",
 };
 
 function AccountingPage() {
@@ -61,7 +61,7 @@ function AccountingPage() {
             onClick={() => navigate({ to: "/app/accounting", search: { tab: "chart-of-accounts" } })}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all ${
               tab === "chart-of-accounts"
-                ? "border-[#00B8FF] text-[#00B8FF]"
+                ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
             }`}
           >
@@ -72,7 +72,7 @@ function AccountingPage() {
             onClick={() => navigate({ to: "/app/accounting", search: { tab: "manual-journal" } })}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all ${
               tab === "manual-journal"
-                ? "border-[#00B8FF] text-[#00B8FF]"
+                ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
             }`}
           >
@@ -83,7 +83,7 @@ function AccountingPage() {
             onClick={() => navigate({ to: "/app/accounting", search: { tab: "trial-balance" } })}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all ${
               tab === "trial-balance"
-                ? "border-[#00B8FF] text-[#00B8FF]"
+                ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
             }`}
           >
@@ -94,7 +94,7 @@ function AccountingPage() {
             onClick={() => navigate({ to: "/app/accounting", search: { tab: "balance-sheet" } })}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all ${
               tab === "balance-sheet"
-                ? "border-[#00B8FF] text-[#00B8FF]"
+                ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
             }`}
           >
@@ -177,7 +177,7 @@ function ChartOfAccounts() {
                     <td className="px-6 py-3 text-muted-foreground max-w-[200px] truncate">{acc.description || "—"}</td>
                     <td className="px-6 py-3 text-center">
                       {acc.is_active !== false ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success">
                           <Check className="h-3 w-3" /> Active
                         </span>
                       ) : (
@@ -251,7 +251,7 @@ function AccountFormModal({ editing, onClose, onDone }: { editing: any | null; o
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="flex items-center gap-2">
@@ -366,11 +366,11 @@ function ManualJournal() {
                     <td className="px-6 py-3 text-right num font-medium">{fmtMoney(entry.total_credits)}</td>
                     <td className="px-6 py-3 text-center">
                       {entry.status === "posted" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
                           Posted
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
                           Draft
                         </span>
                       )}
@@ -483,7 +483,7 @@ function JournalEntryFormModal({ onClose, onDone }: { onClose: () => void; onDon
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-2">
@@ -590,11 +590,11 @@ function JournalEntryFormModal({ onClose, onDone }: { onClose: () => void; onDon
             <div className="mt-2 flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-2">
               <div className="flex items-center gap-2 text-xs">
                 {isBalanced ? (
-                  <span className="flex items-center gap-1 text-emerald-600">
+                  <span className="flex items-center gap-1 text-success">
                     <Check className="h-3.5 w-3.5" /> Balanced
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-rose-600">
+                  <span className="flex items-center gap-1 text-destructive">
                     <AlertTriangle className="h-3.5 w-3.5" /> Out of balance by {fmtMoney(Math.abs(totalDebits - totalCredits))}
                   </span>
                 )}
@@ -642,7 +642,7 @@ function JournalEntryDetailModal({ entry, accountMap, onClose, onDone }: { entry
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="flex items-center gap-2">
@@ -667,11 +667,11 @@ function JournalEntryDetailModal({ entry, accountMap, onClose, onDone }: { entry
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</div>
               <div className="mt-0.5">
                 {entry.status === "posted" ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-success">
                     Posted
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warning">
                     Draft
                   </span>
                 )}
@@ -746,7 +746,7 @@ function JournalEntryDetailModal({ entry, accountMap, onClose, onDone }: { entry
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4" onClick={() => setConfirmDelete(false)}>
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/45 p-4" onClick={() => setConfirmDelete(false)}>
           <div className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 text-destructive mb-3">
               <AlertTriangle className="h-5 w-5" />
@@ -816,8 +816,8 @@ function TrialBalance() {
             <span
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
                 data.balanced
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400"
-                  : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
+                  ? "border-success/30 bg-success/10 text-success"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
               }`}
             >
               {data.balanced ? (
@@ -927,7 +927,7 @@ function TrialBalance() {
                 <tr className="border-t border-border bg-muted/5">
                   <td colSpan={5} className="px-6 py-2">
                     <div className={`flex items-center justify-center gap-2 text-xs ${
-                      data.balanced ? "text-emerald-600" : "text-rose-600"
+                      data.balanced ? "text-success" : "text-destructive"
                     }`}>
                       {data.balanced ? (
                         <>

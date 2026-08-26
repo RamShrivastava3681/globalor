@@ -58,7 +58,7 @@ function getOnlineStatus(lastSeenAt: string | null): { label: string; color: str
 
   // Show "Online" with green dot for users active in the last 5 minutes
   if (diffMinutes < 5) {
-    return { label: "Online", color: "text-emerald-600", dotColor: "bg-emerald-500" };
+    return { label: "Online", color: "text-success", dotColor: "bg-success" };
   }
 
   // For everyone else, show the actual last seen timestamp

@@ -12,7 +12,9 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseInvoice, Vendor, Profile, Debtor, DocMeta } from "../types/index.js";
+import { generateMovementNumber } from "../utils/stock.js";
+import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
+import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Debtor, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 
@@ -183,6 +185,8 @@ const createSchema = z.object({
   amount: z.number(),
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
+  /** Link to a goods PO — the PO this supplier invoice bills (lines are snapshotted from it). */
+  goods_purchase_order_id: z.string().trim().max(200).nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
   payment_terms_days: z.number().min(0).optional().default(30),
@@ -217,6 +221,41 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
         })())
       : null;
 
+    // Optional goods-PO link: must be in-scope and past its approval gate
+    // (only sent / partially- / fully-received POs can be billed).
+    let poLines: PurchaseInvoiceLine[] | undefined;
+    let poNumber = parsed.po_number || null;
+    let poDate = parsed.po_date || null;
+    let linkedPoId: string | null = parsed.goods_purchase_order_id || null;
+    if (linkedPoId) {
+      const po = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: linkedPoId }) as GoodsPurchaseOrder | undefined;
+      if (!po || (req.user!.company_id && po.company_id !== req.user!.company_id)) {
+        res.status(404).json({ error: "Linked purchase order not found" });
+        return;
+      }
+      if (po.status === "draft" || po.status === "approved" || po.status === "cancelled") {
+        res.status(400).json({ error: `Approve and send the purchase order before invoicing it (current: ${po.status})` });
+        return;
+      }
+      poNumber = po.po_number;
+      poDate = po.po_date || null;
+      // Snapshot the PO lines — what the supplier billed (invoice_qty) stays
+      // editable and is never assumed; grn_received_qty is back-filled below.
+      poLines = po.lines.map((l) => ({
+        product_id: l.product_id,
+        sku: l.sku,
+        name: l.name,
+        unit: l.unit,
+        ordered_qty: l.ordered_qty,
+        grn_received_qty: 0,
+        invoice_qty: 0,
+        unit_price: l.unit_price,
+        po_unit_price: l.unit_price,
+        gst_rate: l.gst_rate,
+        line_total: 0,
+      }));
+    }
+
     const invoice: PurchaseInvoice = {
       id,
       client_id: req.user!.id,
@@ -226,8 +265,8 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       amount: parsed.amount,
       amount_paid: null,
       advance_rate: 0,
-      po_number: parsed.po_number || null,
-      po_date: parsed.po_date || null,
+      po_number: poNumber,
+      po_date: poDate,
       issue_date: parsed.issue_date,
       due_date,
       paid_date: null,
@@ -242,12 +281,21 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       status: "draft",
       documents: parsed.documents as DocMeta[],
       purchase_order_id: null,
+      goods_purchase_order_id: linkedPoId,
+      lines: poLines,
+      linked_goods_receipt_ids: linkedPoId ? [] : null,
       linked_sales_invoice_ids: parsed.linked_sales_invoice_ids || [],
       created_at: now,
       updated_at: now,
     };
 
     await putItem(TABLES.PURCHASE_INVOICES, invoice as any);
+
+    // Back-fill grn_received_qty from GRNs already confirmed against the PO.
+    if (linkedPoId) {
+      await syncPurchaseInvoiceFromGrns(id).catch((err) =>
+        console.error(`   ⚠️ Purchase-invoice GRN back-fill failed for ${id}:`, err));
+    }
 
     // Link open advances to this purchase invoice and mark as applied
     if (parsed.po_number) {
@@ -282,6 +330,17 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
           invoice_id: null,
           purchase_invoice_id: id,
           movement_date: parsed.issue_date,
+          product_id: null,
+          status: "confirmed",
+          reason: "purchase",
+          warehouse: null,
+          movement_number: generateMovementNumber(),
+          linked_document_type: "Purchase invoice",
+          linked_document_number: parsed.invoice_number,
+          is_system: true,
+          created_by: req.user!.id,
+          confirmed_by: req.user!.id,
+          confirmed_at: now,
           created_at: now,
           updated_at: now,
         };
@@ -317,6 +376,15 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
     const updates: Record<string, unknown> = { ...req.body, updated_at: nowISO() };
     delete updates.id;
     delete updates.created_at;
+    // Recompute line totals whenever lines are edited (invoice_qty / unit_price
+    // changes must not leave stale line_total values behind). `amount` stays
+    // the authoritative net payable — lines feed the warn-only difference views.
+    if (Array.isArray(updates.lines)) {
+      updates.lines = (updates.lines as any[]).map((l) => ({
+        ...l,
+        line_total: Math.round((Number(l.invoice_qty || 0) * Number(l.unit_price || 0)) * 100) / 100,
+      }));
+    }
 
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Purchase invoice not found" }); return; }

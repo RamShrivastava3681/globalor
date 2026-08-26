@@ -52,6 +52,14 @@ export const TABLES = {
   JOURNAL_ENTRIES: `${p()}_journal_entries`,
   BALANCE_SHEET_ITEMS: `${p()}_balance_sheet_items`,
   COMPANIES: `${p()}_companies`,
+  PRODUCTS: `${p()}_products`,
+  CATALOGUE_SETTINGS: `${p()}_catalogue_settings`,
+  GOODS_PURCHASE_ORDERS: `${p()}_goods_purchase_orders`,
+  GOODS_RECEIPTS: `${p()}_goods_receipts`,
+  GOODS_SALES_ORDERS: `${p()}_goods_sales_orders`,
+  GOODS_DISPATCHES: `${p()}_goods_dispatches`,
+  QUOTATIONS: `${p()}_quotations`,
+  FORECAST_VARIABLES: `${p()}_forecast_variables`,
   /**
    * email → user_id registry. Used to look up users by email without a full
    * table scan, and as an atomic uniqueness constraint on signup (conditional
@@ -123,6 +131,47 @@ export async function updateItem(
   };
   const result = await docClient.send(new UpdateCommand(params));
   return result.Attributes as Record<string, unknown> | undefined;
+}
+
+/**
+ * Conditional update — only applies when `conditionExpression` holds.
+ * Returns the updated item, or `null` when the condition failed (e.g. a
+ * concurrent writer won the race). Used for race-safe confirm/cancel flips:
+ * `status = 'draft'` guard means exactly one concurrent confirm wins.
+ */
+export async function updateItemConditional(
+  tableName: string,
+  key: Record<string, unknown>,
+  updates: Record<string, unknown>,
+  conditionExpression: string,
+  expressionAttributeNames?: Record<string, string>,
+  expressionAttributeValues?: Record<string, unknown>,
+) {
+  const updateExpression =
+    "SET " +
+    Object.keys(updates)
+      .map((k) => `#${k} = :${k}`)
+      .join(", ");
+  const names = Object.fromEntries(Object.keys(updates).map((k) => [`#${k}`, k]));
+  const values = Object.fromEntries(Object.entries(updates).map(([k, v]) => [`:${k}`, v]));
+
+  const params: UpdateCommandInput = {
+    TableName: tableName,
+    Key: key,
+    UpdateExpression: updateExpression,
+    ExpressionAttributeNames: { ...names, ...(expressionAttributeNames ?? {}) },
+    ExpressionAttributeValues: { ...values, ...(expressionAttributeValues ?? {}) },
+    ConditionExpression: conditionExpression,
+    ReturnValues: "ALL_NEW",
+  };
+
+  try {
+    const result = await docClient.send(new UpdateCommand(params));
+    return result.Attributes as Record<string, unknown> | undefined;
+  } catch (err: any) {
+    if (err?.name === "ConditionalCheckFailedException") return null;
+    throw err;
+  }
 }
 
 export async function deleteItem(tableName: string, key: Record<string, unknown>) {

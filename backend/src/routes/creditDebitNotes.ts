@@ -152,7 +152,7 @@ const createSchema = z.object({
   type: z.enum(["credit", "debit"]),
   note_number: z.string().min(1).max(80),
   date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
-  amount: z.number().positive(),
+  amount: z.number(),
   debtor_supplier_name: z.string().max(200).nullable().optional(),
   supplier_name: z.string().max(200).nullable().optional(),
   linked_invoice_id: z.string().nullable().optional(),
@@ -311,7 +311,7 @@ const batchCreateSchema = z.object({
   notes: z.array(z.object({
     note_number: z.string().min(1).max(80),
     date: z.string().optional(),
-    amount: z.number().positive(),
+    amount: z.number(),
     debtor_supplier_name: z.string().max(200).nullable().optional(),
     supplier_name: z.string().max(200).nullable().optional(),
     linked_invoice_number: z.string().max(80).nullable().optional(),

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle2, FileText, Download, ArrowUpDown, Upload, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,65 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-const datePresets = [
-  {
-    label: "Today",
-    getRange: () => {
-      const today = new Date().toISOString().slice(0, 10);
-      return { from: today, to: today };
-    },
-  },
-  {
-    label: "This week",
-    getRange: () => {
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const from = new Date(now);
-      from.setDate(now.getDate() - dayOfWeek);
-      const to = new Date(now);
-      to.setDate(from.getDate() + 6);
-      return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-    },
-  },
-  {
-    label: "This month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "Last month",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This quarter",
-    getRange: () => {
-      const now = new Date();
-      const q = Math.floor(now.getMonth() / 3);
-      const from = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), (q + 1) * 3, 0).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-  {
-    label: "This year",
-    getRange: () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), 11, 31).toISOString().slice(0, 10);
-      return { from, to };
-    },
-  },
-];
 
 export const Route = createFileRoute("/app/proformas")({
   validateSearch: z.object({ view: z.string().optional() }),
@@ -212,6 +155,21 @@ function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Phase 8 wiring: convert an approved proforma into its goods document.
+  const convert = useMutation({
+    mutationFn: async ({ id, target }: { id: string; target: "po" | "so" }) => {
+      const res = await api.post<any>(`/purchase-orders/${id}/convert-to-${target}`);
+      return res;
+    },
+    onSuccess: (doc, vars) => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["goods_po"] });
+      qc.invalidateQueries({ queryKey: ["goods_so"] });
+      toast.success(vars.target === "po" ? `Purchase order ${doc?.po_number ?? ""} created` : `Sales order ${doc?.so_number ?? ""} created`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   return (
     <div>
       <PageHeader
@@ -220,17 +178,14 @@ function ProformasPage() {
         description="Raise a proforma invoice against a PO number to take or release an advance."
         actions={
           canCreate ? (
-            <div className="flex gap-2">
-              <button onClick={() => setOpen("sales")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                <Plus className="h-4 w-4" /> Sales proforma
-              </button>
-              <button onClick={() => setOpen("purchase")} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm">
-                <Plus className="h-4 w-4" /> Purchase proforma
-              </button>
-              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                <Upload className="h-4 w-4" /> Mass import
-              </button>
-            </div>
+            <ActionMenu
+              primaryAction={{ label: "New proforma", icon: <Plus className="h-4 w-4" />, onClick: () => setOpen("sales") }}
+              items={[
+                { label: "Sales proforma", icon: <Plus className="h-4 w-4" />, onClick: () => setOpen("sales") },
+                { label: "Purchase proforma", icon: <Plus className="h-4 w-4" />, onClick: () => setOpen("purchase") },
+                { label: "Mass import", icon: <Upload className="h-4 w-4" />, onClick: () => setImportOpen(true) },
+              ]}
+            />
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
           )
@@ -247,100 +202,37 @@ function ProformasPage() {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {([
-            ["all", "All stages", null],
-            ["pending_review", "Pending review", counts.pending_review],
-            ["approved", "Funding queue", counts.approved],
-            ["funded", "Funded", counts.funded],
-            ["rejected", "Rejected", counts.rejected],
-          ] as const).map(([k, label, n]) => (
-            <button key={k} onClick={() => setQueue(k as typeof queue)}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[11px] transition ${
-                queue === k ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>
-              {label}
-              {n != null && n > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">{n}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {datePresets.map((preset) => {
-            const range = preset.getRange();
-            const active = createdAtFrom === range.from && createdAtTo === range.to;
-            return (
-              <button key={preset.label} onClick={() => {
-                const r = preset.getRange();
-                setCreatedAtFrom(r.from);
-                setCreatedAtTo(r.to);
-              }}
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                  active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}>
-                {preset.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Created from</label>
-            <input type="date" value={createdAtFrom}
-              onChange={(e) => setCreatedAtFrom(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
-            <input type="date" value={createdAtTo}
-              onChange={(e) => setCreatedAtTo(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          {(createdAtFrom || createdAtTo) && (
-            <button onClick={() => { setCreatedAtFrom(""); setCreatedAtTo(""); }}
-              className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear dates
-            </button>
-          )}
-        </div>
-        <div className="relative">
-          <input type="text" placeholder="Search proformas by number, PO, counterparty..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
-        </div>
-
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
-          <div className="flex gap-1">
-            {(["proforma", "created", "due"] as const).map((field) => (
-              <button
-                key={field}
-                onClick={() => {
-                  if (sortField === field) {
-                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                  } else {
-                    setSortField(field);
-                    setSortOrder("asc");
-                  }
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                  sortField === field
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                {field === "created" ? "Created date" : field === "due" ? "ERP Due date" : "Proforma date"}
-                {sortField === field && (
-                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+        <FilterBar
+          searchPlaceholder="Search proformas by number, PO, counterparty…"
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusOptions={[
+            { label: "All stages", value: "all" },
+            { label: `Pending review (${counts.pending_review})`, value: "pending_review" },
+            { label: `Funding queue (${counts.approved})`, value: "approved" },
+            { label: `Funded (${counts.funded})`, value: "funded" },
+            { label: `Rejected (${counts.rejected})`, value: "rejected" },
+          ]}
+          statusValue={queue}
+          onStatusChange={(v) => setQueue(v as typeof queue)}
+          dateRanges={[{
+            label: "Created",
+            from: createdAtFrom,
+            to: createdAtTo,
+            onFromChange: setCreatedAtFrom,
+            onToChange: setCreatedAtTo,
+            onClear: () => { setCreatedAtFrom(""); setCreatedAtTo(""); },
+          }]}
+          sortOptions={[
+            { field: "proforma", label: "Proforma date" },
+            { field: "created", label: "Created" },
+            { field: "due", label: "ERP Due date" },
+          ]}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          onSortChange={(field) => setSortField(field as typeof sortField)}
+          onSortOrderChange={(order) => setSortOrder(order)}
+        />
 
         <Card>
           {listQ.isLoading ? (
@@ -405,6 +297,19 @@ function ProformasPage() {
                             )}
                             {p.proforma_status === "funded" && (
                               <span className="text-[10px] uppercase tracking-widest text-success">Funded</span>
+                            )}
+                            {p.converted_to && (
+                              <span className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/5 px-2 py-1 text-[10px] text-success">
+                                <CheckCircle2 className="h-3 w-3" /> Converted to {p.converted_to.toUpperCase()} {p.converted_document_number || ""}
+                              </span>
+                            )}
+                            {canCreate && p.proforma_status === "approved" && !p.converted_to && (
+                              <button onClick={() => convert.mutate({ id: p.id, target: p.side === "purchase" ? "po" : "so" })}
+                                disabled={convert.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                title={p.side === "purchase" ? "Convert to a goods purchase order" : "Convert to a goods sales order"}>
+                                <ArrowUpDown className="h-3 w-3" /> Convert to {p.side === "purchase" ? "PO" : "SO"}
+                              </button>
                             )}
                             {canCreate && (p.proforma_status === "pending_review" || p.proforma_status === "rejected") && (
                               <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
@@ -616,7 +521,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-base">{title}</h3>
@@ -666,7 +571,7 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -967,7 +872,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
   const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.proforma_amount, 0), [rows]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">

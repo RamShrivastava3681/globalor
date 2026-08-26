@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -49,6 +50,10 @@ function CreditDebitNotesPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<NoteEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<NoteEntry | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<"date" | "amount">("date");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const notesQ = useQuery({
     queryKey: ["credit-debit-notes"],
@@ -115,10 +120,27 @@ function CreditDebitNotesPage() {
   });
 
   const notes = notesQ.data ?? [];
-  const filteredEntries = useMemo(
-    () => notes.filter((e) => e.type === tab),
-    [notes, tab],
-  );
+  const filteredEntries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return notes
+      .filter((e) => e.type === tab)
+      .filter((e) => statusFilter === "all" || e.status === statusFilter)
+      .filter((e) => {
+        if (!q) return true;
+        return (
+          e.note_number?.toLowerCase().includes(q) ||
+          e.debtor_supplier_name?.toLowerCase().includes(q) ||
+          e.reason?.toLowerCase().includes(q) ||
+          e.linkedInvoice?.invoice_number?.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        const aVal = sortField === "date" ? (a.date ?? a.created_at ?? "") : String(a.amount);
+        const bVal = sortField === "date" ? (b.date ?? b.created_at ?? "") : String(b.amount);
+        const cmp = aVal.localeCompare(bVal);
+        return sortOrder === "asc" ? cmp : -cmp;
+      });
+  }, [notes, tab, searchQuery, statusFilter, sortField, sortOrder]);
 
   return (
     <div>
@@ -192,6 +214,30 @@ function CreditDebitNotesPage() {
             </div>
           </Card>
         </div>
+
+        <FilterBar
+          searchPlaceholder="Search by note #, debtor/supplier, reason, linked invoice…"
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusOptions={[
+            { label: "All statuses", value: "all" },
+            { label: "Pending", value: "pending" },
+            { label: "Approved", value: "approved" },
+            { label: "Rejected", value: "rejected" },
+            { label: "Received", value: "received" },
+            { label: "Paid", value: "paid" },
+          ]}
+          statusValue={statusFilter}
+          onStatusChange={setStatusFilter}
+          sortOptions={[
+            { field: "date", label: "Date" },
+            { field: "amount", label: "Amount" },
+          ]}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          onSortChange={(f) => setSortField(f as typeof sortField)}
+          onSortOrderChange={setSortOrder}
+        />
 
         {/* Entries table */}
         <Card>
@@ -340,7 +386,7 @@ function ConfirmDeleteNoteModal({
 }) {
   const reversesInvoice = note.status !== "pending" && !!note.linkedInvoice;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onCancel}>
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-2 font-display text-lg">Delete {note.type} note {note.note_number}?</h3>
         <p className="text-sm text-muted-foreground">
@@ -409,7 +455,7 @@ function NewNoteModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!noteNumber.trim()) { toast.error("Note number is required"); return; }
-    if (!amount || Number(amount) <= 0) { toast.error("Amount must be greater than 0"); return; }
+    if (!amount || isNaN(Number(amount))) { toast.error("Amount must be a valid number"); return; }
 
     onSave({
       type,
@@ -456,7 +502,7 @@ function NewNoteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
       onClick={onClose}
     >
       <div
@@ -481,7 +527,7 @@ function NewNoteModal({
               <input required type="date" className="inp" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
             <Field label="Amount (USD) *">
-              <input required type="text" inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" title="Enter a positive number (e.g. 123.45)" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </Field>
           </div>
 
@@ -765,7 +811,7 @@ function MassImportNotesModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">

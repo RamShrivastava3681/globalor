@@ -5,29 +5,37 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ============================================================
-   GLOBALOR — Premium light & dark enterprise fintech dashboard
-   Aesthetic: Clean, modern, executive-grade financial platform
-   Inspired by Stripe Dashboard, Linear, Vercel, Ramp, Brex, Mercury
+   GLOBALOR — Premium institutional financial platform
+   Aesthetic: White + Blue. Precise. Quiet. Financial.
+   Design language inspired by institutional banking UX —
+   hierarchy over containers, hairline borders over shadows,
+   tabular numerals, and a deliberately restrained blue accent.
    ============================================================ */
 
 @theme inline {
-  --font-display: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 16px;
-  --radius-2xl: 24px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-active: var(--surface-active);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-soft: var(--primary-soft);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -56,219 +64,181 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --color-glow-primary: var(--glow-primary);
-  --color-glow-success: var(--glow-success);
-  --color-glow-warning: var(--glow-warning);
-  --color-glow-destructive: var(--glow-destructive);
-
   --shadow-card: var(--shadow-card-value);
   --shadow-card-hover: var(--shadow-card-hover-value);
   --shadow-glow: var(--shadow-glow-value);
   --shadow-glow-lg: var(--shadow-glow-lg-value);
 }
 
+/* ============================================================
+   LIGHT MODE — White + institutional blue
+   ============================================================ */
 :root {
-  --radius: 16px;
+  --radius: 10px;
 
-  /* === Premium Light Enterprise Palette === */
-  --bg-main: #F8FAFC;
-  --bg-secondary: #FFFFFF;
-  --bg-card: #FFFFFF;
-  --bg-sidebar: #FFFFFF;
+  --background: #FFFFFF;
+  --foreground: #111827;
 
-  --background: var(--bg-main);
-  --foreground: #0F172A;
+  --surface: #FFFFFF;
+  --surface-subtle: #F4F7FA;
+  --surface-active: #EEF7FF;
 
   --card: #FFFFFF;
-  --card-foreground: #0F172A;
+  --card-foreground: #111827;
 
   --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
+  --popover-foreground: #111827;
 
-  /* Accent blue */
-  --primary: #00B8FF;
-  --primary-hover: #0099D9;
-  --primary-dark: #0077B6;
+  /* Primary — deep institutional blue */
+  --primary: #006FCF;
+  --primary-hover: #005FB3;
+  --primary-active: #004F97;
+  --primary-soft: #E8F4FF;
   --primary-foreground: #FFFFFF;
 
-  --secondary: rgba(0, 184, 255, 0.08);
-  --secondary-foreground: #0F172A;
+  --secondary: #F0F6FD;
+  --secondary-foreground: #0A4D9E;
 
-  --muted: #F1F5F9;
-  --muted-foreground: #64748B;
+  --muted: #F4F7FA;
+  --muted-foreground: #536273;
 
   --accent: #F1F5F9;
-  --accent-foreground: #0F172A;
+  --accent-foreground: #111827;
 
-  --destructive: #DC2626;
+  /* Semantic — restrained, blue/neutral family */
+  --destructive: #3F4B5C;
   --destructive-foreground: #FFFFFF;
-
-  --warning: #F59E0B;
+  --warning: #0E4C7E;
   --warning-foreground: #FFFFFF;
-
-  --success: #16A34A;
+  --success: #0F3D6B;
   --success-foreground: #FFFFFF;
-
-  --info: #00B8FF;
+  --info: #2A8FE0;
   --info-foreground: #FFFFFF;
 
-  --border: #E2E8F0;
-  --input: #E2E8F0;
-  --ring: #00B8FF;
+  --border: #DCE5EE;
+  --input: #C5D2DF;
+  --ring: #006FCF;
 
+  /* Sidebar */
   --sidebar: #FFFFFF;
-  --sidebar-foreground: #475569;
-  --sidebar-primary: #00B8FF;
+  --sidebar-foreground: #536273;
+  --sidebar-primary: #006FCF;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F0F9FF;
-  --sidebar-accent-foreground: #0F172A;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: #00B8FF;
+  --sidebar-accent: #E8F4FF;
+  --sidebar-accent-foreground: #0A4D9E;
+  --sidebar-border: #E4EBF3;
+  --sidebar-ring: #006FCF;
 
-  /* Glows (neutral in light mode) */
-  --glow-primary: transparent;
-  --glow-success: transparent;
-  --glow-warning: transparent;
-  --glow-destructive: transparent;
+  /* Status badge system — blue ramp + neutral (never rainbow) */
+  --status-pending-bg: #EAF4FF;
+  --status-pending-text: #1463B0;
+  --status-pending-border: #C3DBF5;
+  --status-approved-bg: #DCEBFF;
+  --status-approved-text: #0A4D9E;
+  --status-approved-border: #A9C8F0;
+  --status-success-bg: #E8F1FC;
+  --status-success-text: #0F3D6B;
+  --status-success-border: #BFD2EA;
+  --status-destructive-bg: #F3F5F7;
+  --status-destructive-text: #3F4B5C;
+  --status-destructive-border: #D5DDE5;
+  --status-warning-bg: #EAF3FB;
+  --status-warning-text: #0F4C81;
+  --status-warning-border: #C2D8EE;
+  --status-info-bg: #F0F6FE;
+  --status-info-text: #2A6DB8;
+  --status-info-border: #C9DEF8;
+  --status-neutral-bg: #F4F6F8;
+  --status-neutral-text: #536273;
+  --status-neutral-border: #DCE5EE;
 
-  /* Status badge — light mode semantic colors */
-  --status-pending-bg: #FFF7ED;
-  --status-pending-text: #C2410C;
-  --status-pending-border: #FED7AA;
-  --status-approved-bg: #EFF6FF;
-  --status-approved-text: #2563EB;
-  --status-approved-border: #BFDBFE;
-  --status-success-bg: #F0FDF4;
-  --status-success-text: #16A34A;
-  --status-success-border: #BBF7D0;
-  --status-destructive-bg: #FEF2F2;
-  --status-destructive-text: #DC2626;
-  --status-destructive-border: #FECACA;
-  --status-warning-bg: #FFFBEB;
-  --status-warning-text: #D97706;
-  --status-warning-border: #FDE68A;
-  --status-info-bg: #EFF6FF;
-  --status-info-text: #2563EB;
-  --status-info-border: #BFDBFE;
-  --status-neutral-bg: #F8F9FA;
-  --status-neutral-text: #6B7280;
-  --status-neutral-border: #E5E7EB;
-
-  /* Shadows */
-  --shadow-card-value: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-card-hover-value: 0 4px 20px rgba(15, 23, 42, 0.06), 0 8px 16px rgba(15, 23, 42, 0.04);
+  /* Shadows — deliberately restrained. Hierarchy from borders, not float. */
+  --shadow-card-value: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --shadow-card-hover-value: 0 2px 8px rgba(17, 24, 39, 0.05);
   --shadow-glow-value: none;
   --shadow-glow-lg-value: none;
 }
 
 /* ============================================================
-   PREMIUM DARK MODE — Fintech-grade, deep, immersive
-   Blue-tinted charcoal palette with colored glow effects
+   DARK MODE — Low-glare financial terminal
    ============================================================ */
 .dark {
-  /* Surface hierarchy — deep navy base with blue undertones */
-  --bg-main: #070B14;
-  --bg-secondary: #0E1628;
-  --bg-card: #111B30;
-  --bg-sidebar: #090E1A;
+  --background: #080D14;
+  --foreground: #F4F8FC;
 
-  --background: #070B14;
-  --foreground: #E8EDF5;
+  --surface: #0D141D;
+  --surface-subtle: #101A26;
+  --surface-active: #162638;
 
-  /* Card surfaces — elevated with subtle blue tint */
-  --card: #111B30;
-  --card-foreground: #E8EDF5;
+  --card: #0D141D;
+  --card-foreground: #F4F8FC;
 
-  --popover: #162240;
-  --popover-foreground: #E8EDF5;
+  --popover: #121C27;
+  --popover-foreground: #F4F8FC;
 
-  /* Brand — brighter, more vibrant in dark mode */
-  --primary: #38BDF8;
-  --primary-hover: #7DD3FC;
-  --primary-dark: #0EA5E9;
-  --primary-foreground: #0C1929;
+  --primary: #3AA8FF;
+  --primary-hover: #63BAFF;
+  --primary-active: #0F8DF2;
+  --primary-soft: #162638;
+  --primary-foreground: #07111D;
 
-  --secondary: rgba(56, 189, 248, 0.1);
-  --secondary-foreground: #E8EDF5;
+  --secondary: #14202E;
+  --secondary-foreground: #63BAFF;
 
-  /* Muted surfaces — subtle layer between bg and card */
-  --muted: #162240;
-  --muted-foreground: #8899B4;
+  --muted: #101A26;
+  --muted-foreground: #A8B6C5;
 
-  --accent: #1A2A45;
-  --accent-foreground: #E8EDF5;
+  --accent: #14202E;
+  --accent-foreground: #F4F8FC;
 
-  /* Semantic — slightly desaturated for dark mode legibility */
-  --destructive: #F87171;
-  --destructive-foreground: #0C1929;
+  --destructive: #C9D4E0;
+  --destructive-foreground: #0B1017;
+  --warning: #8CC9FF;
+  --warning-foreground: #081120;
+  --success: #A5C8F5;
+  --success-foreground: #081120;
+  --info: #63BAFF;
+  --info-foreground: #081120;
 
-  --warning: #FBBF24;
-  --warning-foreground: #0C1929;
+  --border: #223140;
+  --input: #314355;
+  --ring: #3AA8FF;
 
-  --success: #4ADE80;
-  --success-foreground: #0C1929;
+  --sidebar: #0A1018;
+  --sidebar-foreground: #A8B6C5;
+  --sidebar-primary: #3AA8FF;
+  --sidebar-primary-foreground: #07111D;
+  --sidebar-accent: #162638;
+  --sidebar-accent-foreground: #F4F8FC;
+  --sidebar-border: #1B2736;
+  --sidebar-ring: #3AA8FF;
 
-  --info: #38BDF8;
-  --info-foreground: #0C1929;
+  --status-pending-bg: rgba(58, 168, 255, 0.1);
+  --status-pending-text: #63BAFF;
+  --status-pending-border: rgba(58, 168, 255, 0.24);
+  --status-approved-bg: rgba(58, 168, 255, 0.16);
+  --status-approved-text: #8CC9FF;
+  --status-approved-border: rgba(58, 168, 255, 0.32);
+  --status-success-bg: rgba(122, 162, 247, 0.1);
+  --status-success-text: #A5C8F5;
+  --status-success-border: rgba(122, 162, 247, 0.24);
+  --status-destructive-bg: rgba(200, 210, 225, 0.08);
+  --status-destructive-text: #C9D4E0;
+  --status-destructive-border: rgba(200, 210, 225, 0.2);
+  --status-warning-bg: rgba(140, 201, 255, 0.08);
+  --status-warning-text: #8CC9FF;
+  --status-warning-border: rgba(140, 201, 255, 0.2);
+  --status-info-bg: rgba(58, 168, 255, 0.08);
+  --status-info-text: #63BAFF;
+  --status-info-border: rgba(58, 168, 255, 0.2);
+  --status-neutral-bg: rgba(148, 163, 184, 0.08);
+  --status-neutral-text: #9AA9BA;
+  --status-neutral-border: rgba(148, 163, 184, 0.18);
 
-  /* Borders — blue-tinted for depth, not flat gray */
-  --border: #1E3050;
-  --input: #253A5E;
-  --ring: #38BDF8;
-
-  /* Sidebar — darkest surface for visual separation */
-  --sidebar: #090E1A;
-  --sidebar-foreground: #8899B4;
-  --sidebar-primary: #38BDF8;
-  --sidebar-primary-foreground: #0C1929;
-  --sidebar-accent: rgba(56, 189, 248, 0.08);
-  --sidebar-accent-foreground: #E8EDF5;
-  --sidebar-border: #1E3050;
-  --sidebar-ring: #38BDF8;
-
-  /* Colored glow variables */
-  --glow-primary: 0 0 24px rgba(56, 189, 248, 0.15);
-  --glow-success: 0 0 24px rgba(74, 222, 128, 0.12);
-  --glow-warning: 0 0 24px rgba(251, 191, 36, 0.12);
-  --glow-destructive: 0 0 24px rgba(248, 113, 113, 0.12);
-
-  /* Status badge — dark mode semantic colors */
-  --status-pending-bg: rgba(234, 88, 12, 0.12);
-  --status-pending-text: #FB923C;
-  --status-pending-border: rgba(234, 88, 12, 0.25);
-  --status-approved-bg: rgba(37, 99, 235, 0.12);
-  --status-approved-text: #60A5FA;
-  --status-approved-border: rgba(37, 99, 235, 0.25);
-  --status-success-bg: rgba(22, 163, 74, 0.12);
-  --status-success-text: #4ADE80;
-  --status-success-border: rgba(22, 163, 74, 0.25);
-  --status-destructive-bg: rgba(220, 38, 38, 0.12);
-  --status-destructive-text: #F87171;
-  --status-destructive-border: rgba(220, 38, 38, 0.25);
-  --status-warning-bg: rgba(217, 119, 6, 0.12);
-  --status-warning-text: #FBBF24;
-  --status-warning-border: rgba(217, 119, 6, 0.25);
-  --status-info-bg: rgba(37, 99, 235, 0.12);
-  --status-info-text: #60A5FA;
-  --status-info-border: rgba(37, 99, 235, 0.25);
-  --status-neutral-bg: rgba(107, 114, 128, 0.1);
-  --status-neutral-text: #9CA3AF;
-  --status-neutral-border: rgba(107, 114, 128, 0.2);
-
-  /* Premium dark shadows — inset highlight + colored glow */
-  --shadow-card-value:
-    0 1px 2px rgba(0, 0, 0, 0.5),
-    0 1px 4px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  --shadow-card-hover-value:
-    0 4px 24px rgba(0, 0, 0, 0.5),
-    0 8px 16px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-glow-value:
-    0 0 20px rgba(56, 189, 248, 0.12);
-  --shadow-glow-lg-value:
-    0 0 40px rgba(56, 189, 248, 0.1),
-    0 0 80px rgba(56, 189, 248, 0.05);
+  --shadow-card-value: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover-value: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-glow-value: none;
+  --shadow-glow-lg-value: none;
 }
 
 /* ============================================================
@@ -281,8 +251,8 @@
 
   @media (prefers-reduced-motion: no-preference) {
     * {
-      transition-property: background-color, color, border-color, box-shadow, transform;
-      transition-duration: 0.3s;
+      transition-property: background-color, color, border-color, box-shadow, transform, opacity;
+      transition-duration: 0.18s;
       transition-timing-function: ease;
     }
   }
@@ -290,7 +260,6 @@
   html, body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
   }
 
   body {
@@ -298,16 +267,27 @@
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-size: 14px;
   }
 
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
   }
 
-  .num, .font-mono {
+  .num, .font-mono, table td.num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: rgba(0, 111, 207, 0.18);
+    color: var(--color-foreground);
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 3px var(--color-ring);
   }
 
   /* --- Global Table Styling --- */
@@ -318,56 +298,39 @@
   }
 
   th {
-    @apply sticky top-0 z-10 px-4 py-3 text-xs uppercase tracking-widest text-muted-foreground font-medium border-b border-border;
-    background-color: var(--color-muted);
+    @apply sticky top-0 z-10 px-4 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border whitespace-nowrap;
+    background-color: var(--color-surface-subtle);
   }
 
   td {
-    @apply px-4 py-3 border-b border-border/60 text-foreground transition-colors;
+    @apply px-4 py-3 border-b border-border/50 text-foreground transition-colors;
   }
 
   tr {
     @apply transition-colors;
   }
 
-  tr:hover td {
-    background-color: var(--color-muted);
+  tbody tr:hover td {
+    background-color: var(--color-surface-active);
   }
 
-  tr:nth-child(even) td {
-    background-color: color-mix(in srgb, var(--color-muted) 50%, transparent);
+  /* --- Scrollbars --- */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
-
-  tr:nth-child(even):hover td {
-    background-color: var(--color-muted);
-  }
-
-  /* Dark mode: table row hover with subtle blue tint */
-  .dark tr:hover td {
-    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
-  }
-
-  .dark tr:nth-child(even):hover td {
-    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
-  }
-
-  /* --- Scrollbar styling for dark mode --- */
-  .dark ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .dark ::-webkit-scrollbar-track {
+  ::-webkit-scrollbar-track {
     background: transparent;
   }
-
-  .dark ::-webkit-scrollbar-thumb {
-    background: #1E3050;
-    border-radius: 3px;
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
   }
-
-  .dark ::-webkit-scrollbar-thumb:hover {
-    background: #253A5E;
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-input);
+    background-clip: content-box;
   }
 }
 
@@ -375,127 +338,74 @@
    UTILITY LAYER
    ============================================================ */
 @layer utilities {
-  /* --- Background gradient overlay for dark mode --- */
-  .bg-vault {
-    background: linear-gradient(135deg, rgba(0, 184, 255, 0.04) 0%, transparent 100%);
+  /* --- Micro label: 11px uppercase with letter spacing --- */
+  .label-micro {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted-foreground);
   }
 
-  .dark .bg-vault {
-    background:
-      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(56, 189, 248, 0.06) 0%, transparent 100%),
-      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(56, 189, 248, 0.03) 0%, transparent 100%),
-      linear-gradient(180deg, transparent 0%, transparent 100%);
-  }
-
+  /* --- Hairline borders --- */
   .border-hairline { border: 1px solid var(--color-border); }
+
+  /* --- Subtle page background wash (marketing / hero sections) --- */
+  .bg-vault {
+    background: var(--color-surface-subtle);
+  }
 
   /* Responsive large number */
   .num-lg {
-    font-size: clamp(1.25rem, 4cqi, 2.25rem);
+    font-size: clamp(1.375rem, 2.2vw, 2rem);
     line-height: 1.15;
+    letter-spacing: -0.02em;
   }
 
   .text-balance { text-wrap: balance; }
 
-  /* --- Enterprise Card --- */
+  /* --- Level-1 card: hairline border, no shadow --- */
   .bg-enterprise-card {
     background: var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 16px;
-    box-shadow: var(--shadow-card-value);
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    border-radius: var(--radius-lg);
   }
 
-  .bg-enterprise-card:hover {
-    box-shadow: var(--shadow-card-hover-value);
-  }
-
-  /* Dark: hover glow on cards */
-  .dark .bg-enterprise-card:hover {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 20%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
-  }
-
-  /* --- Glass Card (modal/overlay surfaces) --- */
+  /* --- Level-2 card: border + extremely subtle elevation --- */
   .bg-glass-card {
     background: var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     box-shadow: var(--shadow-card-value);
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  }
-
-  .bg-glass-card:hover {
-    box-shadow: var(--shadow-card-hover-value);
-  }
-
-  /* Dark mode glass — subtle transparency + backdrop blur */
-  .dark .bg-glass-card {
-    background: color-mix(in srgb, var(--color-card) 96%, transparent);
-    backdrop-filter: blur(12px);
-    border-color: color-mix(in srgb, var(--color-border), transparent 30%);
-  }
-
-  .dark .bg-glass-card:hover {
-    background: color-mix(in srgb, var(--color-card) 98%, transparent);
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 15%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
   }
 
   /* --- Primary Button --- */
   .btn-primary {
-    background: linear-gradient(135deg, #00B8FF, #0099D9);
-    color: white;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
     border: none;
-    border-radius: 12px;
-    transition: transform 0.15s ease, box-shadow 0.2s ease;
+    border-radius: var(--radius-md);
+    transition: background-color 0.15s ease;
   }
-
-  .btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(0, 184, 255, 0.25);
-  }
-
-  .btn-primary:active {
-    transform: translateY(0);
-  }
-
-  /* Dark mode: primary button with blue glow */
-  .dark .btn-primary {
-    background: linear-gradient(135deg, #38BDF8, #0EA5E9);
-  }
-
-  .dark .btn-primary:hover {
-    box-shadow: 0 8px 24px rgba(56, 189, 248, 0.3), 0 0 40px rgba(56, 189, 248, 0.1);
-  }
+  .btn-primary:hover { background: var(--color-primary-hover); }
+  .btn-primary:active { background: var(--color-primary-active); }
 
   /* --- Secondary Button --- */
   .btn-secondary {
     background: transparent;
     color: var(--color-foreground);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    border-radius: var(--radius-md);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
   }
-
-  .btn-secondary:hover {
-    transform: translateY(-1px);
-    background: var(--color-muted);
-    border-color: var(--color-input);
-  }
-
-  /* Dark mode: secondary button with subtle glow */
-  .dark .btn-secondary:hover {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 30%);
-    box-shadow: var(--shadow-glow-value);
-  }
+  .btn-secondary:hover { background: var(--color-muted); border-color: var(--color-input); }
 
   /* --- Skeleton Loading --- */
   .skeleton {
-    background: linear-gradient(90deg, var(--color-muted) 25%, var(--color-border) 50%, var(--color-muted) 75%);
+    background: linear-gradient(90deg, var(--color-surface-subtle) 25%, var(--color-border) 50%, var(--color-surface-subtle) 75%);
     background-size: 200% 100%;
-    animation: skeleton-pulse 1.5s ease-in-out infinite;
-    border-radius: 6px;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+    border-radius: var(--radius-sm);
   }
 
   @keyframes skeleton-pulse {
@@ -503,227 +413,21 @@
     100% { background-position: -200% 0; }
   }
 
-  /* Dark mode skeleton */
-  .dark .skeleton {
-    background: linear-gradient(90deg, #162240 25%, #1E3050 50%, #162240 75%);
-    background-size: 200% 100%;
-  }
-
   /* --- Subtle Divider --- */
   .divider-subtle {
     height: 1px;
-    background: linear-gradient(to right, transparent, var(--color-border), transparent);
+    background: var(--color-border);
   }
 
-  .dark .divider-subtle {
-    background: linear-gradient(to right, transparent, #1E3050, transparent);
-  }
-
-  /* --- Theme Toggle Animation --- */
+  /* --- Theme toggle animation (appearance menu) --- */
   @keyframes theme-rotate {
     0% { transform: rotate(0deg) scale(1); }
-    50% { transform: rotate(180deg) scale(1.25); }
+    50% { transform: rotate(180deg) scale(1.2); }
     100% { transform: rotate(360deg) scale(1); }
   }
+  .animate-theme-rotate { animation: theme-rotate 0.45s ease-out; }
 
-  .animate-theme-rotate {
-    animation: theme-rotate 0.5s ease-out;
-  }
-
-  /* --- Premium Dark Mode Glow Utilities --- */
-
-  /* Glow border — adds a colored glow ring on focus/active */
-  .glow-border-primary {
-    box-shadow: var(--shadow-glow-value);
-  }
-
-  .glow-border-success {
-    box-shadow: var(--glow-success);
-  }
-
-  .glow-border-warning {
-    box-shadow: var(--glow-warning);
-  }
-
-  /* Glow card — card with subtle colored glow */
-  .dark .glow-card {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 15%);
-    box-shadow: var(--shadow-card-value), var(--shadow-glow-value);
-  }
-
-  .dark .glow-card:hover {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 30%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-lg-value);
-  }
-
-  /* Card with primary-colored top border accent */
-  .dark .card-accent-top {
-    border-top: 2px solid var(--color-primary);
-    border-top-left-radius: var(--radius-lg);
-    border-top-right-radius: var(--radius-lg);
-  }
-
-  .dark .card-accent-top-success {
-    border-top: 2px solid var(--color-success);
-  }
-
-  .dark .card-accent-top-warning {
-    border-top: 2px solid var(--color-warning);
-  }
-
-  .dark .card-accent-top-destructive {
-    border-top: 2px solid var(--color-destructive);
-  }
-
-  /* Subtle stat card glow on hover */
-  .dark .stat-card-glow {
-    transition: box-shadow 0.3s ease, border-color 0.3s ease;
-  }
-
-  .dark .stat-card-glow:hover {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 25%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
-  }
-
-  /* Dark mode gradient backgrounds for semantic stats */
-  .dark .bg-stat-positive {
-    background: linear-gradient(135deg, rgba(74, 222, 128, 0.06) 0%, transparent 100%);
-  }
-
-  .dark .bg-stat-negative {
-    background: linear-gradient(135deg, rgba(248, 113, 113, 0.06) 0%, transparent 100%);
-  }
-
-  .dark .bg-stat-warning {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.06) 0%, transparent 100%);
-  }
-
-  .dark .bg-stat-info {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.06) 0%, transparent 100%);
-  }
-
-  /* Alert item styling for dark mode */
-  .dark .alert-item {
-    border-left: 3px solid var(--color-border);
-  }
-
-  .dark .alert-item-critical {
-    border-left-color: var(--color-destructive);
-  }
-
-  .dark .alert-item-warning {
-    border-left-color: var(--color-warning);
-  }
-
-  .dark .alert-item-info {
-    border-left-color: var(--color-primary);
-  }
-
-  /* --- Focus ring enhancement for dark mode --- */
-  .dark :focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring);
-  }
-
-  /* --- Selection color for dark mode --- */
-  .dark ::selection {
-    background: rgba(56, 189, 248, 0.25);
-    color: var(--color-foreground);
-  }
-
-  /* --- Input/select focus glow enhancement --- */
-  .dark input:focus-visible,
-  .dark select:focus-visible,
-  .dark textarea:focus-visible {
-    outline: none;
-    border-color: var(--color-primary) !important;
-    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15), 0 0 16px rgba(56, 189, 248, 0.08) !important;
-  }
-
-  /* --- Premium card hover lift for dark mode --- */
-  .dark .card-hover-lift {
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  }
-
-  .dark .card-hover-lift:hover {
-    transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 25%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
-  }
-
-  /* --- Button hover glow for dark mode --- */
-  .dark button:not(:disabled):hover .btn-glow-effect {
-    box-shadow: var(--shadow-glow-value);
-  }
-
-  /* --- Badge/pill glow for active states --- */
-  .dark .pill-glow {
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.1);
-  }
-
-  /* --- Modal backdrop enchantment --- */
-  .dark .modal-backdrop {
-    background: rgba(7, 11, 20, 0.7);
-    backdrop-filter: blur(8px);
-  }
-
-  /* --- Gradient overlays for empty states --- */
-  .dark .empty-state-glow {
-    background: radial-gradient(circle at center, rgba(56, 189, 248, 0.04) 0%, transparent 70%);
-  }
-
-  /* --- Stat item dark mode hover --- */
-  .dark .stat-card {
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  }
-
-  .dark .stat-card:hover {
-    border-color: color-mix(in srgb, var(--color-border), var(--color-primary) 20%);
-    box-shadow: var(--shadow-card-hover-value), var(--shadow-glow-value);
-  }
-
-  /* --- Table row dark mode premium hover --- */
-  .dark tbody tr {
-    transition: background-color 0.15s ease;
-  }
-
-  .dark tbody tr:hover td {
-    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.06)) !important;
-  }
-
-  .dark tbody tr:nth-child(even):hover td {
-    background-color: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.06)) !important;
-  }
-
-  /* --- Sidebar nav item active glow --- */
-  .dark .sidebar-nav-active {
-    background: linear-gradient(90deg, rgba(56, 189, 248, 0.1) 0%, transparent 100%);
-    border-right: 2px solid var(--color-primary);
-  }
-
-  /* --- Heading gradient accent for dark mode pages --- */
-  .dark .heading-accent {
-    background: linear-gradient(135deg, var(--color-foreground) 60%, var(--color-primary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  /* --- Progress/bar fill glow --- */
-  .dark .progress-glow {
-    box-shadow: 0 0 8px currentColor;
-  }
-
-  /* --- Card inner border accent --- */
-  .dark .card-inner-border {
-    border: 1px solid color-mix(in srgb, var(--color-border), transparent 50%);
-  }
-
-  /* ============================================================
-     BADGE UTILITY CLASSES — Dark mode semantic badges
-     ============================================================ */
-
-  /* Semantic badge base — reusable pill for status/category labels */
+  /* --- Badge system (blue ramp + neutral) --- */
   .badge-semantic {
     display: inline-flex;
     align-items: center;
@@ -732,60 +436,21 @@
     border-radius: 999px;
     font-size: 0.6875rem;
     font-weight: 600;
-    letter-spacing: 0.025em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     border: 1px solid;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    white-space: nowrap;
   }
-
-  .badge-pending {
-    background: var(--status-pending-bg);
-    color: var(--status-pending-text);
-    border-color: var(--status-pending-border);
-  }
-
-  .badge-approved {
-    background: var(--status-approved-bg);
-    color: var(--status-approved-text);
-    border-color: var(--status-approved-border);
-  }
-
-  .badge-success {
-    background: var(--status-success-bg);
-    color: var(--status-success-text);
-    border-color: var(--status-success-border);
-  }
-
-  .badge-destructive {
-    background: var(--status-destructive-bg);
-    color: var(--status-destructive-text);
-    border-color: var(--status-destructive-border);
-  }
-
-  .badge-warning {
-    background: var(--status-warning-bg);
-    color: var(--status-warning-text);
-    border-color: var(--status-warning-border);
-  }
-
-  .badge-info {
-    background: var(--status-info-bg);
-    color: var(--status-info-text);
-    border-color: var(--status-info-border);
-  }
-
-  .badge-neutral {
-    background: var(--status-neutral-bg);
-    color: var(--status-neutral-text);
-    border-color: var(--status-neutral-border);
-  }
+  .badge-pending { background: var(--status-pending-bg); color: var(--status-pending-text); border-color: var(--status-pending-border); }
+  .badge-approved { background: var(--status-approved-bg); color: var(--status-approved-text); border-color: var(--status-approved-border); }
+  .badge-success { background: var(--status-success-bg); color: var(--status-success-text); border-color: var(--status-success-border); }
+  .badge-destructive { background: var(--status-destructive-bg); color: var(--status-destructive-text); border-color: var(--status-destructive-border); }
+  .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); border-color: var(--status-warning-border); }
+  .badge-info { background: var(--status-info-bg); color: var(--status-info-text); border-color: var(--status-info-border); }
+  .badge-neutral { background: var(--status-neutral-bg); color: var(--status-neutral-text); border-color: var(--status-neutral-border); }
 
   /* Badge with subtle dot indicator */
-  .badge-dot {
-    position: relative;
-    padding-left: 0.875rem;
-  }
-
+  .badge-dot { position: relative; padding-left: 0.875rem; }
   .badge-dot::before {
     content: "";
     position: absolute;
@@ -799,359 +464,90 @@
     opacity: 0.7;
   }
 
-  /* Dark mode: badge hover glow effect */
-  .dark .badge-semantic:hover {
-    box-shadow: 0 0 8px currentColor;
-  }
+  /* Badge with transparent background (subtle inline variant) */
+  .badge-ghost { background: transparent; border-color: transparent; opacity: 0.85; }
+  .badge-ghost:hover { opacity: 1; }
 
-  /* Dark mode: badge with colored glow */
-  .dark .badge-glow-pending {
-    box-shadow: 0 0 10px rgba(234, 88, 12, 0.2);
-  }
-
-  .dark .badge-glow-approved {
-    box-shadow: 0 0 10px rgba(37, 99, 235, 0.2);
-  }
-
-  .dark .badge-glow-success {
-    box-shadow: 0 0 10px rgba(22, 163, 74, 0.2);
-  }
-
-  .dark .badge-glow-destructive {
-    box-shadow: 0 0 10px rgba(220, 38, 38, 0.2);
-  }
-
-  .dark .badge-glow-warning {
-    box-shadow: 0 0 10px rgba(217, 119, 6, 0.2);
-  }
-
-  /* Badge with transparent background (subtle variant for inline use) */
-  .badge-ghost {
-    background: transparent;
-    border-color: transparent;
-    opacity: 0.85;
-  }
-
-  .badge-ghost:hover {
-    opacity: 1;
-  }
-
-  /* ============================================================
-     TOOLTIP UTILITY CLASSES — Dark mode enhanced
-     ============================================================ */
-
-  /* Tooltip arrow — works with Radix tooltip */
-  .dark .tooltip-arrow {
-    fill: var(--color-popover);
-  }
-
-  /* Enhanced dark mode tooltip content */
-  .dark .tooltip-content-premium {
-    background: var(--color-popover);
-    border: 1px solid var(--color-border);
-    color: var(--color-popover-foreground);
-    box-shadow: var(--shadow-card-value), var(--shadow-glow-value);
-    backdrop-filter: blur(8px);
-  }
-
-  /* Tooltip with colored variants */
-  .dark .tooltip-info {
-    background: rgba(56, 189, 248, 0.12);
-    border-color: rgba(56, 189, 248, 0.25);
-    color: var(--color-primary);
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.1);
-  }
-
-  .dark .tooltip-success {
-    background: rgba(74, 222, 128, 0.12);
-    border-color: rgba(74, 222, 128, 0.25);
-    color: var(--color-success);
-    box-shadow: 0 0 16px rgba(74, 222, 128, 0.1);
-  }
-
-  .dark .tooltip-warning {
-    background: rgba(251, 191, 36, 0.12);
-    border-color: rgba(251, 191, 36, 0.25);
-    color: var(--color-warning);
-    box-shadow: 0 0 16px rgba(251, 191, 36, 0.1);
-  }
-
-  .dark .tooltip-destructive {
-    background: rgba(248, 113, 113, 0.12);
-    border-color: rgba(248, 113, 113, 0.25);
-    color: var(--color-destructive);
-    box-shadow: 0 0 16px rgba(248, 113, 113, 0.1);
-  }
-
-  /* Tooltip with keybinding hint text */
-  .tooltip-kbd {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .tooltip-kbd kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.25rem;
-    height: 1.125rem;
-    padding: 0 0.25rem;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.15);
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    line-height: 1;
-  }
-
-  .dark .tooltip-kbd kbd {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  /* ============================================================
-     NOTIFICATION / TOAST UTILITY CLASSES — Dark mode premium
-     ============================================================ */
-
-  /* Toast/notification card with premium dark styling */
-  .dark .notification-toast {
-    background: var(--color-card);
-    border: 1px solid var(--color-border);
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.4),
-      0 2px 8px rgba(0, 0, 0, 0.3),
-      var(--shadow-glow-value);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-  }
-
-  /* Notification toast with left accent border */
-  .dark .notification-toast-accent {
-    border-left: 3px solid var(--color-primary);
-  }
-
-  .dark .notification-toast-accent-success {
-    border-left: 3px solid var(--color-success);
-  }
-
-  .dark .notification-toast-accent-warning {
-    border-left: 3px solid var(--color-warning);
-  }
-
-  .dark .notification-toast-accent-destructive {
-    border-left: 3px solid var(--color-destructive);
-  }
-
-  /* Notification icon container with colored background */
-  .dark .notification-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: var(--radius-md);
-  }
-
-  .dark .notification-icon-info {
-    background: rgba(56, 189, 248, 0.12);
-    color: var(--color-primary);
-  }
-
-  .dark .notification-icon-success {
-    background: rgba(74, 222, 128, 0.12);
-    color: var(--color-success);
-  }
-
-  .dark .notification-icon-warning {
-    background: rgba(251, 191, 36, 0.12);
-    color: var(--color-warning);
-  }
-
-  .dark .notification-icon-destructive {
-    background: rgba(248, 113, 113, 0.12);
-    color: var(--color-destructive);
-  }
-
-  /* Notification panel container */
-  .dark .notification-panel {
-    background: var(--color-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
-    box-shadow:
-      0 16px 48px rgba(0, 0, 0, 0.4),
-      0 4px 12px rgba(0, 0, 0, 0.2),
-      var(--shadow-glow-lg-value);
-  }
-
-  /* Notification item row */
-  .dark .notification-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--color-border);
-    transition: background-color 0.15s ease;
-  }
-
-  .dark .notification-item:hover {
-    background: color-mix(in srgb, var(--color-muted), rgba(56, 189, 248, 0.04));
-  }
-
-  .dark .notification-item:last-child {
-    border-bottom: none;
-  }
-
-  /* Notification dot — unread indicator */
-  .dark .notification-dot {
-    display: inline-block;
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: var(--color-primary);
-    box-shadow: 0 0 6px rgba(56, 189, 248, 0.4);
-  }
-
-  .dark .notification-dot-warning {
-    background: var(--color-warning);
-    box-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
-  }
-
-  .dark .notification-dot-destructive {
-    background: var(--color-destructive);
-    box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
-  }
-
-  .dark .notification-dot-success {
-    background: var(--color-success);
-    box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
-  }
-
-  /* Notification count badge */
-  .dark .notification-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.25rem;
-    height: 1.25rem;
-    padding: 0 0.375rem;
-    border-radius: 999px;
-    background: var(--color-primary);
-    color: var(--color-primary-foreground);
-    font-size: 0.625rem;
-    font-weight: 700;
-    line-height: 1;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
-  }
-
-  .dark .notification-count-warning {
-    background: var(--color-warning);
-    color: var(--color-warning-foreground);
-    box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
-  }
-
-  .dark .notification-count-destructive {
-    background: var(--color-destructive);
-    color: var(--color-destructive-foreground);
-    box-shadow: 0 0 10px rgba(248, 113, 113, 0.3);
-  }
-
-  /* Notification slide-in animation */
-  @keyframes notification-slide-in {
-    0% {
-      opacity: 0;
-      transform: translateX(100%) scale(0.95);
-    }
-    100% {
-      opacity: 1;
-      transform: translateX(0) scale(1);
-    }
-  }
-
-  @keyframes notification-slide-out {
-    0% {
-      opacity: 1;
-      transform: translateX(0) scale(1);
-    }
-    100% {
-      opacity: 0;
-      transform: translateX(100%) scale(0.95);
-    }
-  }
-
-  .notification-enter {
-    animation: notification-slide-in 0.3s ease-out;
-  }
-
-  .notification-exit {
-    animation: notification-slide-out 0.2s ease-in forwards;
-  }
-
-  /* Sonner toast custom dark mode overrides */
-  .dark .sonner-toast-custom {
-    background: var(--color-card) !important;
-    border: 1px solid var(--color-border) !important;
-    color: var(--color-foreground) !important;
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.4),
-      0 2px 8px rgba(0, 0, 0, 0.2),
-      var(--shadow-glow-value) !important;
-  }
-
-  /* Bell/notification icon with pulse */
-  @keyframes bell-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.15); }
-  }
-
-  .dark .bell-ring {
-    animation: bell-pulse 1.5s ease-in-out infinite;
-    color: var(--color-primary);
-  }
-
-  /* ============================================================
-     STAGGERED FADE-IN ANIMATIONS — Reports Dashboard
-     ============================================================ */
-
-  /* Fade in and slide up */
+  /* --- Staggered fade-in animations --- */
   @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    0% { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
   }
-
-  /* Simple fade in */
   @keyframes fade-in {
     0% { opacity: 0; }
     100% { opacity: 1; }
   }
+  .animate-fade-in-up { animation: fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+  .animate-fade-in { animation: fade-in 0.3s ease-out forwards; opacity: 0; }
+  @keyframes popover-in {
+    0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .animate-popover-in { animation: popover-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+  .animate-stagger-1 { animation-delay: 0.04s; }
+  .animate-stagger-2 { animation-delay: 0.08s; }
+  .animate-stagger-3 { animation-delay: 0.12s; }
+  .animate-stagger-4 { animation-delay: 0.16s; }
+  .animate-stagger-5 { animation-delay: 0.20s; }
+  .animate-stagger-6 { animation-delay: 0.24s; }
+  .animate-stagger-7 { animation-delay: 0.28s; }
+  .animate-stagger-8 { animation-delay: 0.32s; }
 
-  .animate-fade-in-up {
-    animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    opacity: 0;
+  /* --- Notification slide animations (compat) --- */
+  @keyframes notification-slide-in {
+    0% { opacity: 0; transform: translateX(100%) scale(0.96); }
+    100% { opacity: 1; transform: translateX(0) scale(1); }
+  }
+  @keyframes notification-slide-out {
+    0% { opacity: 1; transform: translateX(0) scale(1); }
+    100% { opacity: 0; transform: translateX(100%) scale(0.96); }
+  }
+  .notification-enter { animation: notification-slide-in 0.25s ease-out; }
+  .notification-exit { animation: notification-slide-out 0.2s ease-in forwards; }
+
+  @keyframes bell-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+  .bell-ring { animation: bell-pulse 1.5s ease-in-out infinite; color: var(--color-primary); }
+
+  /* --- Input/select focus ring (blue, subtle) --- */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(0, 111, 207, 0.14) !important;
   }
 
-  .animate-fade-in {
-    animation: fade-in 0.4s ease-out forwards;
-    opacity: 0;
+  /* --- Sidebar active nav item --- */
+  .sidebar-nav-active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
   }
 
-  .animate-stagger-1 { animation-delay: 0.05s; }
-  .animate-stagger-2 { animation-delay: 0.10s; }
-  .animate-stagger-3 { animation-delay: 0.15s; }
-  .animate-stagger-4 { animation-delay: 0.20s; }
-  .animate-stagger-5 { animation-delay: 0.25s; }
-  .animate-stagger-6 { animation-delay: 0.30s; }
-  .animate-stagger-7 { animation-delay: 0.35s; }
-  .animate-stagger-8 { animation-delay: 0.40s; }
-  .animate-stagger-9 { animation-delay: 0.45s; }
-  .animate-stagger-10 { animation-delay: 0.50s; }
-  .animate-stagger-11 { animation-delay: 0.55s; }
-  .animate-stagger-12 { animation-delay: 0.60s; }
+  /* --- Modal backdrop --- */
+  .modal-backdrop {
+    background: rgba(8, 13, 20, 0.45);
+  }
+
+  /* --- Empty-state glow (very subtle radial, both themes) --- */
+  .empty-state-glow {
+    background: radial-gradient(circle at center, var(--color-primary-soft) 0%, transparent 70%);
+  }
+
+  /* --- Heading accent (flat, not gradient) --- */
+  .heading-accent {
+    color: var(--color-foreground);
+  }
+
+  /* --- Sonner toast surface --- */
+  .sonner-toast-custom {
+    background: var(--color-card) !important;
+    border: 1px solid var(--color-border) !important;
+    color: var(--color-foreground) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18) !important;
+  }
 
   /* Reduce motion preference */
   @media (prefers-reduced-motion: reduce) {

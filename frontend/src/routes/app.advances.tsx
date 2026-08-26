@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
@@ -110,10 +111,14 @@ function AdvancesPage() {
           ))}
         </div>
 
-        <div className="relative">
-          <input type="text" placeholder="Search advances by reference, party, invoice..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
-        </div>
+        <FilterBar
+          searchPlaceholder="Search advances by reference, party, invoice…"
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusOptions={[{ label: "All advances", value: "all" }]}
+          statusValue="all"
+          onStatusChange={() => {}}
+        />
         <Card>
           {advancesQ.isLoading ? (
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
@@ -272,7 +277,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{side === "sales" ? "Sales advance (received)" : "Purchase advance (paid)"}</h3>
@@ -350,7 +355,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
   const invDocs: any[] = Array.isArray(invoice.documents) ? invoice.documents : [];
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -590,7 +595,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Mass import sales advances</h3>

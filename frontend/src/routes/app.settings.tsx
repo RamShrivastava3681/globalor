@@ -149,7 +149,7 @@ function SettingsPage() {
                   <div className="text-[10px] font-mono text-muted-foreground">ID: {company_id.slice(0, 12)}…</div>
                 )}
                 {!company_id && isSuperAdmin && (
-                  <div className="text-[10px] text-amber-400">Super admin — sees all companies</div>
+                  <div className="text-[10px] text-warning">Super admin — sees all companies</div>
                 )}
               </div>
             </div>

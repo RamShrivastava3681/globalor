@@ -4,6 +4,7 @@ import {
   putItem,
   getItem,
   updateItem,
+  updateItemConditional,
   deleteItem,
   scanTable,
   queryByIndex,
@@ -11,8 +12,11 @@ import {
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
-import { generateId, nowISO } from "../utils/helpers.js";
-import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta } from "../types/index.js";
+import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
+import { computeOrderTotals } from "../utils/goodsOrders.js";
+import { computeSalesTotals } from "../utils/goodsSales.js";
+import { createActivityAlert } from "../utils/alerts.js";
+import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
 
 const router = Router();
 
@@ -119,6 +123,9 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
       proforma_funded_at: null,
       proforma_funded_by: null,
       proforma_funding_reference: null,
+      converted_to: null,
+      converted_document_number: null,
+      converted_at: null,
       notes: parsed.notes || null,
       documents: parsed.documents as DocMeta[],
       has_contractual_due_date: parsed.has_contractual_due_date || false,
@@ -213,8 +220,11 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
           proforma_funded_amount: null,
           proforma_funded_at: null,
           proforma_funded_by: null,
-          proforma_funding_reference: null,
-          notes: null,
+        proforma_funding_reference: null,
+        converted_to: null,
+        converted_document_number: null,
+        converted_at: null,
+        notes: null,
           documents: [],
           has_contractual_due_date: false,
           created_at: now,
@@ -328,6 +338,232 @@ router.post("/:id/fund", requireAuth, requireAnyWriteAccess("purchase-orders", "
     res.json({ success: true, advance });
   } catch (err) {
     console.error("Fund purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/purchase-orders/:id/convert-to-po ── (purchase proforma → goods PO)
+// Wires the proforma both ways: an approved purchase-side proforma becomes a
+// draft goods PO carrying the proforma amount as a single line, linked back to
+// its source. The PO is a draft — lines are editable before approval.
+router.post("/:id/convert-to-po", requireAuth, requireAnyWriteAccess("purchase-orders", "goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const proforma = await getItem(TABLES.PURCHASE_ORDERS, { id: req.params.id }) as PurchaseOrder | undefined;
+    if (!proforma) { res.status(404).json({ error: "Proforma not found" }); return; }
+    if (req.user!.company_id && proforma.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Proforma not found" });
+      return;
+    }
+    if (proforma.side !== "purchase") {
+      res.status(400).json({ error: "Only purchase-side proformas convert to a purchase order" });
+      return;
+    }
+    if (proforma.proforma_status !== "approved") {
+      res.status(400).json({ error: `Convert requires an approved proforma (current: ${proforma.proforma_status})` });
+      return;
+    }
+    if (proforma.converted_to) {
+      res.status(400).json({ error: `This proforma was already converted to ${proforma.converted_to.toUpperCase()} ${proforma.converted_document_number ?? ""}` });
+      return;
+    }
+
+    const now = nowISO();
+    const ref = proforma.proforma_number || proforma.po_number;
+    const line: GoodsPurchaseOrderLine = {
+      product_id: null,
+      sku: `PF-${proforma.proforma_number || proforma.po_number}`,
+      name: `Proforma ${ref}`,
+      unit: "unit",
+      ordered_qty: 1,
+      unit_price: Math.round(Number(proforma.amount) * 100) / 100,
+      gst_rate: null,
+      received_qty: 0,
+      line_total: Math.round(Number(proforma.amount) * 100) / 100,
+    };
+    const totals = computeOrderTotals([line], 0);
+    const supplierName = proforma.vendor_id
+      ? (await getItem(TABLES.VENDORS, { id: proforma.vendor_id }) as Vendor | undefined)?.name ?? null
+      : null;
+
+    const id = generateId();
+    const po: GoodsPurchaseOrder = {
+      id,
+      client_id: proforma.client_id,
+      company_id: proforma.company_id,
+      po_number: generateDocNumber("PO"),
+      po_date: now.slice(0, 10),
+      supplier_id: proforma.vendor_id ?? null,
+      supplier_name: supplierName,
+      warehouse: null,
+      expected_delivery_date: proforma.expected_date || null,
+      payment_terms: null,
+      buyer_name: null,
+      notes: `Converted from proforma ${ref}`,
+      freight: null,
+      lines: [line],
+      subtotal: totals.subtotal,
+      gst_total: totals.gst_total,
+      grand_total: totals.grand_total,
+      manual_status: "draft",
+      status: "draft",
+      documents: proforma.documents ?? [],
+      linked_proforma_id: proforma.id,
+      linked_proforma_number: ref,
+      created_by: req.user!.id,
+      created_at: now,
+      updated_at: now,
+    };
+    await putItem(TABLES.GOODS_PURCHASE_ORDERS, po as any);
+
+    // One-time conversion stamp — a proforma converts exactly once. The stamp
+    // is conditional (`converted_to` must not exist yet): a concurrent convert
+    // that loses the race deletes its just-created PO and reports 409, so no
+    // duplicate documents can ever be produced.
+    const stamped = await updateItemConditional(
+      TABLES.PURCHASE_ORDERS,
+      { id: proforma.id },
+      {
+        converted_to: "po",
+        converted_document_number: po.po_number,
+        converted_at: now,
+        updated_at: now,
+      },
+      "attribute_not_exists(converted_to)",
+    );
+    if (!stamped) {
+      await deleteItem(TABLES.GOODS_PURCHASE_ORDERS, { id });
+      res.status(409).json({ error: "This proforma was already converted to another purchase order" });
+      return;
+    }
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      type: "purchase_order_created",
+      severity: "info",
+      message: `Purchase order ${po.po_number} created from proforma ${ref}`,
+      created_by: req.user!.id,
+    });
+
+    res.status(201).json(po);
+  } catch (err) {
+    console.error("Convert proforma to PO error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/purchase-orders/:id/convert-to-so ── (sales proforma → goods SO)
+// The sales-side mirror: an approved sales proforma becomes a draft goods SO
+// with the proforma amount as a single line, linked to its source.
+router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-orders", "goods-sales-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const proforma = await getItem(TABLES.PURCHASE_ORDERS, { id: req.params.id }) as PurchaseOrder | undefined;
+    if (!proforma) { res.status(404).json({ error: "Proforma not found" }); return; }
+    if (req.user!.company_id && proforma.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Proforma not found" });
+      return;
+    }
+    if (proforma.side !== "sales") {
+      res.status(400).json({ error: "Only sales-side proformas convert to a sales order" });
+      return;
+    }
+    if (proforma.proforma_status !== "approved") {
+      res.status(400).json({ error: `Convert requires an approved proforma (current: ${proforma.proforma_status})` });
+      return;
+    }
+    if (proforma.converted_to) {
+      res.status(400).json({ error: `This proforma was already converted to ${proforma.converted_to.toUpperCase()} ${proforma.converted_document_number ?? ""}` });
+      return;
+    }
+
+    const now = nowISO();
+    const ref = proforma.proforma_number || proforma.po_number;
+    const line: GoodsSalesOrderLine = {
+      product_id: null,
+      sku: `PF-${proforma.proforma_number || proforma.po_number}`,
+      name: `Proforma ${ref}`,
+      unit: "unit",
+      ordered_qty: 1,
+      unit_price: Math.round(Number(proforma.amount) * 100) / 100,
+      discount_pct: 0,
+      gst_rate: null,
+      dispatched_qty: 0,
+      line_total: Math.round(Number(proforma.amount) * 100) / 100,
+    };
+    const totals = computeSalesTotals([line], 0);
+    const debtor = proforma.debtor_id
+      ? await getItem(TABLES.DEBTORS, { id: proforma.debtor_id }) as Debtor | undefined
+      : undefined;
+
+    const id = generateId();
+    const so: GoodsSalesOrder = {
+      id,
+      client_id: proforma.client_id,
+      company_id: proforma.company_id,
+      so_number: generateDocNumber("SO"),
+      order_date: now.slice(0, 10),
+      customer_id: proforma.debtor_id ?? null,
+      customer_name: debtor?.name ?? null,
+      contact_person: debtor?.contact_name ?? null,
+      billing_address: debtor?.registered_address ?? null,
+      delivery_address: null,
+      salesperson_name: null,
+      linked_quotation_id: null,
+      linked_quotation_number: null,
+      payment_terms: debtor?.payment_terms_days ? `Net ${debtor.payment_terms_days}` : null,
+      expected_dispatch_date: null,
+      expected_delivery_date: null,
+      notes: `Converted from proforma ${ref}`,
+      lines: [line],
+      subtotal: totals.subtotal,
+      total_discount: totals.total_discount,
+      gst_total: totals.gst_total,
+      freight: null,
+      grand_total: totals.grand_total,
+      manual_status: "draft",
+      status: "draft",
+      documents: proforma.documents ?? [],
+      linked_proforma_id: proforma.id,
+      linked_proforma_number: ref,
+      created_by: req.user!.id,
+      created_at: now,
+      updated_at: now,
+    };
+    await putItem(TABLES.GOODS_SALES_ORDERS, so as any);
+
+    // One-time conversion stamp — a proforma converts exactly once. The stamp
+    // is conditional (`converted_to` must not exist yet): a concurrent convert
+    // that loses the race deletes its just-created SO and reports 409.
+    const stamped = await updateItemConditional(
+      TABLES.PURCHASE_ORDERS,
+      { id: proforma.id },
+      {
+        converted_to: "so",
+        converted_document_number: so.so_number,
+        converted_at: now,
+        updated_at: now,
+      },
+      "attribute_not_exists(converted_to)",
+    );
+    if (!stamped) {
+      await deleteItem(TABLES.GOODS_SALES_ORDERS, { id });
+      res.status(409).json({ error: "This proforma was already converted to another sales order" });
+      return;
+    }
+
+    createActivityAlert({
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      debtor_id: proforma.debtor_id ?? undefined,
+      type: "sales_order_created",
+      severity: "info",
+      message: `Sales order ${so.so_number} created from proforma ${ref}`,
+      created_by: req.user!.id,
+    });
+
+    res.status(201).json(so);
+  } catch (err) {
+    console.error("Convert proforma to SO error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

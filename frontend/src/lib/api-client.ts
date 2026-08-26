@@ -133,6 +133,10 @@ export const api = {
     return request<T>("PATCH", path, body, opts);
   },
 
+  put<T = unknown>(path: string, body?: unknown, opts?: { signal?: AbortSignal }) {
+    return request<T>("PUT", path, body, opts);
+  },
+
   delete<T = unknown>(path: string, body?: unknown, opts?: { signal?: AbortSignal }) {
     return request<T>("DELETE", path, body, opts);
   },

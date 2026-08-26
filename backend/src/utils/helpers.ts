@@ -10,6 +10,17 @@ export function generateNoaToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+/**
+ * Generate a human-facing document number like `PO-XXXXXXXX` or `GRN-XXXXXXXX`
+ * (no ambiguous chars: no 0/O, 1/I).
+ */
+export function generateDocNumber(prefix: string): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return `${prefix}-${s}`;
+}
+
 export function nowISO(): string {
   return new Date().toISOString();
 }

@@ -12,6 +12,7 @@ import {
 import { requireAuth, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js";
 import { sendWelcomeEmail } from "../utils/email.js";
+import { runOverdueReminderSweep } from "../utils/reminders.js";
 import { config } from "../config.js";
 import type {
   AppRole, UserRole, Profile, Invoice, Debtor, Alert,
@@ -289,6 +290,17 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
     res.json({ created: alertsToCreate.length });
   } catch (err) {
     console.error("Generate alerts error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/admin/run-overdue-reminders ── (manual trigger of the daily sweep)
+router.post("/run-overdue-reminders", requireAuth, requireRole("factor_admin"), async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await runOverdueReminderSweep();
+    res.json(result);
+  } catch (err) {
+    console.error("Run overdue reminders error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

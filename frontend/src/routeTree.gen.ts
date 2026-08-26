@@ -13,17 +13,25 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
+import { Route as ApprovalsTokenRouteImport } from './routes/approvals.$token'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
 import { Route as AppUploadInvoiceRouteImport } from './routes/app.upload-invoice'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as AppSalesOrdersRouteImport } from './routes/app.sales-orders'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
+import { Route as AppQuotationsRouteImport } from './routes/app.quotations'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
+import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
+import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
+import { Route as AppGoodsReceiptsRouteImport } from './routes/app.goods-receipts'
+import { Route as AppForecastingRouteImport } from './routes/app.forecasting'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
+import { Route as AppDispatchesRouteImport } from './routes/app.dispatches'
 import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
@@ -56,6 +64,11 @@ const NoaTokenRoute = NoaTokenRouteImport.update({
   path: '/noa/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApprovalsTokenRoute = ApprovalsTokenRouteImport.update({
+  id: '/approvals/$token',
+  path: '/approvals/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppVendorsRoute = AppVendorsRouteImport.update({
   id: '/vendors',
   path: '/vendors',
@@ -76,9 +89,19 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSalesOrdersRoute = AppSalesOrdersRouteImport.update({
+  id: '/sales-orders',
+  path: '/sales-orders',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppQuotationsRoute = AppQuotationsRouteImport.update({
+  id: '/quotations',
+  path: '/quotations',
   getParentRoute: () => AppRoute,
 } as any)
 const AppQueueRoute = AppQueueRouteImport.update({
@@ -91,9 +114,19 @@ const AppPurchasesRoute = AppPurchasesRouteImport.update({
   path: '/purchases',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPurchaseOrdersRoute = AppPurchaseOrdersRouteImport.update({
+  id: '/purchase-orders',
+  path: '/purchase-orders',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProformasRoute = AppProformasRouteImport.update({
   id: '/proformas',
   path: '/proformas',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProductsRoute = AppProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
@@ -106,9 +139,24 @@ const AppInventoryRoute = AppInventoryRouteImport.update({
   path: '/inventory',
   getParentRoute: () => AppRoute,
 } as any)
+const AppGoodsReceiptsRoute = AppGoodsReceiptsRouteImport.update({
+  id: '/goods-receipts',
+  path: '/goods-receipts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppForecastingRoute = AppForecastingRouteImport.update({
+  id: '/forecasting',
+  path: '/forecasting',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppExpensesRoute = AppExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDispatchesRoute = AppDispatchesRouteImport.update({
+  id: '/dispatches',
+  path: '/dispatches',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDebtorsRoute = AppDebtorsRouteImport.update({
@@ -180,17 +228,25 @@ export interface FileRoutesByFullPath {
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
+  '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/forecasting': typeof AppForecastingRoute
+  '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/quotations': typeof AppQuotationsRoute
   '/app/reports': typeof AppReportsRouteWithChildren
+  '/app/sales-orders': typeof AppSalesOrdersRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
   '/app/reports/': typeof AppReportsIndexRoute
@@ -208,16 +264,24 @@ export interface FileRoutesByTo {
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
+  '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/forecasting': typeof AppForecastingRoute
+  '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/quotations': typeof AppQuotationsRoute
+  '/app/sales-orders': typeof AppSalesOrdersRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
   '/app/reports': typeof AppReportsIndexRoute
@@ -236,17 +300,25 @@ export interface FileRoutesById {
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
+  '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/forecasting': typeof AppForecastingRoute
+  '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
+  '/app/quotations': typeof AppQuotationsRoute
   '/app/reports': typeof AppReportsRouteWithChildren
+  '/app/sales-orders': typeof AppSalesOrdersRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
   '/app/reports/': typeof AppReportsIndexRoute
@@ -266,17 +338,25 @@ export interface FileRouteTypes {
     | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
+    | '/app/dispatches'
     | '/app/expenses'
+    | '/app/forecasting'
+    | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/products'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/quotations'
     | '/app/reports'
+    | '/app/sales-orders'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
     | '/app/reports/'
@@ -294,16 +374,24 @@ export interface FileRouteTypes {
     | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
+    | '/app/dispatches'
     | '/app/expenses'
+    | '/app/forecasting'
+    | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/products'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/quotations'
+    | '/app/sales-orders'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
     | '/app/reports'
@@ -321,17 +409,25 @@ export interface FileRouteTypes {
     | '/app/credit-debit-notes'
     | '/app/dashboard'
     | '/app/debtors'
+    | '/app/dispatches'
     | '/app/expenses'
+    | '/app/forecasting'
+    | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/products'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
+    | '/app/quotations'
     | '/app/reports'
+    | '/app/sales-orders'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
     | '/app/reports/'
@@ -341,6 +437,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApprovalsTokenRoute: typeof ApprovalsTokenRoute
   NoaTokenRoute: typeof NoaTokenRoute
 }
 
@@ -374,6 +471,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NoaTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/approvals/$token': {
+      id: '/approvals/$token'
+      path: '/approvals/$token'
+      fullPath: '/approvals/$token'
+      preLoaderRoute: typeof ApprovalsTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/vendors': {
       id: '/app/vendors'
       path: '/vendors'
@@ -402,11 +506,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/sales-orders': {
+      id: '/app/sales-orders'
+      path: '/sales-orders'
+      fullPath: '/app/sales-orders'
+      preLoaderRoute: typeof AppSalesOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/reports': {
       id: '/app/reports'
       path: '/reports'
       fullPath: '/app/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/quotations': {
+      id: '/app/quotations'
+      path: '/quotations'
+      fullPath: '/app/quotations'
+      preLoaderRoute: typeof AppQuotationsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/queue': {
@@ -423,11 +541,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPurchasesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/purchase-orders': {
+      id: '/app/purchase-orders'
+      path: '/purchase-orders'
+      fullPath: '/app/purchase-orders'
+      preLoaderRoute: typeof AppPurchaseOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/proformas': {
       id: '/app/proformas'
       path: '/proformas'
       fullPath: '/app/proformas'
       preLoaderRoute: typeof AppProformasRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/products': {
+      id: '/app/products'
+      path: '/products'
+      fullPath: '/app/products'
+      preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/invoices': {
@@ -444,11 +576,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/goods-receipts': {
+      id: '/app/goods-receipts'
+      path: '/goods-receipts'
+      fullPath: '/app/goods-receipts'
+      preLoaderRoute: typeof AppGoodsReceiptsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/forecasting': {
+      id: '/app/forecasting'
+      path: '/forecasting'
+      fullPath: '/app/forecasting'
+      preLoaderRoute: typeof AppForecastingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/expenses': {
       id: '/app/expenses'
       path: '/expenses'
       fullPath: '/app/expenses'
       preLoaderRoute: typeof AppExpensesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/dispatches': {
+      id: '/app/dispatches'
+      path: '/dispatches'
+      fullPath: '/app/dispatches'
+      preLoaderRoute: typeof AppDispatchesRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/debtors': {
@@ -555,13 +708,20 @@ interface AppRouteChildren {
   AppCreditDebitNotesRoute: typeof AppCreditDebitNotesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDebtorsRoute: typeof AppDebtorsRoute
+  AppDispatchesRoute: typeof AppDispatchesRoute
   AppExpensesRoute: typeof AppExpensesRoute
+  AppForecastingRoute: typeof AppForecastingRoute
+  AppGoodsReceiptsRoute: typeof AppGoodsReceiptsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppProductsRoute: typeof AppProductsRoute
   AppProformasRoute: typeof AppProformasRoute
+  AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
+  AppQuotationsRoute: typeof AppQuotationsRoute
   AppReportsRoute: typeof AppReportsRouteWithChildren
+  AppSalesOrdersRoute: typeof AppSalesOrdersRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppUploadInvoiceRoute: typeof AppUploadInvoiceRoute
@@ -578,13 +738,20 @@ const AppRouteChildren: AppRouteChildren = {
   AppCreditDebitNotesRoute: AppCreditDebitNotesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDebtorsRoute: AppDebtorsRoute,
+  AppDispatchesRoute: AppDispatchesRoute,
   AppExpensesRoute: AppExpensesRoute,
+  AppForecastingRoute: AppForecastingRoute,
+  AppGoodsReceiptsRoute: AppGoodsReceiptsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppProductsRoute: AppProductsRoute,
   AppProformasRoute: AppProformasRoute,
+  AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
+  AppQuotationsRoute: AppQuotationsRoute,
   AppReportsRoute: AppReportsRouteWithChildren,
+  AppSalesOrdersRoute: AppSalesOrdersRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppUploadInvoiceRoute: AppUploadInvoiceRoute,
@@ -597,6 +764,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApprovalsTokenRoute: ApprovalsTokenRoute,
   NoaTokenRoute: NoaTokenRoute,
 }
 export const routeTree = rootRouteImport

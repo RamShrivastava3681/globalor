@@ -13,6 +13,12 @@ import { seedAdmin } from "./seed.js";
 // DynamoDB table creation
 import { createTables } from "./db/schema.js";
 
+// Overdue-reminder daily sweep
+import { runOverdueReminderSweep } from "./utils/reminders.js";
+
+// Forecast recompute trigger (fire-and-forget, failure-isolated per SKU)
+import { recomputeAll } from "./utils/forecast.js";
+
 // Route imports
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profiles.js";
@@ -31,6 +37,15 @@ import adminRoutes from "./routes/admin.js";
 import noaRoutes from "./routes/noa.js";
 import uploadRoutes from "./routes/upload.js";
 import reportRoutes from "./routes/reports.js";
+import productRoutes from "./routes/products.js";
+import catalogueSettingRoutes from "./routes/catalogueSettings.js";
+import goodsPurchaseOrderRoutes from "./routes/goodsPurchaseOrders.js";
+import goodsReceiptRoutes from "./routes/goodsReceipts.js";
+import goodsSalesOrderRoutes from "./routes/goodsSalesOrders.js";
+import goodsDispatchRoutes from "./routes/goodsDispatches.js";
+import quotationRoutes from "./routes/quotations.js";
+import forecastVariableRoutes from "./routes/forecastVariables.js";
+import approvalRoutes from "./routes/approvals.js";
 
 const app = express();
 
@@ -71,10 +86,21 @@ app.use("/api/alerts", alertRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/stock-movements", stockMovementRoutes);
 app.use("/api/inventory-items", inventoryItemRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/catalogue-settings", catalogueSettingRoutes);
+app.use("/api/goods-purchase-orders", goodsPurchaseOrderRoutes);
+app.use("/api/goods-receipts", goodsReceiptRoutes);
+app.use("/api/goods-sales-orders", goodsSalesOrderRoutes);
+app.use("/api/goods-dispatches", goodsDispatchRoutes);
+app.use("/api/quotations", quotationRoutes);
+app.use("/api/forecast-variables", forecastVariableRoutes);
 app.use("/api/admin", adminRoutes);
 
 // Public NOA endpoints get a moderate limiter
 app.use("/api/noa", publicLimiter, noaRoutes);
+
+// Public quotation-approval endpoints get the same moderate limiter
+app.use("/api/approvals", publicLimiter, approvalRoutes);
 
 // Upload endpoints get a upload-specific limiter
 app.use("/api/upload", uploadLimiter, uploadRoutes);
@@ -129,6 +155,19 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: "Internal server error" });
 });
 
+// ── Overdue-reminder daily sweep ──
+// Runs shortly after boot and then every 24h. The sweep itself is idempotent
+// per invoice (stamped `last_overdue_reminder_date`), so overlapping runs and
+// multiple instances are safe. Errors are isolated and logged, never thrown.
+async function dailyOverdueReminderTick() {
+  try {
+    const { reminded, skipped } = await runOverdueReminderSweep();
+    console.log(`   🔔 Overdue-reminder sweep: ${reminded} reminded, ${skipped} skipped`);
+  } catch (err) {
+    console.error("   ❌ Overdue-reminder sweep failed:", err);
+  }
+}
+
 // ── Start ──
 app.listen(config.port, async () => {
   console.log(`\n🚀 Ledger backend running on http://localhost:${config.port}`);
@@ -139,6 +178,23 @@ app.listen(config.port, async () => {
 
   // Seed admin user from env vars
   await seedAdmin();
+
+  // Kick the reminder sweep ~60s after boot (gives startup time to settle),
+  // then every 24h. Manual trigger: POST /api/admin/run-overdue-reminders.
+  setTimeout(dailyOverdueReminderTick, 60_000);
+  setInterval(dailyOverdueReminderTick, 24 * 60 * 60 * 1000);
+
+  // Daily "ensure fresh" forecast recompute (in addition to the event triggers).
+  const dailyForecastTick = async () => {
+    try {
+      const { recomputed } = await recomputeAll(null);
+      console.log(`   📈 Forecast ensure-fresh: ${recomputed} products recomputed`);
+    } catch (err) {
+      console.error("   ❌ Forecast ensure-fresh failed:", err);
+    }
+  };
+  setTimeout(dailyForecastTick, 90_000);
+  setInterval(dailyForecastTick, 24 * 60 * 60 * 1000);
 
   console.log(`   API docs: http://localhost:${config.port}/health\n`);
 });

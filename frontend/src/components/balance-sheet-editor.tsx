@@ -212,7 +212,7 @@ export function BalanceSheetEditor() {
             onClick={() => setOpeningMode(!openingMode)}
             className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all ${
               openingMode
-                ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                ? "border-warning/30 bg-warning/10 text-warning"
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -228,19 +228,19 @@ export function BalanceSheetEditor() {
 
       {/* ── Verification Banner ── */}
       {d.verification.isBalanced ? (
-        <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-800 dark:bg-emerald-950">
-          <Check className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-          <span className="font-medium text-emerald-800 dark:text-emerald-300">
+        <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm">
+          <Check className="h-5 w-5 text-success" />
+          <span className="font-medium text-success">
             Balance Sheet is in balance
           </span>
-          <span className="text-emerald-600/60 dark:text-emerald-400/60">
+          <span className="text-muted-foreground">
             · A: {fmtMoney(d.verification.totalAssets)} = L: {fmtMoney(d.verification.totalLiabilities)} + E: {fmtMoney(d.verification.totalEquity)}
           </span>
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm dark:border-rose-800 dark:bg-rose-950">
-          <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
-          <span className="font-medium text-rose-800 dark:text-rose-300">
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm">
+          <AlertTriangle className="h-5 w-5 text-destructive" />
+          <span className="font-medium text-destructive">
             Out of balance by {fmtMoney(Math.abs(d.verification.difference))}
           </span>
         </div>
@@ -354,7 +354,7 @@ export function BalanceSheetEditor() {
               Assets − (Liabilities + Equity)
             </span>
             <span className={`text-sm font-bold num ${
-              d.verification.isBalanced ? "text-emerald-600" : "text-rose-600"
+              d.verification.isBalanced ? "text-success" : "text-destructive"
             }`}>
               {d.verification.isBalanced ? (
                 <span className="flex items-center gap-1.5">
@@ -623,11 +623,11 @@ function EditorSectionBlock({
                   </div>
 
                   {/* Manual Column */}
-                  <div className="rounded-lg border border-amber-100 bg-amber-50/30 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+                  <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 rounded-full bg-amber-500" />
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        <div className="h-2 w-2 rounded-full bg-warning" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-warning">
                           Manual entries
                         </span>
                       </div>
@@ -646,15 +646,15 @@ function EditorSectionBlock({
                           const itemAmt = fmtItemAmount(item);
                           return (
                             <div key={item.id}>
-                              <div className="group flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-amber-100/50 dark:hover:bg-amber-950/30 transition-colors">
+                              <div className="group flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-warning/10 transition-colors">
                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   {item.is_opening_balance && (
-                                    <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                    <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0 text-[8px] font-semibold uppercase tracking-wider text-warning">
                                       Opening
                                     </span>
                                   )}
                                   {hasSubFields && (
-                                    <Layers className="h-3 w-3 shrink-0 text-violet-500" />
+                                    <Layers className="h-3 w-3 shrink-0 text-info" />
                                   )}
                                   <span className="truncate font-medium">{item.description}</span>
                                   {item.date && (
@@ -681,14 +681,14 @@ function EditorSectionBlock({
                               </div>
                               {/* Sub-fields nested under parent */}
                               {hasSubFields && item.sub_fields && (
-                                <div className="ml-5 pl-3 border-l-2 border-violet-200 dark:border-violet-800/60 space-y-0.5 mt-0.5">
+                                <div className="ml-5 pl-3 border-l-2 border-info/30 space-y-0.5 mt-0.5">
                                   {item.sub_fields.map((sf) => (
                                     <div
                                       key={sf.id}
-                                      className="flex items-center justify-between rounded-md px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-violet-50/50 dark:hover:bg-violet-950/20 transition-colors"
+                                      className="flex items-center justify-between rounded-md px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-info/10 transition-colors"
                                     >
                                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                                        <span className="h-1 w-1 rounded-full bg-violet-400 shrink-0" />
+                                        <span className="h-1 w-1 rounded-full bg-info shrink-0" />
                                         <span className="truncate">{sf.name}</span>
                                         <span className="text-muted-foreground/50 shrink-0">{fmtDate(sf.date)}</span>
                                       </div>
@@ -900,7 +900,7 @@ function ManualEntryForm({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
       onClick={onClose}
     >
       <div
@@ -915,7 +915,7 @@ function ManualEntryForm({
               {editing ? "Edit manual entry" : "Add manual entry"}
             </h3>
             {isOpening && (
-              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-warning">
                 Opening
               </span>
             )}
@@ -967,7 +967,7 @@ function ManualEntryForm({
                   }
                 }}
               />
-              <div className="h-5 w-9 rounded-full bg-muted-foreground/30 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-violet-500 peer-checked:after:translate-x-full" />
+              <div className="h-5 w-9 rounded-full bg-muted-foreground/30 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-info peer-checked:after:translate-x-full" />
             </label>
             <div>
               <span className="text-sm font-medium">Use sub-fields (line items)</span>
@@ -981,8 +981,8 @@ function ManualEntryForm({
           <div className="grid grid-cols-2 gap-4">
             <L label={useSubFields ? "Total (auto-calculated)" : "Amount *"}>
               {useSubFields ? (
-                <div className="inp num flex items-center gap-2 bg-violet-50/30 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800">
-                  <span className="text-sm font-bold text-violet-700 dark:text-violet-400">
+                <div className="inp num flex items-center gap-2 bg-info/10 border-info/30">
+                  <span className="text-sm font-bold text-info">
                     {fmtMoney(subFieldsTotal)}
                   </span>
                   <span className="text-[10px] text-muted-foreground ml-auto">
@@ -1014,18 +1014,18 @@ function ManualEntryForm({
 
           {/* ── Sub-fields Section ── */}
           {useSubFields && (
-            <div className="rounded-lg border border-violet-100 bg-violet-50/20 p-4 dark:border-violet-900 dark:bg-violet-950/10">
+            <div className="rounded-lg border border-info/20 bg-info/5 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-400">
+                  <Layers className="h-3.5 w-3.5 text-info" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-info">
                     Line Items
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={handleAddSubField}
-                  className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300 dark:hover:bg-violet-900/50 transition-all"
+                  className="inline-flex items-center gap-1 rounded-md border border-info/30 bg-white px-2 py-1 text-[10px] font-medium text-info hover:bg-info/10 dark:bg-info/10 transition-all"
                 >
                   <Plus className="h-3 w-3" />
                   Add line item
@@ -1036,7 +1036,7 @@ function ManualEntryForm({
                 {subFields.map((sf, idx) => (
                   <div
                     key={sf.id}
-                    className="group grid grid-cols-12 gap-2 items-start rounded-md border border-violet-200/60 bg-white p-2 dark:border-violet-800/60 dark:bg-violet-950/20"
+                    className="group grid grid-cols-12 gap-2 items-start rounded-md border border-info/20 bg-white p-2 dark:bg-info/10"
                   >
                     <div className="col-span-1 flex items-center justify-center">
                       <span className="text-[10px] font-mono text-muted-foreground">{idx + 1}</span>
@@ -1083,11 +1083,11 @@ function ManualEntryForm({
               </div>
 
               {subFields.length > 0 && (
-                <div className="mt-3 flex items-center justify-between border-t border-violet-200/60 pt-2 dark:border-violet-800/60">
+                <div className="mt-3 flex items-center justify-between border-t border-info/20 pt-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Total
                   </span>
-                  <span className="text-sm font-bold num text-violet-700 dark:text-violet-400">
+                  <span className="text-sm font-bold num text-info">
                     {fmtMoney(subFieldsTotal)}
                   </span>
                 </div>
@@ -1116,7 +1116,7 @@ function ManualEntryForm({
                 checked={isOpening}
                 onChange={(e) => setIsOpening(e.target.checked)}
               />
-              <div className="h-5 w-9 rounded-full bg-muted-foreground/30 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-amber-500 peer-checked:after:translate-x-full" />
+              <div className="h-5 w-9 rounded-full bg-muted-foreground/30 after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-warning peer-checked:after:translate-x-full" />
             </label>
             <div>
               <span className="text-sm font-medium">Opening balance entry</span>

@@ -1,10 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, User, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, BellRing, Banknote } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -37,6 +39,7 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [soInvoiceOpen, setSoInvoiceOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -51,6 +54,7 @@ function InvoicesPage() {
   const [bulkSearchOpen, setBulkSearchOpen] = useState(false);
   const [confirmSendTarget, setConfirmSendTarget] = useState<{ id: string; number: string } | null>(null);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
 
   // All invoices query for dashboard stats
   const allInvoicesQ = useQuery({
@@ -163,6 +167,17 @@ function InvoicesPage() {
       const link = `${window.location.origin}/noa/${result.noa_link.replace("/noa/", "")}`;
       navigator.clipboard?.writeText(link).catch(() => {});
       toast.success("NOA link copied");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const remindDebtor = useMutation({
+    mutationFn: async (id: string) => {
+      await api.post(`/invoices/${id}/remind`);
+    },
+    onSuccess: () => {
+      toast.success("Overdue reminder sent");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -292,20 +307,15 @@ function InvoicesPage() {
         }
         actions={
           canCreate ? (
-            <div className="flex gap-2">
-              <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                <Plus className="h-4 w-4" /> New invoice
-              </button>
-              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                <Upload className="h-4 w-4" /> Mass import
-              </button>
-              <button onClick={() => setDuplicateCheckOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-warning/50 px-4 py-2 text-sm font-medium text-warning hover:bg-warning/5">
-                <AlertTriangle className="h-4 w-4" /> Check duplicates
-              </button>
-              <button onClick={() => setBulkSearchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                <Search className="h-4 w-4" /> Bulk search
-              </button>
-            </div>
+            <ActionMenu
+              primaryAction={{ label: "New invoice", icon: <Plus className="h-4 w-4" />, onClick: () => { setEditing(null); setOpen(true); } }}
+              items={[
+                { label: "Invoice from sales order", icon: <Package className="h-4 w-4" />, onClick: () => setSoInvoiceOpen(true) },
+                { label: "Mass import", icon: <Upload className="h-4 w-4" />, onClick: () => setImportOpen(true) },
+                { label: "Check duplicates", icon: <AlertTriangle className="h-4 w-4" />, onClick: () => setDuplicateCheckOpen(true), variant: "warning" },
+                { label: "Bulk search", icon: <Search className="h-4 w-4" />, onClick: () => setBulkSearchOpen(true) },
+              ]}
+            />
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
               Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
@@ -341,97 +351,51 @@ function InvoicesPage() {
       {tab === "dashboard" && <DashboardView stats={dashboardStats} invoices={allInvoices} />}
       {tab === "create" && <CreateInvoiceView />}
       {tab === "list" && (
-        <div className="p-6 md:p-10 space-y-6">
-        <div className="flex flex-wrap gap-2">
-          {["all", "open", "close"].map((s) => (
-            <button key={s} onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : s === "open" ? "Open (Created)" : "Close (Funded)"}</button>
-          ))}
-        </div>
+        <div className="p-6 md:p-10 space-y-4">
+        <FilterBar
+          searchPlaceholder="Search invoices by number, debtor, PO…"
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusOptions={[
+            { label: "All statuses", value: "all" },
+            { label: "Open (Created)", value: "open" },
+            { label: "Closed (Funded)", value: "close" },
+          ]}
+          statusValue={filter}
+          onStatusChange={(v) => { setFilter(v); setPage(1); }}
+          dateRanges={[{
+            label: "Issue date",
+            from: issueDateFrom,
+            to: issueDateTo,
+            onFromChange: setIssueDateFrom,
+            onToChange: setIssueDateTo,
+            onClear: () => { setIssueDateFrom(""); setIssueDateTo(""); },
+          }]}
+          sortOptions={[
+            { field: "created", label: "Created" },
+            { field: "issue", label: "Issue date" },
+            { field: "due", label: "Due date" },
+          ]}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          onSortChange={(field) => { setPage(1); setSortField(field as typeof sortField); }}
+          onSortOrderChange={(order) => { setPage(1); setSortOrder(order); }}
+        />
 
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
-            <input type="date" value={issueDateFrom}
-              onChange={(e) => setIssueDateFrom(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
-            <input type="date" value={issueDateTo}
-              onChange={(e) => setIssueDateTo(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          {(issueDateFrom || issueDateTo) && (
-            <button onClick={() => { setIssueDateFrom(""); setIssueDateTo(""); }}
-              className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear dates
-            </button>
-          )}
-        </div>
-        <div className="relative">
-          <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
-        </div>
-
-        {(filter !== "all" || searchQuery || issueDateFrom || issueDateTo) && (
-          <div className="-mt-1 mb-2 flex justify-end">
-            <button onClick={() => { setFilter("all"); setSearchQuery(""); setIssueDateFrom(""); setIssueDateTo(""); }}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline transition-colors">
-              <X className="h-3 w-3" /> Clear all filters
-            </button>
-          </div>
-        )}
-
-        {/* Submit all drafts button — searches ALL pages */}
+        {/* Submit all drafts button */}
         {(() => {
           const allDraftIds = allInvoices.filter((i: any) => i.status === "draft").map((i: any) => i.id);
           if (allDraftIds.length === 0 || !canEdit) return null;
           return (
-            <div className="mb-4 flex items-center gap-3">
-              <button
-                onClick={() => setBulkConfirmOpen(true)}
-                className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-                Review All Drafts ({allDraftIds.length})
-              </button>
-            </div>
+            <button
+              onClick={() => setBulkConfirmOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Review All Drafts ({allDraftIds.length})
+            </button>
           );
         })()}
-
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
-          <div className="flex gap-1">
-            {(["created", "issue", "due"] as const).map((field) => (
-              <button
-                key={field}
-                onClick={() => {
-                  setPage(1);
-                  if (sortField === field) {
-                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                  } else {
-                    setSortField(field);
-                    setSortOrder("asc");
-                  }
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                  sortField === field
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "ERP Due date"}
-                {sortField === field && (
-                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
 
         <Card>
           {invoicesQ.isLoading ? (
@@ -478,7 +442,6 @@ function InvoicesPage() {
                     </th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Debtor</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
@@ -519,7 +482,6 @@ function InvoicesPage() {
                             </Link>
                           )}
                         </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
@@ -597,6 +559,21 @@ function InvoicesPage() {
                             )}
                             {isAdmin && (i.status === "approved" || i.status === "advanced" || i.status === "funded") && (
                               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
+                            )}
+                            {(isAdmin || isTreasury || isChecker) && ["approved", "advanced", "funded", "overdue"].includes(i.status) && (
+                              <>
+                                <button onClick={() => remindDebtor.mutate(i.id)}
+                                  disabled={remindDebtor.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
+                                  title="Email an overdue reminder to the debtor">
+                                  <BellRing className="h-3 w-3" /> Remind
+                                </button>
+                                <button onClick={() => setPaymentTarget(i)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                                  title="Record a payment against this invoice">
+                                  <Banknote className="h-3 w-3" /> Record payment
+                                </button>
+                              </>
                             )}
                             {isAdmin && i.status === "paid" && (
                               <span className="text-[10px] uppercase tracking-widest text-success">Closed</span>
@@ -686,6 +663,16 @@ function InvoicesPage() {
       )}
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
+
+      {soInvoiceOpen && <CreateFromSoModal onClose={() => setSoInvoiceOpen(false)} />}
+
+      {paymentTarget && (
+        <RecordPaymentModal
+          invoice={paymentTarget}
+          onClose={() => setPaymentTarget(null)}
+          onRecorded={() => { qc.invalidateQueries({ queryKey: ["invoices"] }); setPaymentTarget(null); }}
+        />
+      )}
 
       {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
 
@@ -1120,7 +1107,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                             ? "bg-destructive/15 text-destructive"
                             : i.daysPastDue > 30
                             ? "bg-warning/15 text-warning"
-                            : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+                            : "bg-warning/10 text-warning"
                         }`}>
                           <AlertCircle className="h-3 w-3" />
                           {i.daysPastDue}d
@@ -2077,7 +2064,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{editing ? "Edit invoice" : "Submit invoice"}</h3>
@@ -2301,7 +2288,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
   const totalDuplicates = dupQ.data?.totalDuplicates ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-3">
@@ -2441,7 +2428,7 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -2490,6 +2477,98 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             )}
           </div>
 
+          {/* Reminder log — NOA sends + overdue/manual reminders */}
+          {Array.isArray(invoice.reminder_log) && invoice.reminder_log.length > 0 && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
+                <BellRing className="mr-1 inline h-3.5 w-3.5" />Reminder log ({invoice.reminder_log.length})
+              </h4>
+              <ul className="space-y-1.5">
+                {invoice.reminder_log.map((r: any, idx: number) => (
+                  <li key={idx} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-widest ${
+                        r.type === "noa" ? "border-primary/40 text-primary"
+                        : r.type === "overdue" ? "border-warning/50 text-warning"
+                        : "border-border text-muted-foreground"
+                      }`}>
+                        {r.type === "noa" ? "NOA" : r.type === "overdue" ? "Overdue" : "Manual"}
+                      </span>
+                      <span className="text-muted-foreground">{r.note || ""}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span className="text-[10px]">{r.to}</span>
+                      <span className="text-[10px]">{fmtDate(r.sent_at)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Sales order link + goods lines (from-SO invoices) */}
+          {invoice.goods_sales_order_id && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 flex items-center gap-2 text-xs uppercase tracking-widest text-primary">
+                <Package className="h-3.5 w-3.5" />Sales order
+                {invoice.goods_sales_order_number && (
+                  <Link to="/app/sales-orders" className="ml-1 rounded-md border border-primary/30 px-2 py-0.5 text-[10px] normal-case tracking-normal text-primary hover:bg-primary/5">
+                    {invoice.goods_sales_order_number} →
+                  </Link>
+                )}
+              </h4>
+              {Array.isArray(invoice.lines) && invoice.lines.length > 0 && (
+                <div className="-mx-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-4 py-2 text-left font-normal">Item</th>
+                        <th className="px-4 py-2 text-left font-normal">SKU</th>
+                        <th className="px-4 py-2 text-right font-normal">Qty</th>
+                        <th className="px-4 py-2 text-right font-normal">Unit price</th>
+                        <th className="px-4 py-2 text-right font-normal">Disc %</th>
+                        <th className="px-4 py-2 text-right font-normal">GST %</th>
+                        <th className="px-4 py-2 text-right font-normal">Line total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoice.lines.map((l: any, idx: number) => (
+                        <tr key={idx} className="border-b border-border/60">
+                          <td className="px-4 py-2.5">{l.name}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{l.sku || "—"}</td>
+                          <td className="px-4 py-2.5 text-right num">{Number(l.quantity).toLocaleString()}</td>
+                          <td className="px-4 py-2.5 text-right num">{fmtMoney(l.unit_price)}</td>
+                          <td className="px-4 py-2.5 text-right num">{Number(l.discount_pct || 0).toLocaleString()}%</td>
+                          <td className="px-4 py-2.5 text-right num">{l.gst_rate != null ? `${Number(l.gst_rate).toLocaleString()}%` : "—"}</td>
+                          <td className="px-4 py-2.5 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {(invoice.grand_total != null || invoice.advance_deducted != null) && (
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-x-8 gap-y-2 border-t border-border/60 pt-3 text-sm">
+                  {invoice.subtotal_goods != null && <Detail label="Goods subtotal" value={fmtMoney(invoice.subtotal_goods)} />}
+                  {invoice.total_discount != null && <Detail label="Discounts" value={fmtMoney(invoice.total_discount)} />}
+                  {invoice.gst_total != null && <Detail label="GST" value={fmtMoney(invoice.gst_total)} />}
+                  {invoice.freight != null && <Detail label="Freight" value={fmtMoney(invoice.freight)} />}
+                  {invoice.grand_total != null && <Detail label="Grand total" value={fmtMoney(invoice.grand_total)} />}
+                  {invoice.advance_deducted != null && (
+                    <Detail label="Advance deducted" value={`−${fmtMoney(invoice.advance_deducted)}`} />
+                  )}
+                  {invoice.net_receivable != null && (
+                    <span className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1 text-sm font-semibold text-primary">
+                      Net receivable: {fmtMoney(invoice.net_receivable)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {invoice.billing_address && <Detail label="Billing address" value={invoice.billing_address} />}
+              {invoice.delivery_address && <Detail label="Delivery address" value={invoice.delivery_address} />}
+            </div>
+          )}
+
           {/* Debtor details */}
           {debtor && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
@@ -2534,20 +2613,6 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                 )}
                 {purchase.due_date && <Detail label="ERP Due date" value={fmtDate(purchase.due_date)} />}
                 {purchase.po_number && <Detail label="PO number" value={purchase.po_number} />}
-              </div>
-            </div>
-          )}
-
-          {/* Client info */}
-          {invoice.client && (
-            <div className="rounded-lg border border-border bg-background/40 p-4">
-              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <User className="mr-1 inline h-3.5 w-3.5" />Client
-              </h4>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
-                <Detail label="Company" value={invoice.client.company_name || "—"} />
-                <Detail label="Contact" value={invoice.client.contact_name || "—"} />
-                <Detail label="Email" value={invoice.client.email || "—"} />
               </div>
             </div>
           )}
@@ -2754,7 +2819,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const totalAmount = useMemo(() => rows.reduce((s, r) => s + r.amount, 0), [rows]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
@@ -2921,6 +2986,352 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
         )}
 
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+// ── Invoice from Sales Order Modal ──
+// Billing after dispatch: pick a confirmed SO, adjust quantities/prices, and
+// the backend computes the advance deduction from received advances on the
+// linked customer proforma. The invoice NEVER reduces stock.
+
+function CreateFromSoModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { canWrite } = useAuth();
+  const canCreate = canWrite("invoices");
+
+  const [soId, setSoId] = useState("");
+  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState("");
+  const [termsDays, setTermsDays] = useState("30");
+  const [advanceRate, setAdvanceRate] = useState("0");
+  const [freight, setFreight] = useState("0");
+  const [poNumber, setPoNumber] = useState("");
+  const [poDate, setPoDate] = useState("");
+  const [lines, setLines] = useState<Array<{ product_id: string | null; sku: string; name: string; unit: string; quantity: string; unit_price: string; discount_pct: string; gst_rate: string }>>([]);
+  const [docs, setDocs] = useState<DocMeta[]>([]);
+
+  const soQ = useQuery({
+    queryKey: ["sales-orders-for-invoice"],
+    queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [],
+  });
+
+  const invoicable = useMemo(() => {
+    const list = (soQ.data ?? []).filter((so: any) =>
+      ["confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id
+    );
+    return list.sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || ""));
+  }, [soQ.data]);
+
+  const selectedSo = useMemo(() => invoicable.find((so: any) => so.id === soId) ?? null, [invoicable, soId]);
+
+  const pickSo = (id: string) => {
+    setSoId(id);
+    const so = invoicable.find((s: any) => s.id === id);
+    if (!so) return;
+    setLines((so.lines ?? []).map((l: any) => ({
+      product_id: l.product_id ?? null,
+      sku: l.sku ?? "",
+      name: l.name ?? "",
+      unit: l.unit ?? "unit",
+      quantity: String(l.ordered_qty ?? ""),
+      unit_price: String(l.unit_price ?? ""),
+      discount_pct: String(l.discount_pct ?? 0),
+      gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+    })));
+  };
+
+  const updateLine = (idx: number, patch: Partial<{ quantity: string; unit_price: string; discount_pct: string; gst_rate: string }>) => {
+    setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  };
+
+  // Received advances on the linked customer proforma — the backend deducts
+  // the higher of this and grand total × advance rate, so the preview must too.
+  const advanceQ = useQuery({
+    queryKey: ["po-lookup-fromso", poNumber],
+    enabled: !!poNumber.trim() && !!selectedSo,
+    queryFn: async () => {
+      const data = await api.get<any>(`/purchase-orders/by-po/${encodeURIComponent(poNumber.trim())}`);
+      return data ?? { proformas: [], advances: [] };
+    },
+  });
+
+  const receivedAdvances = useMemo(() => {
+    const advs = (advanceQ.data?.advances ?? []) as any[];
+    return advs
+      .filter((a: any) => a.status === "open")
+      .reduce((s: number, a: any) => s + Number(a.amount || 0), 0);
+  }, [advanceQ.data]);
+
+  const totals = useMemo(() => {
+    let subtotal = 0, discount = 0, gst = 0;
+    for (const l of lines) {
+      const qty = Number(l.quantity) || 0;
+      const price = Number(l.unit_price) || 0;
+      const gross = qty * price;
+      const disc = (gross * Math.min(100, Math.max(0, Number(l.discount_pct) || 0))) / 100;
+      subtotal += gross;
+      discount += disc;
+      gst += (gross - disc) * ((Number(l.gst_rate) || 0) / 100);
+    }
+    const grandTotal = subtotal - discount + gst + (Number(freight) || 0);
+    const advanceDeducted = Math.min(grandTotal, Math.max(receivedAdvances, (grandTotal * (Number(advanceRate) || 0)) / 100));
+    return {
+      subtotal, discount, gst, grandTotal,
+      receivedAdvances,
+      advanceDeducted: Math.round(advanceDeducted * 100) / 100,
+      netReceivable: Math.round((grandTotal - advanceDeducted) * 100) / 100,
+    };
+  }, [lines, freight, advanceRate, receivedAdvances]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!soId) throw new Error("Select a sales order first.");
+      const payload = {
+        goods_sales_order_id: soId,
+        issue_date: issueDate,
+        due_date: dueDate || null,
+        payment_terms_days: Number(termsDays) || 30,
+        advance_rate: Number(advanceRate) || 0,
+        freight: freight === "" ? null : Number(freight) || 0,
+        po_number: poNumber.trim() || null,
+        po_date: poDate || null,
+        documents: docs,
+        lines: lines.map((l) => ({
+          product_id: l.product_id,
+          sku: l.sku,
+          name: l.name,
+          unit: l.unit,
+          quantity: Number(l.quantity) || 0,
+          unit_price: Number(l.unit_price) || 0,
+          discount_pct: Number(l.discount_pct) || 0,
+          gst_rate: l.gst_rate === "" ? null : Number(l.gst_rate) || 0,
+        })),
+      };
+      await api.post("/invoices/from-so", payload);
+    },
+    onSuccess: () => {
+      toast.success("Invoice created from sales order");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not create invoice"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">Invoice from sales order</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          <Field label="Sales order (confirmed, not yet invoiced)">
+            <select value={soId} onChange={(e) => pickSo(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Select a sales order…</option>
+              {invoicable.map((so: any) => (
+                <option key={so.id} value={so.id}>
+                  {so.so_number} — {so.customer_name || "no customer"} · ${Number(so.grand_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </option>
+              ))}
+            </select>
+            {invoicable.length === 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">No confirmed sales orders with a customer yet. Confirm an SO on the Sales Orders page first.</p>
+            )}
+          </Field>
+
+          {selectedSo && (
+            <>
+              <div className="rounded-lg border border-border bg-background/40 p-3 text-xs">
+                <div className="flex flex-wrap gap-x-6 gap-y-1">
+                  <span><span className="text-muted-foreground">Customer:</span> <span className="font-medium">{selectedSo.customer_name}</span></span>
+                  {selectedSo.contact_person && <span><span className="text-muted-foreground">Contact:</span> {selectedSo.contact_person}</span>}
+                  {selectedSo.billing_address && <span><span className="text-muted-foreground">Bill to:</span> {selectedSo.billing_address}</span>}
+                  {selectedSo.delivery_address && <span><span className="text-muted-foreground">Ship to:</span> {selectedSo.delivery_address}</span>}
+                </div>
+              </div>
+
+              {/* Editable lines */}
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-background/60 text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-3 py-2 text-left font-normal">Item</th>
+                      <th className="px-3 py-2 text-right font-normal">Qty</th>
+                      <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                      <th className="px-3 py-2 text-right font-normal">Disc %</th>
+                      <th className="px-3 py-2 text-right font-normal">GST %</th>
+                      <th className="px-3 py-2 text-right font-normal">Line total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((l, idx) => {
+                      const qty = Number(l.quantity) || 0;
+                      const price = Number(l.unit_price) || 0;
+                      const disc = (qty * price * Math.min(100, Math.max(0, Number(l.discount_pct) || 0))) / 100;
+                      const lineTotal = qty * price - disc + (qty * price - disc) * ((Number(l.gst_rate) || 0) / 100);
+                      return (
+                        <tr key={idx} className="border-b border-border/60">
+                          <td className="px-3 py-2">
+                            <div className="text-sm">{l.name}</div>
+                            <div className="text-[10px] text-muted-foreground">{l.sku} · {l.unit}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <input type="number" min={0} step="any" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })}
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1 text-right text-sm" />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input type="number" min={0} step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })}
+                              className="w-24 rounded-md border border-border bg-background px-2 py-1 text-right text-sm" />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input type="number" min={0} max={100} step="any" value={l.discount_pct} onChange={(e) => updateLine(idx, { discount_pct: e.target.value })}
+                              className="w-16 rounded-md border border-border bg-background px-2 py-1 text-right text-sm" />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input type="number" min={0} step="any" value={l.gst_rate} onChange={(e) => updateLine(idx, { gst_rate: e.target.value })}
+                              placeholder="—" className="w-16 rounded-md border border-border bg-background px-2 py-1 text-right text-sm" />
+                          </td>
+                          <td className="px-3 py-2 text-right num font-medium">{fmtMoney(lineTotal)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <Field label="Issue date">
+                  <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Due date (blank = auto)">
+                  <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Payment terms (days)">
+                  <input type="number" min={0} value={termsDays} onChange={(e) => setTermsDays(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Advance rate %">
+                  <input type="number" min={0} max={100} step="any" value={advanceRate} onChange={(e) => setAdvanceRate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Freight">
+                  <input type="number" min={0} step="any" value={freight} onChange={(e) => setFreight(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Customer proforma # (for advance)">
+                  <input type="text" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="e.g. PF-1001" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Proforma date">
+                  <input type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Attachments">
+                  <DocumentUploader userId={""} scope="invoices" docs={docs} onChange={setDocs} />
+                </Field>
+              </div>
+
+              {/* Live totals + advance preview */}
+              <div className="rounded-lg border border-border bg-background/40 p-4">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
+                  <Detail label="Goods subtotal" value={fmtMoney(totals.subtotal)} />
+                  <Detail label="Discounts" value={`−${fmtMoney(totals.discount)}`} />
+                  <Detail label="GST" value={fmtMoney(totals.gst)} />
+                  <Detail label="Freight" value={fmtMoney(Number(freight) || 0)} />
+                  <Detail label="Grand total" value={fmtMoney(totals.grandTotal)} />
+                  <Detail label="Received advances" value={poNumber.trim() ? fmtMoney(totals.receivedAdvances) : "—"} />
+                  <Detail label="Advance deducted" value={`−${fmtMoney(totals.advanceDeducted)}`} />
+                </div>
+                <div className="mt-3 flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  <span className="text-xs uppercase tracking-widest text-primary">Net receivable (funding amount)</span>
+                  <span className="font-semibold text-primary">{fmtMoney(totals.netReceivable)}</span>
+                </div>
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  Advance deduction uses the higher of received advances on the linked proforma and grand total × advance rate. Invoicing never changes stock — only a confirmed dispatch debits inventory.
+                </p>
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            <button onClick={() => save.mutate()} disabled={!canCreate || save.isPending || !selectedSo}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+              {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create invoice
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Record Payment Modal ──
+// Treasury/admin action: accumulates amount_received, derives paid + late days.
+function RecordPaymentModal({ invoice, onClose, onRecorded }: { invoice: any; onClose: () => void; onRecorded: () => void }) {
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState("");
+  const [dateReceived, setDateReceived] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+
+  const receivedSoFar = Number(invoice.amount_received ?? 0);
+  const remaining = Math.max(0, Number(invoice.amount) - receivedSoFar);
+
+  const record = useMutation({
+    mutationFn: async () => {
+      await api.post(`/invoices/${invoice.id}/payment`, {
+        amount_received: Number(amount),
+        date_received: dateReceived,
+        paid_note: note.trim() || null,
+      });
+    },
+    onSuccess: () => {
+      toast.success("Payment recorded");
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      onRecorded();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg">Record payment</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="rounded-md border border-border bg-background/40 px-3 py-2 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-medium">{invoice.invoice_number}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(invoice.amount)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Received so far</span><span className="num">{fmtMoney(receivedSoFar)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Remaining</span><span className="num font-medium text-primary">{fmtMoney(remaining)}</span></div>
+          </div>
+
+          <Field label="Amount received">
+            <input type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)}
+              placeholder={String(remaining)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          </Field>
+          <Field label="Date received">
+            <input type="date" value={dateReceived} onChange={(e) => setDateReceived(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          </Field>
+          <Field label="Note">
+            <input type="text" value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="Optional"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          </Field>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
+            <button onClick={() => record.mutate()} disabled={!Number(amount) || record.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+              {record.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+              Record payment
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

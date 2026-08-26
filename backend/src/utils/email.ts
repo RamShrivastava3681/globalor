@@ -109,6 +109,157 @@ export interface NoaEmailParams {
   noaUrl: string;
 }
 
+export interface QuotationEmailParams {
+  to: string;
+  customerName: string;
+  contactName: string | null;
+  quotationNumber: string;
+  amount: number;
+  companyName: string;
+  validUntil: string | null;
+  linesSummary: string;
+}
+
+/** "Send to customer" — quotation summary email (fire-and-forget; failure never rolls back status). */
+export async function sendQuotationEmail(params: QuotationEmailParams): Promise<void> {
+  const t = getTransporter();
+  if (!t) return;
+
+  const { smtp } = config;
+  const name = params.contactName || params.customerName;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f9; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #1a365d 0%, #2563eb 100%); color: #ffffff; padding: 32px 36px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+    .body { padding: 32px 36px; color: #1f2937; }
+    .body p { line-height: 1.6; margin: 0 0 16px; font-size: 15px; }
+    .details { background: #f0f4ff; border-radius: 8px; padding: 20px 24px; margin: 20px 0; border: 1px solid #dbeafe; }
+    .details .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .details .row + .row { border-top: 1px solid #e5e7eb; }
+    .details .label { color: #6b7280; }
+    .details .value { font-weight: 600; color: #1e40af; }
+    .footer { padding: 24px 36px; text-align: center; color: #9ca3af; font-size: 13px; border-top: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Quotation ${params.quotationNumber}</h1>
+    </div>
+    <div class="body">
+      <p>Dear <strong>${name}</strong>,</p>
+      <p>Please find our quotation below from <strong>${params.companyName}</strong>. We look forward to working with you.</p>
+      <div class="details">
+        <div class="row"><span class="label">Quotation</span><span class="value">${params.quotationNumber}</span></div>
+        <div class="row"><span class="label">Total</span><span class="value">$${params.amount.toLocaleString()}</span></div>
+        <div class="row"><span class="label">Valid until</span><span class="value">${params.validUntil || "—"}</span></div>
+      </div>
+      <p style="font-size: 14px; color: #6b7280;">${params.linesSummary}</p>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} ${params.companyName}. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await t.sendMail({
+      from: `"${smtp.fromName}" <${smtp.fromEmail || smtp.user}>`,
+      to: params.to,
+      subject: `Quotation ${params.quotationNumber} from ${params.companyName}`,
+      html,
+    });
+    console.log(`   ✅ Quotation email sent to ${params.to}`);
+  } catch (err) {
+    console.error(`   ❌ Failed to send quotation email to ${params.to}:`, err);
+  }
+}
+
+export interface QuotationDebtorEmailParams {
+  to: string;
+  customerName: string;
+  contactName: string | null;
+  quotationNumber: string;
+  amount: number;
+  companyName: string;
+  approvalUrl: string;
+}
+
+/** "Send to debtor" — one-time secure-token approval link email. */
+export async function sendQuotationDebtorEmail(params: QuotationDebtorEmailParams): Promise<void> {
+  const t = getTransporter();
+  if (!t) return;
+
+  const { smtp } = config;
+  const name = params.contactName || params.customerName;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f9; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #065f46 0%, #059669 100%); color: #ffffff; padding: 32px 36px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+    .body { padding: 32px 36px; color: #1f2937; }
+    .body p { line-height: 1.6; margin: 0 0 16px; font-size: 15px; }
+    .details { background: #ecfdf5; border-radius: 8px; padding: 20px 24px; margin: 20px 0; border: 1px solid #a7f3d0; }
+    .details .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .details .row + .row { border-top: 1px solid #d1fae5; }
+    .details .label { color: #6b7280; }
+    .details .value { font-weight: 600; color: #047857; }
+    .btn { display: inline-block; background: #059669; color: #ffffff !important; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+    .btn:hover { background: #047857; }
+    .footer { padding: 24px 36px; text-align: center; color: #9ca3af; font-size: 13px; border-top: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Quotation for your approval</h1>
+    </div>
+    <div class="body">
+      <p>Dear <strong>${name}</strong>,</p>
+      <p><strong>${params.companyName}</strong> has sent you quotation <strong>${params.quotationNumber}</strong> totalling <strong>$${params.amount.toLocaleString()}</strong> and would like your approval.</p>
+      <div class="details">
+        <div class="row"><span class="label">Quotation</span><span class="value">${params.quotationNumber}</span></div>
+        <div class="row"><span class="label">Total</span><span class="value">$${params.amount.toLocaleString()}</span></div>
+      </div>
+      <p style="text-align: center; margin-top: 24px;">
+        <a href="${params.approvalUrl}" class="btn">Review &amp; Approve</a>
+      </p>
+      <p style="font-size: 14px; color: #6b7280; margin-top: 16px;">This link is one-time and secure. You can approve or reject the quotation, with comments.</p>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} ${params.companyName}. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await t.sendMail({
+      from: `"${smtp.fromName}" <${smtp.fromEmail || smtp.user}>`,
+      to: params.to,
+      subject: `Quotation ${params.quotationNumber} — your approval is requested`,
+      html,
+    });
+    console.log(`   ✅ Quotation debtor email sent to ${params.to}`);
+  } catch (err) {
+    console.error(`   ❌ Failed to send quotation debtor email to ${params.to}:`, err);
+  }
+}
+
 export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
   const t = getTransporter();
   if (!t) return;
@@ -173,5 +324,86 @@ export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
     console.log(`   ✅ NOA email sent to ${params.to}`);
   } catch (err) {
     console.error(`   ❌ Failed to send NOA email to ${params.to}:`, err);
+  }
+}
+
+export interface ReminderEmailParams {
+  to: string;
+  debtorName: string;
+  debtorContactName: string | null;
+  invoiceNumber: string;
+  amount: number;
+  dueDate: string | null;
+  daysOverdue: number;
+  companyName: string;
+  invoiceUrl: string;
+}
+
+/** Overdue invoice reminder email (fire-and-forget; failure never rolls back state). */
+export async function sendReminderEmail(params: ReminderEmailParams): Promise<void> {
+  const smtp = config.smtp;
+  const t = getTransporter();
+  if (!t) return;
+  const days = Math.max(1, params.daysOverdue);
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f3f4f6; }
+    .container { max-width: 560px; margin: 24px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+    .header { background: #1e3a8a; color: #ffffff; padding: 28px 36px; }
+    .header h1 { font-size: 22px; font-weight: 700; }
+    .header .sub { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+    .body { padding: 32px 36px; color: #1f2937; }
+    .body p { line-height: 1.6; margin: 0 0 16px; font-size: 15px; }
+    .details { background: #fef2f2; border-radius: 8px; padding: 20px 24px; margin: 20px 0; border: 1px solid #fecaca; }
+    .details .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .details .row + .row { border-top: 1px solid #fde8e8; }
+    .details .label { color: #6b7280; }
+    .details .value { font-weight: 600; color: #991b1b; }
+    .btn { display: inline-block; background: #2563eb; color: #ffffff !important; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+    .btn:hover { background: #1d4ed8; }
+    .footer { padding: 24px 36px; text-align: center; color: #9ca3af; font-size: 13px; border-top: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Payment Reminder</h1>
+      <div class="sub">Invoice overdue by ${days} day${days === 1 ? "" : "s"}</div>
+    </div>
+    <div class="body">
+      <p>Dear <strong>${params.debtorName}</strong>,</p>
+      <p>This is a friendly reminder that the following invoice from <strong>${params.companyName}</strong> is now <strong>${days} day${days === 1 ? "" : "s"} past its due date</strong>. We would appreciate your prompt settlement.</p>
+      <div class="details">
+        <div class="row"><span class="label">Invoice Number</span><span class="value">${params.invoiceNumber}</span></div>
+        <div class="row"><span class="label">Invoice Amount</span><span class="value">$${params.amount.toLocaleString()}</span></div>
+        <div class="row"><span class="label">Due Date</span><span class="value">${params.dueDate || "—"}</span></div>
+        <div class="row"><span class="label">Days Overdue</span><span class="value">${days}</span></div>
+      </div>
+      <p style="text-align: center; margin-top: 24px;">
+        <a href="${params.invoiceUrl}" class="btn">View Invoice</a>
+      </p>
+      <p style="font-size: 14px; color: #6b7280; margin-top: 16px;">If you have already made this payment, please disregard this message.</p>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} Insight Factor. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await t.sendMail({
+      from: `"${smtp.fromName}" <${smtp.fromEmail || smtp.user}>`,
+      to: params.to,
+      subject: `Payment reminder — Invoice ${params.invoiceNumber} is overdue`,
+      html,
+    });
+    console.log(`   ✅ Reminder email sent to ${params.to} (invoice ${params.invoiceNumber})`);
+  } catch (err) {
+    console.error(`   ❌ Failed to send reminder email to ${params.to}:`, err);
   }
 }

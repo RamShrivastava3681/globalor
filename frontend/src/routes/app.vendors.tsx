@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
@@ -84,8 +85,14 @@ function VendorsPage() {
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <div className="mb-4 px-5">
-                <input type="text" placeholder="Search suppliers by name, industry, contact..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
+                <FilterBar
+                  searchPlaceholder="Search suppliers by name, industry, contact…"
+                  searchValue={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  statusOptions={[{ label: "All suppliers", value: "all" }]}
+                  statusValue="all"
+                  onStatusChange={() => {}}
+                />
               </div>
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -197,7 +204,7 @@ function AddVendorModal({ editing, onClose, onCreated }: { editing: any | null; 
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{editing ? "Edit supplier" : "Add supplier"}</h3>
@@ -281,7 +288,7 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
     : null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -323,37 +330,27 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
               <ShoppingCart className="mr-1 inline h-3.5 w-3.5" />Purchase invoices ({invoices.length})
             </h4>
             {/* Filter & sort controls */}
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {["all", "open", "closed"].map((s) => (
-                <button key={s} onClick={() => setFilter(s)}
-                  className={`rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-widest transition ${
-                    filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                  }`}>{s === "all" ? "All" : s === "open" ? "Open" : "Closed"}</button>
-              ))}
-              <span className="ml-2 h-4 w-px bg-border" />
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort</span>
-              {(["issue", "due"] as const).map((field) => (
-                <button key={field}
-                  onClick={() => {
-                    if (sortField === field) {
-                      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                    } else {
-                      setSortField(field);
-                      setSortOrder("asc");
-                    }
-                  }}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] transition ${
-                    sortField === field
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {field === "issue" ? "Issue date" : "Due date"}
-                  {sortField === field && (
-                    <span className="text-[9px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                  )}
-                </button>
-              ))}
+            <div className="mb-3">
+              <FilterBar
+                searchPlaceholder="Search invoices…"
+                searchValue=""
+                onSearchChange={() => {}}
+                statusOptions={[
+                  { label: "All", value: "all" },
+                  { label: "Open", value: "open" },
+                  { label: "Closed", value: "closed" },
+                ]}
+                statusValue={filter}
+                onStatusChange={(v) => setFilter(v)}
+                sortOptions={[
+                  { field: "issue", label: "Issue date" },
+                  { field: "due", label: "Due date" },
+                ]}
+                sortField={sortField}
+                sortOrder={sortOrder}
+                onSortChange={(f) => setSortField(f as typeof sortField)}
+                onSortOrderChange={(o) => setSortOrder(o)}
+              />
             </div>
             {visibleInvoices.length === 0 ? (
               <div className="text-xs text-muted-foreground">No purchase invoices match the current filter.</div>

@@ -561,6 +561,9 @@ const COST_OF_SALES_CATEGORIES = new Set([
   "logistics-and-procurement-cost",
   "principal-cost",
   "referral-fees",
+  "customs-duties",
+  "freight-charges",
+  "other-direct-costs",
 ]);
 
 /** Categories that belong to Taxation */
@@ -595,29 +598,29 @@ function computePnL(data: {
     .filter((inv) => isInRange(inv.issue_date))
     .reduce((sum, inv) => sum + Number(inv.amount), 0);
 
-  const otherSalesIncome = 0;
+  const otherSalesIncome = expenses
+    .filter((e) => e.category === "other-sales-income" && isInRange(e.expense_date))
+    .reduce((sum, e) => sum + Number(e.amount), 0);
 
-  // Credit-note totals are computed once through the shared helper so the P&L,
-  // balance sheet, and dashboard all report identical figures:
-  //  - salesReturns: credit notes linked to sales invoices (reduce turnover)
-  //  - purchaseReturns: unapplied purchase credit notes (reduce cost of
-  //    purchases). PATCH-settled notes already lowered their linked invoice's
-  //    amount and are excluded; bulk-payment-settled notes did not touch the
-  //    invoice and are included. Every credit note nets exactly once.
-  const { salesReturns, purchaseReturns } = computeCreditNoteTotals(
+  // Credit/debit note totals:
+  //  - debitNoteTotal: deducted from turnover (sales adjustments)
+  //  - creditNoteTotal: deducted from cost of sales (purchase returns)
+  const { creditNoteTotal, debitNoteTotal } = computeCreditNoteTotals(
     creditDebitNotes,
     data.payments,
     isInRange,
   );
 
-  const totalTurnover = grossSales + otherSalesIncome - salesReturns;
+  // Turnover: gross sales minus debit notes only
+  const totalTurnover = grossSales + otherSalesIncome - debitNoteTotal;
 
   // ── Cost of Sales ──
   const grossPurchases = purchaseInvoices
     .filter((pi) => isInRange(pi.issue_date))
     .reduce((sum, pi) => sum + Number(pi.amount), 0);
 
-  const netPurchases = grossPurchases - purchaseReturns;
+  // Cost of sales: gross purchases minus credit notes only
+  const netPurchases = grossPurchases - creditNoteTotal;
 
   const costOfSalesExpenses = expenses.filter((e) => COST_OF_SALES_CATEGORIES.has(e.category) && isInRange(e.expense_date));
 
@@ -639,9 +642,17 @@ function computePnL(data: {
     .filter((e) => e.category === "referral-fees")
     .reduce((sum, e) => sum + Number(e.amount), 0);
 
-  const customsDuties = 0;
-  const freightCharges = 0;
-  const otherDirectCosts = 0;
+  const customsDuties = costOfSalesExpenses
+    .filter((e) => e.category === "customs-duties")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const freightCharges = costOfSalesExpenses
+    .filter((e) => e.category === "freight-charges")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+
+  const otherDirectCosts = costOfSalesExpenses
+    .filter((e) => e.category === "other-direct-costs")
+    .reduce((sum, e) => sum + Number(e.amount), 0);
 
   const totalCostOfSales =
     netPurchases +
@@ -695,12 +706,12 @@ function computePnL(data: {
     // Turnover
     grossSales,
     otherSalesIncome,
-    salesReturns,
+    creditNoteTotal,
+    debitNoteTotal,
     totalTurnover,
 
     // Cost of Sales
     grossPurchases,
-    purchaseReturns,
     netPurchases,
     logisticsAndProcurement,
     principalCost,
@@ -856,10 +867,10 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 });
 
 // ── GET /api/reports/credit-notes ──
-// Credit-note totals for the dashboard. Computed with the same shared helper as
-// the P&L and balance sheet so every surface reports identical figures:
-//  - salesReturns: credit notes linked to sales invoices (reduce turnover)
-//  - purchaseReturns: unapplied purchase credit notes (reduce cost of purchases)
+// Credit/debit note totals for the dashboard. Computed with the same shared
+// helper as the P&L so every surface reports identical figures:
+//  - creditNoteTotal: all credit notes in range (deducted from gross sales)
+//  - debitNoteTotal: all debit notes in range (sales adjustments)
 router.get("/credit-notes", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const from = (req.query.from as string) || "1970-01-01";

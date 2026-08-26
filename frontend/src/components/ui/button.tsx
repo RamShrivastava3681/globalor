@@ -5,28 +5,28 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium cursor-pointer transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-gradient-to-br from-[#00B8FF] to-[#0099D9] dark:from-[#38BDF8] dark:to-[#0EA5E9] text-white shadow-sm hover:shadow-md hover:from-[#0099D9] hover:to-[#0077B6] dark:hover:from-[#7DD3FC] dark:hover:to-[#38BDF8] active:shadow-sm rounded-xl",
+          "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover active:bg-primary-active",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:opacity-90 active:shadow-sm rounded-xl",
+          "bg-destructive text-destructive-foreground shadow-sm hover:opacity-90",
         outline:
-          "border border-border bg-card shadow-sm hover:bg-accent hover:border-primary/30 text-foreground rounded-xl",
+          "border border-border bg-card hover:bg-accent hover:text-accent-foreground text-foreground",
         secondary:
-          "bg-secondary text-primary border border-primary/20 hover:bg-primary/15 hover:border-primary rounded-xl",
+          "bg-secondary text-secondary-foreground border border-primary/10 hover:bg-primary-soft",
         ghost:
-          "text-muted-foreground hover:bg-accent hover:text-accent-foreground rounded-lg",
+          "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
         link:
           "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-lg px-3 text-xs",
-        lg: "h-10 rounded-xl px-8",
-        icon: "h-9 w-9 rounded-lg",
+        default: "h-9 px-4 py-2 rounded-md",
+        sm: "h-8 rounded-md px-3 text-xs",
+        lg: "h-10 rounded-md px-6",
+        icon: "h-9 w-9 rounded-md",
       },
     },
     defaultVariants: {

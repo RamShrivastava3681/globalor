@@ -5,7 +5,7 @@ import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
   FileText, FileSpreadsheet, Loader2, Filter, Columns, CalendarDays, X, Building2, Scale,
   TrendingUp, Briefcase, Clock, Users, Wallet, Boxes, Banknote, FileSignature, ShoppingCart,
-  ArrowLeft, LayoutGrid
+  ArrowLeft, LayoutGrid, Pencil
 } from "lucide-react";
 import { BalanceSheetView } from "@/components/balance-sheet";
 import { toast } from "sonner";
@@ -64,13 +64,18 @@ function ReportViewPage() {
   const isBalanceSheet = tabId === "balance-sheet";
   const isPnL = tabId === "profit-loss";
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("this-month");
-  const [pnlData, setPnlData] = useState<PnLReport | null>(null);
-
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [pnlData, setPnlData] = useState<PnLReport | null>(null);  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedQuarter, setSelectedQuarter] = useState<number | null>(null);
+
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
 
   const [companyName, setCompanyName] = useState("");
+
+  // Exchange rate depreciation adjustments for P&L
+  const [turnoverFxDepreciation, setTurnoverFxDepreciation] = useState(0);
+  const [costOfSalesFxDepreciation, setCostOfSalesFxDepreciation] = useState(0);
+  const [turnoverFxOpen, setTurnoverFxOpen] = useState(false);
+  const [costOfSalesFxOpen, setCostOfSalesFxOpen] = useState(false);
 
   useEffect(() => {
     api.get<any>("/profiles/me").then((d) => {
@@ -296,12 +301,12 @@ function ReportViewPage() {
     push("TURNOVER", 0, { accent: true });
     push("Gross Sales", d.grossSales, { depth: 1 });
     push("Other Sales Income", d.otherSalesIncome, { depth: 1 });
-    push("Sales Returns / Adjustments", -d.salesReturns, { depth: 1 });
+    push("Sales Adjustments (Debit Notes)", -d.debitNoteTotal, { depth: 1 });
     push("Total Turnover", d.totalTurnover, { bold: true, doubleLine: true });
 
     push("COST OF SALES", 0, { accent: true });
     push("Gross Purchases", d.grossPurchases, { depth: 1 });
-    push("Credit Notes (Purchase Returns)", -d.purchaseReturns, { depth: 1 });
+    push("Credit Notes (Purchase Returns)", -d.creditNoteTotal, { depth: 1 });
     push("Logistics & Procurement Cost", d.logisticsAndProcurement, { depth: 1 });
     push("Principal Cost", d.principalCost, { depth: 1 });
     push("Referral Fees", d.referralFees, { depth: 1 });
@@ -629,7 +634,7 @@ function ReportViewPage() {
                 params={{ tab: t.id }}
                 className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${
                   isActive
-                    ? "border-[#00B8FF] text-[#00B8FF]"
+                    ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                 }`}
               >
@@ -902,26 +907,26 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-blue-600 bg-blue-50/50 dark:text-blue-400 dark:bg-blue-950/30 rounded-t-lg">Turnover</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Gross Sales</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.grossSales)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Other Sales Income</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.otherSalesIncome)}</td></tr>
-            <tr><td className="py-1.5 pl-10 text-muted-foreground">Sales Returns / Adjustments</td><td className="py-1.5 pr-6 text-right num text-rose-600">{fmtPnlMoney(-d.salesReturns)}</td></tr>
+            <tr><td className="py-1.5 pl-10 text-muted-foreground">Sales Adjustments (Debit Notes)</td><td className="py-1.5 pr-6 text-right num text-destructive">{fmtPnlMoney(-d.debitNoteTotal)}</td></tr>
             <tr className="border-t-2 border-blue-200"><td className="py-2 pl-10 font-bold">Total Turnover</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalTurnover)}</td></tr>
 
             {/* Cost of Sales Section */}
-            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50/50 dark:text-emerald-400 dark:bg-emerald-950/30">Cost of Sales</td></tr>
+            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-success bg-success/10">Cost of Sales</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Gross Purchases</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.grossPurchases)}</td></tr>
-            <tr><td className="py-1.5 pl-10 text-muted-foreground">Credit Notes (Purchase Returns)</td><td className="py-1.5 pr-6 text-right num text-rose-600">{fmtPnlMoney(-d.purchaseReturns)}</td></tr>
+            <tr><td className="py-1.5 pl-10 text-muted-foreground">Credit Notes (Purchase Returns)</td><td className="py-1.5 pr-6 text-right num text-destructive">{fmtPnlMoney(-d.creditNoteTotal)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Logistics & Procurement</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.logisticsAndProcurement)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Principal Cost</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.principalCost)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Referral Fees</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.referralFees)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Customs / Duties</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.customsDuties)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Freight Charges</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.freightCharges)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Other Direct Costs</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.otherDirectCosts)}</td></tr>
-            <tr className="border-t-2 border-emerald-200"><td className="py-2 pl-10 font-bold">Total Cost of Sales</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalCostOfSales)}</td></tr>
+            <tr className="border-t-2 border-success/30"><td className="py-2 pl-10 font-bold">Total Cost of Sales</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalCostOfSales)}</td></tr>
 
             {/* Gross Profit */}
             <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Gross Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.grossProfit)}</td></tr>
 
             {/* Admin Costs */}
-            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-amber-600 bg-amber-50/50 dark:text-amber-400 dark:bg-amber-950/30">Administrative Costs</td></tr>
+            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-warning bg-warning/10">Administrative Costs</td></tr>
             {adminEntries.length === 0 ? (
               <tr><td className="py-2 pl-10 text-muted-foreground italic" colSpan={2}>No administrative expenses recorded</td></tr>
             ) : (
@@ -929,7 +934,7 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
                 <tr key={cat}><td className="py-1.5 pl-10 text-muted-foreground">{ADMIN_CAT_LABELS[cat] ?? cat}</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(amount)}</td></tr>
               ))
             )}
-            <tr className="border-t-2 border-amber-200"><td className="py-2 pl-10 font-bold">Total Administrative Costs</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalAdminCosts)}</td></tr>
+            <tr className="border-t-2 border-warning/30"><td className="py-2 pl-10 font-bold">Total Administrative Costs</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalAdminCosts)}</td></tr>
 
             {/* Operating Profit */}
             <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Operating Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.operatingProfit)}</td></tr>
@@ -938,7 +943,7 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             <tr className="border-t border-border"><td className="py-3 pl-4 text-base font-bold">Profit Before Taxation</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.profitBeforeTax)}</td></tr>
 
             {/* Taxation */}
-            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-rose-600 bg-rose-50/50 dark:text-rose-400 dark:bg-rose-950/30">Taxation</td></tr>
+            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-destructive bg-destructive/10">Taxation</td></tr>
             {taxEntries.length === 0 ? (
               <tr><td className="py-2 pl-10 text-muted-foreground italic" colSpan={2}>No tax entries recorded</td></tr>
             ) : (
@@ -946,7 +951,7 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
                 <tr key={cat}><td className="py-1.5 pl-10 text-muted-foreground">{cat.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(amount)}</td></tr>
               ))
             )}
-            <tr className="border-t-2 border-rose-200"><td className="py-2 pl-10 font-bold">Total Taxation</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalTaxation)}</td></tr>
+            <tr className="border-t-2 border-destructive/30"><td className="py-2 pl-10 font-bold">Total Taxation</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalTaxation)}</td></tr>
 
             {/* Net Profit */}
             <tr className="border-t-2 border-border"><td className="py-4 pl-4 text-lg font-bold text-primary">Profit After Taxation</td><td className="py-4 pr-6 text-right num text-lg font-bold text-primary">{fmtPnlMoney(d.profitAfterTax)}</td></tr>
@@ -1048,7 +1053,7 @@ function InventoryTrackingView({ data, columns, loading }: { data: any[]; column
           <div className="flex gap-4 text-xs text-muted-foreground">
             <span>Total Qty: <strong className="text-foreground">{totalClosingQty.toLocaleString()}</strong></span>
             <span>Total Value: <strong className="text-foreground">{fmtMoney(totalExtendedPrice)}</strong></span>
-            <span>Gross Margin: <strong className={grossMargin >= 0 ? "text-emerald-600" : "text-rose-600"}>{fmtMoney(grossMargin)} ({marginPct.toFixed(1)}%)</strong></span>
+            <span>Gross Margin: <strong className={grossMargin >= 0 ? "text-success" : "text-destructive"}>{fmtMoney(grossMargin)} ({marginPct.toFixed(1)}%)</strong></span>
           </div>
         </div>
       }

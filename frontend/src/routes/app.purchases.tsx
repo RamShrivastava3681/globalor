@@ -1,4 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { FilterBar } from "@/components/ui/filter-bar";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, getToken } from "@/lib/api-client";
@@ -264,23 +266,16 @@ function PurchasesPage() {
             : tab === "create"
             ? "Create a new purchase invoice to submit for review."
             : "View, review, and manage all your purchase invoices."
-        }
-        actions={
+        }        actions={
           canCreate ? (
-            <div className="flex gap-2">
-              <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                <Plus className="h-4 w-4" /> New purchase invoice
-              </button>
-              <button onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                <Upload className="h-4 w-4" /> Mass import
-              </button>
-              <button onClick={() => setDuplicateCheckOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-warning/50 px-4 py-2 text-sm font-medium text-warning hover:bg-warning/5">
-                <AlertTriangle className="h-4 w-4" /> Check duplicates
-              </button>
-              <button onClick={() => setBulkSearchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5">
-                <Search className="h-4 w-4" /> Bulk search
-              </button>
-            </div>
+            <ActionMenu
+              primaryAction={{ label: "New purchase invoice", icon: <Plus className="h-4 w-4" />, onClick: () => { setEditing(null); setOpen(true); } }}
+              items={[
+                { label: "Mass import", icon: <Upload className="h-4 w-4" />, onClick: () => setImportOpen(true) },
+                { label: "Check duplicates", icon: <AlertTriangle className="h-4 w-4" />, onClick: () => setDuplicateCheckOpen(true), variant: "warning" },
+                { label: "Bulk search", icon: <Search className="h-4 w-4" />, onClick: () => setBulkSearchOpen(true) },
+              ]}
+            />
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
               Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
@@ -316,113 +311,62 @@ function PurchasesPage() {
       {tab === "dashboard" && <DashboardView stats={dashboardStats} invoices={allPi} />}
       {tab === "create" && <CreatePurchaseView />}
       {tab === "list" && (
-        <div className="space-y-6 p-6 md:p-10">
+        <div className="space-y-4 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Total purchases"><div className="num num-lg"><AnimatedMoney value={totals.all} /></div></Card>
           <Card title="Open payables"><div className="num num-lg text-warning"><AnimatedMoney value={totals.open} /></div></Card>
           <Card title="Suppliers used"><div className="num text-3xl">{new Set(invoiceData.map((p: any) => p.vendor_id)).size}</div></Card>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", "approved", "closed"].map((s) => (
-            <button key={s} onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : s === "approved" ? "Open (Approved)" : "Closed"}</button>
-          ))}
-        </div>
+        <FilterBar
+          searchPlaceholder="Search purchases by invoice number, supplier name, PO…"
+          searchValue={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusOptions={[
+            { label: "All statuses", value: "all" },
+            { label: "Open (Approved)", value: "approved" },
+            { label: "Closed", value: "closed" },
+          ]}
+          statusValue={filter}
+          onStatusChange={(v) => { setFilter(v); setPage(1); }}
+          dateRanges={[{
+            label: "Issue date",
+            from: issueDateFrom,
+            to: issueDateTo,
+            onFromChange: setIssueDateFrom,
+            onToChange: setIssueDateTo,
+            onClear: () => { setIssueDateFrom(""); setIssueDateTo(""); },
+          }, {
+            label: "Created",
+            from: createdFrom,
+            to: createdTo,
+            onFromChange: setCreatedFrom,
+            onToChange: setCreatedTo,
+            onClear: () => { setCreatedFrom(""); setCreatedTo(""); },
+          }]}
+          sortOptions={[
+            { field: "created", label: "Created" },
+            { field: "issue", label: "Issue date" },
+            { field: "due", label: "Due date" },
+          ]}
+          sortField={sortField}
+          sortOrder={sortOrder}
+          onSortChange={(field) => { setSortField(field as typeof sortField); }}
+          onSortOrderChange={(order) => { setSortOrder(order); }}
+        />
 
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Issue from</label>
-            <input type="date" value={issueDateFrom}
-              onChange={(e) => setIssueDateFrom(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
-            <input type="date" value={issueDateTo}
-              onChange={(e) => setIssueDateTo(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          {(issueDateFrom || issueDateTo) && (
-            <button onClick={() => { setIssueDateFrom(""); setIssueDateTo(""); }}
-              className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear dates
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">Created from</label>
-            <input type="date" value={createdFrom}
-              onChange={(e) => setCreatedFrom(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs uppercase tracking-widest text-muted-foreground">to</label>
-            <input type="date" value={createdTo}
-              onChange={(e) => setCreatedTo(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30" />
-          </div>
-          {(createdFrom || createdTo) && (
-            <button onClick={() => { setCreatedFrom(""); setCreatedTo(""); }}
-              className="text-xs text-muted-foreground hover:text-foreground underline">
-              Clear dates
-            </button>
-          )}
-        </div>
-
-        <div className="relative">
-          <input type="text" placeholder="Search purchases by invoice number, supplier name, PO, status..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
-        </div>
-
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Sort by</span>
-          <div className="flex gap-1">
-            {(["created", "issue", "due"] as const).map((field) => (
-              <button
-                key={field}
-                onClick={() => {
-                  if (sortField === field) {
-                    setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-                  } else {
-                    setSortField(field);
-                    setSortOrder("asc");
-                  }
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                  sortField === field
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <ArrowUpDown className="h-3 w-3" />
-                {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "ERP Due date"}
-                {sortField === field && (
-                  <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Submit all drafts button — searches ALL pages */}
+        {/* Submit all drafts button */}
         {(() => {
           const allDraftInvoices = allPi.filter((p: any) => p.status === "draft");
           if (allDraftInvoices.length === 0 || !canEdit) return null;
           return (
-            <div className="mb-4 flex items-center gap-3">
-              <button
-                onClick={() => setBulkConfirmOpen(true)}
-                className="inline-flex items-center gap-2 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-                Review All Drafts ({allDraftInvoices.length})
-              </button>
-            </div>
+            <button
+              onClick={() => setBulkConfirmOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Review All Drafts ({allDraftInvoices.length})
+            </button>
           );
         })()}
 
@@ -1045,7 +989,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                       <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${i.daysPastDue > 60 ? "bg-destructive/15 text-destructive" : i.daysPastDue > 30 ? "bg-warning/15 text-warning" : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"}`}>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${i.daysPastDue > 60 ? "bg-destructive/15 text-destructive" : i.daysPastDue > 30 ? "bg-warning/15 text-warning" : "bg-warning/15 text-warning"}`}>
                           <AlertCircle className="h-3 w-3" />{i.daysPastDue}d
                         </span>
                       </td>
@@ -1502,7 +1446,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{editing ? "Edit purchase invoice" : "New purchase invoice"}</h3>
@@ -1697,7 +1641,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -2078,7 +2022,7 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   const newCount = useMemo(() => supplierStatus.filter((s) => !s.exists).length, [supplierStatus]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">
@@ -2297,7 +2241,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
   const totalDuplicates = dupQ.data?.totalDuplicates ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-3">

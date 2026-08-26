@@ -26,33 +26,33 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     name: "Financial Reports",
     reports: [
-      { id: "balance-sheet" as ReportTab, label: "Balance Sheet", icon: Scale, description: "Snapshot of assets, liabilities, and equity", color: "from-blue-500 to-blue-600", bgLight: "bg-blue-50", iconBg: "bg-blue-100", iconColor: "text-blue-600" },
-      { id: "profit-loss" as ReportTab, label: "Profit & Loss", icon: TrendingUp, description: "Revenue, costs, and profitability analysis", color: "from-emerald-500 to-emerald-600", bgLight: "bg-emerald-50", iconBg: "bg-emerald-100", iconColor: "text-emerald-600" },
-      { id: "portfolio" as ReportTab, label: "Portfolio Summary", icon: Briefcase, description: "Overview of your entire portfolio performance", color: "from-violet-500 to-violet-600", bgLight: "bg-violet-50", iconBg: "bg-violet-100", iconColor: "text-violet-600" },
+      { id: "balance-sheet" as ReportTab, label: "Balance Sheet", icon: Scale, description: "Snapshot of assets, liabilities, and equity", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
+      { id: "profit-loss" as ReportTab, label: "Profit & Loss", icon: TrendingUp, description: "Revenue, costs, and profitability analysis", color: "from-success to-success", bgLight: "bg-success/10", iconBg: "bg-success/10", iconColor: "text-success" },
+      { id: "portfolio" as ReportTab, label: "Portfolio Summary", icon: Briefcase, description: "Overview of your entire portfolio performance", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
     ],
   },
   {
     name: "Invoice Reports",
     reports: [
-      { id: "sales-invoices" as ReportTab, label: "Sales Invoices", icon: FileText, description: "Detailed view of all sales invoices", color: "from-amber-500 to-amber-600", bgLight: "bg-amber-50", iconBg: "bg-amber-100", iconColor: "text-amber-600" },
-      { id: "purchase-invoices" as ReportTab, label: "Purchase Invoices", icon: ShoppingCart, description: "Track all purchase invoices", color: "from-rose-500 to-rose-600", bgLight: "bg-rose-50", iconBg: "bg-rose-100", iconColor: "text-rose-600" },
-      { id: "proformas" as ReportTab, label: "Proforma Invoices", icon: FileSignature, description: "View proforma invoice details", color: "from-orange-500 to-orange-600", bgLight: "bg-orange-50", iconBg: "bg-orange-100", iconColor: "text-orange-600" },
+      { id: "sales-invoices" as ReportTab, label: "Sales Invoices", icon: FileText, description: "Detailed view of all sales invoices", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
+      { id: "purchase-invoices" as ReportTab, label: "Purchase Invoices", icon: ShoppingCart, description: "Track all purchase invoices", color: "from-success to-success", bgLight: "bg-success/10", iconBg: "bg-success/10", iconColor: "text-success" },
+      { id: "proformas" as ReportTab, label: "Proforma Invoices", icon: FileSignature, description: "View proforma invoice details", color: "from-warning to-warning", bgLight: "bg-warning/10", iconBg: "bg-warning/10", iconColor: "text-warning" },
     ],
   },
   {
     name: "Customer Reports",
     reports: [
-      { id: "aging" as ReportTab, label: "Aging Report", icon: Clock, description: "Receivables aging analysis by buyer", color: "from-cyan-500 to-cyan-600", bgLight: "bg-cyan-50", iconBg: "bg-cyan-100", iconColor: "text-cyan-600" },
-      { id: "debtors" as ReportTab, label: "Debtors", icon: Users, description: "Detailed debtor information and history", color: "from-sky-500 to-sky-600", bgLight: "bg-sky-50", iconBg: "bg-sky-100", iconColor: "text-sky-600" },
-      { id: "suppliers" as ReportTab, label: "Suppliers", icon: Building2, description: "Supplier details and payment terms", color: "from-teal-500 to-teal-600", bgLight: "bg-teal-50", iconBg: "bg-teal-100", iconColor: "text-teal-600" },
+      { id: "aging" as ReportTab, label: "Aging Report", icon: Clock, description: "Receivables aging analysis by buyer", color: "from-warning to-warning", bgLight: "bg-warning/10", iconBg: "bg-warning/10", iconColor: "text-warning" },
+      { id: "debtors" as ReportTab, label: "Debtors", icon: Users, description: "Detailed debtor information and history", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
+      { id: "suppliers" as ReportTab, label: "Suppliers", icon: Building2, description: "Supplier details and payment terms", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
     ],
   },
   {
     name: "Other Reports",
     reports: [
-      { id: "advances" as ReportTab, label: "Advances", icon: Banknote, description: "Track all advances made", color: "from-purple-500 to-purple-600", bgLight: "bg-purple-50", iconBg: "bg-purple-100", iconColor: "text-purple-600" },
-      { id: "expenses" as ReportTab, label: "Expenses", icon: Wallet, description: "Categorized expense tracking", color: "from-pink-500 to-pink-600", bgLight: "bg-pink-50", iconBg: "bg-pink-100", iconColor: "text-pink-600" },
-      { id: "inventory-tracking" as ReportTab, label: "Inventory Tracking", icon: Boxes, description: "Stock levels and valuation", color: "from-indigo-500 to-indigo-600", bgLight: "bg-indigo-50", iconBg: "bg-indigo-100", iconColor: "text-indigo-600" },
+      { id: "advances" as ReportTab, label: "Advances", icon: Banknote, description: "Track all advances made", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
+      { id: "expenses" as ReportTab, label: "Expenses", icon: Wallet, description: "Categorized expense tracking", color: "from-destructive to-destructive", bgLight: "bg-destructive/10", iconBg: "bg-destructive/10", iconColor: "text-destructive" },
+      { id: "inventory-tracking" as ReportTab, label: "Inventory Tracking", icon: Boxes, description: "Stock levels and valuation", color: "from-success to-success", bgLight: "bg-success/10", iconBg: "bg-success/10", iconColor: "text-success" },
     ],
   },
 ];
@@ -368,10 +368,10 @@ export interface PnLReport {
   to: string;
   grossSales: number;
   otherSalesIncome: number;
-  salesReturns: number;
+  creditNoteTotal: number;
+  debitNoteTotal: number;
   totalTurnover: number;
   grossPurchases: number;
-  purchaseReturns: number;
   netPurchases: number;
   logisticsAndProcurement: number;
   principalCost: number;

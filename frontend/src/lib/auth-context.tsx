@@ -24,6 +24,10 @@ export type WriteResource =
   | "advances"
   | "expenses"
   | "vendors"
+  | "products"
+  | "goods-purchase-orders"
+  | "goods-sales-orders"
+  | "quotations"
   | "checker-desk"
   | "funding-queue"
   | "upload"
@@ -34,11 +38,17 @@ export const roleWritePermissions: Record<AppRole, readonly (WriteResource | "*"
   factor_admin: ["*"],
   operations: [
     "suppliers", "debtors", "invoices", "purchase-invoices",
-    "purchase-orders", "stock-movements", "advances", "expenses", "vendors",
+    "purchase-orders", "stock-movements", "advances", "expenses",    "vendors",
+    "products",
+    "goods-purchase-orders",
+    "goods-sales-orders",
+    "quotations",
   ],
   checker: ["checker-desk"],
   treasury: ["funding-queue"],
-  client: [],
+  // Clients maintain their own product catalogue and place their own
+  // purchase orders + goods receipts (maker model).
+  client: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
   viewer: [],
 };
 

@@ -38,5 +38,8 @@ backend/.env
 
 # Frontend build output
 frontend/dist
+backend/dist
+
 frontend/node_modules
 frontend/.vite
+backend/node_modules
