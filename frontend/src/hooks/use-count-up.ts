@@ -3,12 +3,14 @@ import { useEffect, useRef, useState } from "react";
 /**
  * Animates a numeric value from 0 to `target` over `duration` ms.
  * Uses requestAnimationFrame with ease-out cubic easing for smooth animation.
+ * On first render (mount), animates from 0. On subsequent target changes,
+ * snaps to the new value immediately to avoid sluggish re-render animations.
  */
-export function useCountUp(target: number, duration = 800, enabled = true) {
-  const [value, setValue] = useState(0);
+export function useCountUp(target: number, duration = 300, enabled = true) {
+  const [value, setValue] = useState(target); // start at target, not 0
   const frameRef = useRef<number>(0);
   const startTimeRef = useRef<number>(0);
-  const prevTargetRef = useRef(target);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || target === 0) {
@@ -16,9 +18,15 @@ export function useCountUp(target: number, duration = 800, enabled = true) {
       return;
     }
 
-    // If target changed while animating, restart from current value
-    const startValue = prevTargetRef.current !== target ? value : 0;
-    prevTargetRef.current = target;
+    // Only animate on the very first mount; subsequent updates snap instantly
+    if (mountedRef.current) {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      setValue(target);
+      return;
+    }
+    mountedRef.current = true;
+
+    const startValue = 0;
     startTimeRef.current = 0;
 
     const animate = (timestamp: number) => {

@@ -465,11 +465,11 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
     const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
     const allDebtors = await scanTable<any>(TABLES.DEBTORS, getCompanyFilter(req.user!));
     const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
-    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
-    const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
-    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
+    const poMap = new Map(allPurchaseOrders.map((p: any) => [p.id, p]));
+    const debtorMap = new Map(allDebtors.map((d: any) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v: any) => [v.id, v]));
 
     const enriched = advances
       .sort((a, b) => (b.advance_date ?? '').localeCompare(a.advance_date ?? ''))
@@ -529,8 +529,8 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
     // Preload lookup maps to avoid N+1 GetItem calls
     const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
-    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+    const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
 
     const enriched = expenses
       .sort((a: any, b: any) => (b.expense_date ?? '').localeCompare(a.expense_date ?? ''))
@@ -603,8 +603,8 @@ function computePnL(data: {
     .reduce((sum, e) => sum + Number(e.amount), 0);
 
   // Credit/debit note totals:
-  //  - debitNoteTotal: deducted from turnover (sales adjustments)
-  //  - creditNoteTotal: deducted from cost of sales (purchase returns)
+  //  - creditNoteTotal: deducted from turnover (sales adjustments)
+  //  - debitNoteTotal: deducted from cost of sales (purchase returns)
   const { creditNoteTotal, debitNoteTotal } = computeCreditNoteTotals(
     creditDebitNotes,
     data.payments,
@@ -867,10 +867,6 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 });
 
 // ── GET /api/reports/credit-notes ──
-// Credit/debit note totals for the dashboard. Computed with the same shared
-// helper as the P&L so every surface reports identical figures:
-//  - creditNoteTotal: all credit notes in range (deducted from gross sales)
-//  - debitNoteTotal: all debit notes in range (sales adjustments)
 router.get("/credit-notes", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const from = (req.query.from as string) || "1970-01-01";
@@ -913,6 +909,286 @@ router.get("/inventory-tracking", requireAuth, async (req: AuthRequest, res: Res
     res.json(items);
   } catch (err) {
     console.error("Reports inventory-tracking error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/dashboard-summary ──
+// Single endpoint that returns ALL data the main dashboard needs.
+// Instead of 11+ separate API calls (each scanning multiple DynamoDB tables),
+// this does all scans in parallel and returns pre-computed aggregates.
+router.get("/dashboard-summary", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const filter = getCompanyFilter(req.user!);
+
+    // ── Step 1: All DynamoDB scans in parallel ──
+    const [invoices, purchaseInvoices, expenses, alerts, debtors, vendors, advances, creditDebitNotes, purchaseOrders, suppliers] =
+      await Promise.all([
+        scanTable<Invoice>(TABLES.INVOICES, filter),
+        scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, filter),
+        scanTable<Expense>(TABLES.EXPENSES, filter),
+        scanTable<any>(TABLES.ALERTS, filter),
+        scanTable<Debtor>(TABLES.DEBTORS, filter),
+        scanTable<Vendor>(TABLES.VENDORS, filter),
+        scanTable<Advance>(TABLES.ADVANCES, filter),
+        scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, filter),
+        scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, filter),
+        scanTable<any>(TABLES.SUPPLIERS, filter),
+      ]);
+
+    // ── Step 2: Build lookup maps ──
+    const debtorMap = new Map(debtors.map((d) => [d.id, d]));
+    const vendorMap = new Map(vendors.map((v) => [v.id, v]));
+
+    // ── Step 3: Compute all aggregates in a single pass ──
+    const now = new Date();
+    const daysBetween = (a: string, b?: string | null): number => {
+      if (!b) return 0;
+      return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+    };
+
+    // --- Sales invoices ---
+    const openSales = invoices.filter((i) => i.status !== "paid" && i.status !== "rejected");
+    const paidSales = invoices.filter((i) => i.status === "paid");
+    const totalSalesAmount = invoices.reduce((s, i) => s + Number(i.amount), 0);
+    const totalOutstanding = openSales.reduce((s, i) => s + Number(i.amount), 0);
+    const totalCollected = paidSales.reduce((s, i) => s + Number(i.amount), 0);
+    const totalShortPayment = paidSales.reduce((s, i) => s + Number(i.short_payment ?? 0), 0);
+    const shortPaidInvoices = paidSales.filter((i) => Number(i.short_payment ?? 0) > 0);
+
+    // Sales payment days
+    const paidSalesWithDates = paidSales.filter((i) => i.issue_date && i.paid_date);
+    const avgSalesPayDays = paidSalesWithDates.length > 0
+      ? Math.round(paidSalesWithDates.reduce((s, i) => s + daysBetween(i.issue_date!, i.paid_date!), 0) / paidSalesWithDates.length)
+      : 0;
+
+    // Sales aging buckets
+    const salesAging = openSales.reduce(
+      (acc, i) => {
+        const dpd = i.due_date ? daysBetween(i.due_date) : 0;
+        const amt = Number(i.amount);
+        if (dpd <= 0) acc.current += amt;
+        else if (dpd <= 30) acc.b1 += amt;
+        else if (dpd <= 60) acc.b2 += amt;
+        else if (dpd <= 90) acc.b3 += amt;
+        else acc.b4 += amt;
+        return acc;
+      },
+      { current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
+    );
+
+    // Invoice status counts
+    const invoiceStatusCounts = new Map<string, number>();
+    invoices.forEach((i) => {
+      invoiceStatusCounts.set(i.status, (invoiceStatusCounts.get(i.status) ?? 0) + 1);
+    });
+
+    // --- Purchase invoices ---
+    const totalPurchaseAmount = purchaseInvoices.reduce((s, p) => s + Number(p.amount), 0);
+    const openPurchases = purchaseInvoices.filter((p) => p.status !== "paid");
+    const paidPurchases = purchaseInvoices.filter((p) => p.status === "paid");
+    const totalPayable = openPurchases.reduce((s, p) => s + Number(p.amount), 0);
+    const totalPaidOut = paidPurchases.reduce((s, p) => s + Number(p.amount), 0);
+
+    // Purchase payment days
+    const paidPurchasesWithDates = paidPurchases.filter((p) => p.issue_date && p.paid_date);
+    const avgPurchasePayDays = paidPurchasesWithDates.length > 0
+      ? Math.round(paidPurchasesWithDates.reduce((s, p) => s + daysBetween(p.issue_date!, p.paid_date!), 0) / paidPurchasesWithDates.length)
+      : 0;
+
+    // --- Expenses ---
+    const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    const expenseByCategory = new Map<string, number>();
+    expenses.forEach((e) => {
+      const cat = e.category || "Other";
+      expenseByCategory.set(cat, (expenseByCategory.get(cat) ?? 0) + Number(e.amount));
+    });
+
+    // --- Credit/debit notes ---
+    const { creditNoteTotal, debitNoteTotal } = computeCreditNoteTotals(
+      creditDebitNotes,
+      [], // payments param is unused by computeCreditNoteTotals
+      () => true, // all time for dashboard
+    );
+
+    // --- Advances ---
+    const salesAdvancesTotal = advances.filter((a) => a.side === "sales").reduce((s, a) => s + Number(a.amount), 0);
+    const purchaseAdvancesTotal = advances.filter((a) => a.side === "purchase").reduce((s, a) => s + Number(a.amount), 0);
+
+    // --- Monthly trend (last 6 months) ---
+    const monthlyRevenue = new Map<string, number>();
+    const monthlyCOGS = new Map<string, number>();
+    for (let m = 5; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const key = d.toISOString().slice(0, 7);
+      monthlyRevenue.set(key, 0);
+      monthlyCOGS.set(key, 0);
+    }
+    invoices.forEach((i) => {
+      if (!i.issue_date) return;
+      const key = i.issue_date.slice(0, 7);
+      const entry = monthlyRevenue.get(key);
+      if (entry !== undefined) monthlyRevenue.set(key, entry + Number(i.amount));
+    });
+    purchaseInvoices.forEach((p) => {
+      if (!p.issue_date) return;
+      const key = p.issue_date.slice(0, 7);
+      const entry = monthlyCOGS.get(key);
+      if (entry !== undefined) monthlyCOGS.set(key, entry + Number(p.amount));
+    });
+
+    // --- Recent alerts (last 8) ---
+    const recentAlerts = alerts.sort((a: any, b: any) => (b.created_at ?? '').localeCompare(a.created_at ?? '')).slice(0, 8);
+
+    // --- Concentration: top debtors by outstanding ---
+    const debtorExposure = new Map<string, { name: string; outstanding: number; count: number }>();
+    openSales.forEach((i) => {
+      const did = i.debtor_id;
+      const name = debtorMap.get(did)?.name ?? "Unknown";
+      const existing = debtorExposure.get(did) ?? { name, outstanding: 0, count: 0 };
+      existing.outstanding += Number(i.amount);
+      existing.count += 1;
+      debtorExposure.set(did, existing);
+    });
+    const topDebtors = [...debtorExposure.values()].sort((a, b) => b.outstanding - a.outstanding);
+
+    // --- Supplier exposure ---
+    const vendorPayable = new Map<string, { name: string; amount: number; count: number }>();
+    openPurchases.forEach((p) => {
+      const vid = p.vendor_id;
+      const name = vendorMap.get(vid)?.name ?? "Unknown";
+      const existing = vendorPayable.get(vid) ?? { name, amount: 0, count: 0 };
+      existing.amount += Number(p.amount);
+      existing.count += 1;
+      vendorPayable.set(vid, existing);
+    });
+    const topVendors = [...vendorPayable.values()].sort((a, b) => b.amount - a.amount);
+
+    // --- Proformas count ---
+    const openProformas = purchaseOrders.filter((po) => po.status !== "cancelled").length;
+
+    // --- Collection rate ---
+    const collectionRate = totalSalesAmount > 0 ? +((totalCollected / totalSalesAmount) * 100).toFixed(2) : 0;
+
+    // --- Working capital gap ---
+    const workingCapitalGap = avgSalesPayDays - avgPurchasePayDays;
+
+    // --- Financial health score ---
+    const netSales = totalSalesAmount - debitNoteTotal;
+    const gross = netSales - totalPurchaseAmount + creditNoteTotal;
+    const net = gross - totalExpenses;
+    const netMargin = netSales > 0 ? (net / netSales) * 100 : 0;
+    const overdueTotal = salesAging.b1 + salesAging.b2 + salesAging.b3 + salesAging.b4;
+    const highRiskAmount = salesAging.b4;
+
+    const profitabilityScore = netMargin > 20 ? 25 : netMargin > 10 ? 20 : netMargin > 0 ? 15 : netMargin > -10 ? 8 : 0;
+    const cashFlowScore = avgSalesPayDays <= 30 ? 20 : avgSalesPayDays <= 45 ? 16 : avgSalesPayDays <= 60 ? 12 : avgSalesPayDays <= 90 ? 8 : 4;
+    const arRatio = totalOutstanding > 0 && netSales > 0 ? totalOutstanding / netSales : 0;
+    const receivablesScore = arRatio < 0.15 ? 20 : arRatio < 0.25 ? 16 : arRatio < 0.40 ? 12 : arRatio < 0.60 ? 8 : 4;
+    const collectionsScore = collectionRate >= 95 ? 15 : collectionRate >= 85 ? 12 : collectionRate >= 70 ? 9 : collectionRate >= 50 ? 6 : 3;
+    const wcGap = Math.abs(workingCapitalGap);
+    const workingCapitalScore = wcGap <= 15 ? 10 : wcGap <= 30 ? 8 : wcGap <= 50 ? 6 : wcGap <= 70 ? 4 : 2;
+    const overdueRatio = totalOutstanding > 0 ? highRiskAmount / totalOutstanding : 0;
+    const riskScore = overdueRatio < 0.05 ? 10 : overdueRatio < 0.10 ? 8 : overdueRatio < 0.20 ? 6 : overdueRatio < 0.35 ? 4 : 2;
+    const financialHealthScore = Math.min(100, profitabilityScore + cashFlowScore + receivablesScore + collectionsScore + workingCapitalScore + riskScore);
+
+    // ── Step 4: Return compact payload ──
+    res.json({
+      // Core financials
+      salesTotal: totalSalesAmount,
+      purchaseTotal: totalPurchaseAmount,
+      expenseTotal: totalExpenses,
+      salesReturns: debitNoteTotal,
+      creditNoteTotal,
+      debitNoteTotal,
+      netSales,
+      netPurchases: totalPurchaseAmount - creditNoteTotal,
+      gross,
+      net,
+      netMargin: +netMargin.toFixed(1),
+      grossMargin: netSales > 0 ? +((gross / netSales) * 100).toFixed(1) : 0,
+      expenseRatio: netSales > 0 ? +((totalExpenses / netSales) * 100).toFixed(1) : 0,
+
+      // Receivables
+      totalOutstanding,
+      collectedAmount: totalCollected,
+      openInvoiceCount: openSales.length,
+      paidCount: paidSales.length,
+      totalInvoices: invoices.length,
+      totalShortPayment,
+      shortPaidInvoices: shortPaidInvoices.map((i) => ({
+        id: i.id,
+        invoice_number: i.invoice_number,
+        amount: i.amount,
+        short_payment: i.short_payment,
+        debtor_id: i.debtor_id,
+        debtor_name: debtorMap.get(i.debtor_id)?.name ?? "Unknown",
+      })),
+
+      // Payment days
+      avgSalesPayDays,
+      avgPurchasePayDays,
+      collectionRate,
+      workingCapitalGap,
+
+      // Aging
+      aging: salesAging,
+      overdueTotal,
+      highRiskAmount,
+
+      // Status counts
+      invoiceStatusCounts: Object.fromEntries(invoiceStatusCounts),
+
+      // Expenses by category
+      expenseCategories: [...expenseByCategory.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([category, amount]) => ({ category, amount })),
+
+      // Purchases
+      totalPayable,
+      totalPaidOut,
+      totalPurchaseInvoices: purchaseInvoices.length,
+      openPurchaseCount: openPurchases.length,
+      paidPurchaseCount: paidPurchases.length,
+
+      // Monthly trend
+      monthlyRevenue: [...monthlyRevenue.entries()].map(([month, amount]) => ({
+        month: new Date(month + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        amount,
+      })),
+      monthlyCOGS: [...monthlyCOGS.entries()].map(([month, amount]) => ({
+        month: new Date(month + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        amount,
+      })),
+
+      // Top counterparties
+      topDebtors: topDebtors.slice(0, 8),
+      topVendors: topVendors.slice(0, 8),
+
+      // Health score
+      financialHealthScore,
+      profitabilityScore,
+      cashFlowScore,
+      receivablesScore,
+      collectionsScore,
+      workingCapitalScore,
+      riskScore,
+
+      // Counts
+      debtorCount: debtors.length,
+      vendorCount: vendors.length,
+      supplierCount: suppliers.length,
+      openProformas,
+
+      // Advances
+      salesAdvancesTotal,
+      purchaseAdvancesTotal,
+
+      // Alerts
+      recentAlerts,
+    });
+  } catch (err) {
+    console.error("Reports dashboard-summary error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

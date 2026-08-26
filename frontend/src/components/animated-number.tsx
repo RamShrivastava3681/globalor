@@ -5,7 +5,7 @@ import { fmtMoney } from "@/lib/format";
  * Renders a monetary value that animates from 0 to the target amount.
  * Wraps fmtMoney() so formatting is identical to existing usage.
  */
-export function AnimatedMoney({ value, duration = 800, enabled = true }: { value: number; duration?: number; enabled?: boolean }) {
+export function AnimatedMoney({ value, duration = 300, enabled = true }: { value: number; duration?: number; enabled?: boolean }) {
   const animated = useCountUp(value, duration, enabled);
   return <>{fmtMoney(Math.round(animated))}</>;
 }
@@ -16,7 +16,7 @@ export function AnimatedMoney({ value, duration = 800, enabled = true }: { value
  */
 export function AnimatedNumber({
   value,
-  duration = 800,
+  duration = 300,
   enabled = true,
   decimals = 0,
   prefix = "",

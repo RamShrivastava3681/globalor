@@ -259,72 +259,86 @@ function Dashboard() {
   const [shortPaymentsOpen, setShortPaymentsOpen] = useState(false);
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
 
-  /* ── Data Queries ── */
+  /* ── Data Queries (dashboard-only: longer stale + refetch intervals) ── */
+  const DASHBOARD_STALE = 60_000; // 1 min — dashboard data doesn't need to be instant
+  const DASHBOARD_REFETCH = 60_000; // 1 min between background refreshes
+
   const invoicesQ = useQuery({
     queryKey: ["invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchase_invoices", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const expensesQ = useQuery({
     queryKey: ["expenses", isAdmin ? "all" : user?.id],
     queryFn: async () => (await api.get<any[]>("/expenses")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const alertsQ = useQuery({
     queryKey: ["alerts"],
     queryFn: async () => (await api.get<any[]>("/alerts")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors"],
     queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const proformasQ = useQuery({
     queryKey: ["proformas"],
     queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const creditNotesQ = useQuery({
     queryKey: ["credit-note-totals"],
     queryFn: async () =>
       (await api.get<any>("/reports/credit-notes")) ?? { creditNoteTotal: 0, debitNoteTotal: 0 },
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const advancesQ = useQuery({
     queryKey: ["advances"],
     queryFn: async () => (await api.get<any[]>("/advances")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   const suppliersQ = useQuery({
     queryKey: ["suppliers"],
     queryFn: async () => (await api.get<any[]>("/suppliers")) ?? [],
-    refetchInterval: 60_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH * 2, // suppliers change less often
   });
 
   const vendorsQ = useQuery({
     queryKey: ["vendors"],
     queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
-    refetchInterval: 60_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH * 2, // vendors change less often
   });
 
   const creditDebitNotesQ = useQuery({
     queryKey: ["credit-debit-notes"],
     queryFn: async () => (await api.get<any[]>("/credit-debit-notes")) ?? [],
-    refetchInterval: 30_000,
+    staleTime: DASHBOARD_STALE,
+    refetchInterval: DASHBOARD_REFETCH,
   });
 
   /* ── Raw data ── */
