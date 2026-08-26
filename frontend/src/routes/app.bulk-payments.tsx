@@ -80,7 +80,7 @@ interface PaymentHistoryRecord {
   remaining: number;
   invoices_closed: number;
   credit_note_ids: string[];
-  mode: "manual" | "fifo" | "two_pass_fifo";
+  mode: "manual" | "fifo" | "two_pass_fifo" | "on_account";
   created_at: string;
 }
 
@@ -237,7 +237,7 @@ function BulkPaymentsPage() {
   const [inputAmount, setInputAmount] = useState("");
   const [useBalance, setUseBalance] = useState(false);
   const [applyCredit, setApplyCredit] = useState(false);
-  const [mode, setMode] = useState<"fifo" | "two_pass_fifo" | "manual">("fifo");
+  const [mode, setMode] = useState<"fifo" | "two_pass_fifo" | "manual" | "on_account">("fifo");
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
 
   const [submitting, setSubmitting] = useState(false);
@@ -272,7 +272,7 @@ function BulkPaymentsPage() {
   // ── Fetch previous remaining balance (debtor) ──
   const balanceQ = useQuery({
     queryKey: ["bulk-payment-balance", selectedDebtorId],
-    enabled: !!selectedDebtorId && useBalance && !isSupplier,
+    enabled: !!selectedDebtorId && !isSupplier,
     queryFn: async (): Promise<number> => {
       const res = await api.get<{ total_remaining: number }>(`/bulk-payments/balance/${selectedDebtorId}`);
       return res?.total_remaining ?? 0;
@@ -282,7 +282,7 @@ function BulkPaymentsPage() {
   // ── Fetch previous remaining balance (supplier) ──
   const supplierBalanceQ = useQuery({
     queryKey: ["bulk-payment-purchase-balance", selectedSupplierId],
-    enabled: !!selectedSupplierId && useBalance && isSupplier,
+    enabled: !!selectedSupplierId && isSupplier,
     queryFn: async (): Promise<number> => {
       const res = await api.get<{ total_remaining: number }>(`/bulk-payments/purchase-balance/${selectedSupplierId}`);
       return res?.total_remaining ?? 0;
@@ -389,7 +389,7 @@ function BulkPaymentsPage() {
 
   // FIFO / Two-Pass FIFO preview
   const fifoPreview = useMemo(() => {
-    if (mode === "manual" || availableAmount <= 0 || openInvoices.length === 0) return null;
+    if (mode === "manual" || mode === "on_account" || availableAmount <= 0 || openInvoices.length === 0) return null;
     return computeFifoPreview(openInvoices as any[], availableAmount, mode === "two_pass_fifo", paymentDate, outstandingFn);
   }, [mode, availableAmount, openInvoices, paymentDate, outstandingFn]);
 
@@ -531,7 +531,7 @@ function BulkPaymentsPage() {
   const hasSelectedParty = isSupplier ? !!selectedSupplierId : !!selectedDebtorId;
   const canSubmit = hasSelectedParty
     && availableAmount > 0
-    && (mode !== "manual" || selectedInvoiceIds.size > 0)
+    && (mode === "on_account" || mode !== "manual" || selectedInvoiceIds.size > 0)
     && !submitting;
 
   return (
@@ -749,13 +749,14 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Step 3: Mode Selection ── */}
-        {hasSelectedParty && sortedInvoices.length > 0 && (
+        {hasSelectedParty && (
           <Card title="3. Payment mode">
             <div className="mb-4 flex flex-wrap gap-2">
               {([
                 { key: "fifo" as const, label: "FIFO (strict)", desc: "No partials — skip if funds insufficient" },
                 { key: "two_pass_fifo" as const, label: "Two-Pass FIFO", desc: "Overdue first, then future (pre-close)" },
                 { key: "manual" as const, label: "Manual", desc: "Pick invoices, partials allowed" },
+                { key: "on_account" as const, label: "On Account", desc: "Add to balance — no invoices closed" },
               ]).map((m) => (
                 <button
                   key={m.key}
@@ -796,20 +797,24 @@ function BulkPaymentsPage() {
                   </div>
                 )}
               </div>
-            )}
+            )}                {mode === "manual" && manualPreview && (
+                  <div className="mb-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs text-muted-foreground">
+                    <span className="font-semibold text-primary">{manualPreview.closed.length}</span> will close{" "}
+                    · <span className="font-semibold text-warning">{manualPreview.partiallyPaid.length}</span> partially paid
+                    · Remaining: <span className="font-semibold">{fmtMoney(manualPreview.remaining)}</span>
+                  </div>
+                )}
 
-            {mode === "manual" && manualPreview && (
-              <div className="mb-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs text-muted-foreground">
-                <span className="font-semibold text-primary">{manualPreview.closed.length}</span> will close{" "}
-                · <span className="font-semibold text-warning">{manualPreview.partiallyPaid.length}</span> partially paid
-                · Remaining: <span className="font-semibold">{fmtMoney(manualPreview.remaining)}</span>
-              </div>
-            )}
+                {mode === "on_account" && (
+                  <div className="mb-4 rounded-md border border-info/20 bg-info/5 px-4 py-2.5 text-xs text-muted-foreground">
+                    <span className="font-semibold text-info">On Account</span> — the full amount will be added to the remaining balance for future use. No invoices will be closed or partially paid.
+                  </div>
+                )}
           </Card>
         )}
 
         {/* ── Invoice Table ── */}
-        {hasSelectedParty && sortedInvoices.length > 0 && (
+        {hasSelectedParty && mode !== "on_account" && sortedInvoices.length > 0 && (
           <Card title={isSupplier ? "Purchase invoices" : "Invoices"}>
             {(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
@@ -950,12 +955,19 @@ function BulkPaymentsPage() {
         )}
 
         {/* ── Submit Button ── */}
-        {hasSelectedParty && sortedInvoices.length > 0 && (
+        {hasSelectedParty && (mode === "on_account" || sortedInvoices.length > 0) && (
           <div className="sticky bottom-6 z-10">
             <Card className="border-primary/20 shadow-lg">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-0.5 text-sm">
-                  {mode !== "manual" && fifoPreview && fifoPreview.closed.length > 0 && (
+                  {mode === "on_account" && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Adding</span>
+                      <span className="font-semibold text-info">{fmtMoney(availableAmount)}</span>
+                      <span className="text-muted-foreground">to remaining balance — no invoices closed</span>
+                    </div>
+                  )}
+                  {mode !== "manual" && mode !== "on_account" && fifoPreview && fifoPreview.closed.length > 0 && (
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">Closing</span>
                       <span className="font-semibold">{fifoPreview.closed.length}</span>
@@ -991,8 +1003,12 @@ function BulkPaymentsPage() {
                       )}
                     </>
                   )}
-                  {!inputAmount && (
-                    <div className="text-xs text-muted-foreground">Enter a payment amount to calculate allocations.</div>
+                  {!inputAmount && availableAmount <= 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      {previousRemaining > 0
+                        ? <>Toggle <strong>"Use"</strong> to apply {fmtMoney(previousRemaining)} remaining balance, or enter a payment amount.</>
+                        : "Enter a payment amount to calculate allocations."}
+                    </div>
                   )}
                 </div>
 
@@ -1012,8 +1028,8 @@ function BulkPaymentsPage() {
           </div>
         )}
 
-        {/* ── No invoices ── */}
-        {hasSelectedParty && !(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) && sortedInvoices.length === 0 && (
+        {/* ── No invoices (not shown in on_account mode) ── */}
+        {hasSelectedParty && mode !== "on_account" && !(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) && sortedInvoices.length === 0 && (
           <Card>
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <CheckCircle2 className="mb-3 h-10 w-10 text-success/60" />
@@ -1262,9 +1278,10 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
             payment.mode === "manual" ? "bg-primary/15 text-primary"
             : payment.mode === "two_pass_fifo" ? "bg-info/15 text-info"
+            : payment.mode === "on_account" ? "bg-success/15 text-success"
             : "bg-warning/15 text-warning"
           }`}>
-            {payment.mode === "two_pass_fifo" ? "2-pass" : payment.mode}
+            {payment.mode === "two_pass_fifo" ? "2-pass" : payment.mode === "on_account" ? "on account" : payment.mode}
           </span>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{payment.invoices_closed}</td>

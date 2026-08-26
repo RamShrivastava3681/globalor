@@ -985,7 +985,7 @@ export interface PaymentRecord {
   /** Array of invoice data for invoices that were partially paid by this payment */
   partial_invoices?: Array<{ id: string; invoice_number: string; amount_paid: number }>;
   credit_note_ids: string[];
-  mode: "manual" | "fifo" | "two_pass_fifo";
+  mode: "manual" | "fifo" | "two_pass_fifo" | "on_account";
   created_at: string;
   updated_at: string;
 }

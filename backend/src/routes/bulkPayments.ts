@@ -58,9 +58,9 @@ async function partiallyPayInvoice(inv: Invoice, amount: number, now: string) {
 const processSchema = z.object({
   debtor_id: z.string().min(1),
   payment_date: z.string().min(1),
-  amount: z.number().positive(),
+  amount: z.number().min(0),
   use_balance: z.boolean().optional().default(false),
-  mode: z.enum(["manual", "fifo", "two_pass_fifo"]),
+  mode: z.enum(["manual", "fifo", "two_pass_fifo", "on_account"]),
   selected_invoice_ids: z.array(z.string()).optional().default([]),
   settle_credit_note_ids: z.array(z.string()).optional().default([]),
 });
@@ -84,6 +84,11 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
       availableAmount += totalRemaining;
+    }
+
+    if (availableAmount <= 0) {
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount or use remaining balance)" });
+      return;
     }
 
     // ── 2. Fetch open invoices for this debtor ──
@@ -191,6 +196,9 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
       }
+    } else if (parsed.mode === "on_account") {
+      // On Account: do not close or partially pay any invoices — add amount directly to remaining balance
+      // remainingAfterProcessing stays equal to availableAmount
     }
 
     // ── 4. Settle credit notes ──
@@ -554,9 +562,9 @@ async function partiallyPayPurchaseInvoice(inv: PurchaseInvoice, amount: number,
 const processPurchaseSchema = z.object({
   vendor_id: z.string().min(1),
   payment_date: z.string().min(1),
-  amount: z.number().positive(),
+  amount: z.number().min(0),
   use_balance: z.boolean().optional().default(false),
-  mode: z.enum(["manual", "fifo", "two_pass_fifo"]),
+  mode: z.enum(["manual", "fifo", "two_pass_fifo", "on_account"]),
   selected_invoice_ids: z.array(z.string()).optional().default([]),
   settle_credit_note_ids: z.array(z.string()).optional().default([]),
 });
@@ -587,6 +595,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
       availableAmount += totalRemaining;
+    }
+
+    if (availableAmount <= 0) {
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount or use remaining balance)" });
+      return;
     }
 
     // ── 3. Fetch open purchase invoices for this vendor ──
@@ -682,6 +695,9 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
       }
+    } else if (parsed.mode === "on_account") {
+      // On Account: do not close or partially pay any invoices — add amount directly to remaining balance
+      // remainingAfterProcessing stays equal to availableAmount
     }
 
     // ── 5. Settle credit notes ──
