@@ -211,13 +211,19 @@ async function main() {
   const now = nowISO();
 
   console.log("🔍 Loading existing debtors...");
-  const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS, { company_id: COMPANY_ID });
+  const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS, {
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
+  });
   console.log(`   Found ${existingDebtors.length} debtors\n`);
   const debtorLookup = buildDebtorLookup(existingDebtors);
 
   // Dedup key: "invoiceNumber|date"
   console.log("🔍 Loading existing invoices for dedup (key: invoice_number + date)...");
-  const existingInvoices = await scanTable<Invoice>(TABLES.INVOICES, { company_id: COMPANY_ID });
+  const existingInvoices = await scanTable<Invoice>(TABLES.INVOICES, {
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
+  });
   const existingKeys = new Set(existingInvoices.map((inv) => `${inv.invoice_number}|${inv.issue_date}`));
   console.log(`   Found ${existingInvoices.length} existing invoices (${existingKeys.size} unique inv#|date combos)\n`);
 

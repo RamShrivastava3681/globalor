@@ -74,7 +74,8 @@ async function delete2025Data() {
 
   // Delete sales invoices from 2025
   const invoices = await scanTable<Invoice>(TABLES.INVOICES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const inv2025 = invoices.filter((inv) => {
     const y = (inv.issue_date ?? "").slice(0, 4);
@@ -90,7 +91,8 @@ async function delete2025Data() {
 
   // Delete purchase invoices from 2025
   const purchases = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const pi2025 = purchases.filter((pi) => {
     const y = (pi.issue_date ?? "").slice(0, 4);
@@ -106,7 +108,8 @@ async function delete2025Data() {
 
   // Delete credit/debit notes from 2025
   const notes = await scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const cn2025 = notes.filter((n) => {
     const y = (n.date ?? "").slice(0, 4);
@@ -130,10 +133,12 @@ async function importFromExcel() {
 
   // Load existing debtors and vendors for name matching
   const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const existingVendors = await scanTable<Vendor>(TABLES.VENDORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
 
   console.log(

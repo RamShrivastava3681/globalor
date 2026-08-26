@@ -123,7 +123,8 @@ async function main() {
   console.log("🔍 Checking existing suppliers...\n");
 
   const existing = await scanTable<Supplier>(TABLES.SUPPLIERS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const existingNames = new Set(existing.map((s) => s.company_name));
   console.log(`   Found ${existing.length} existing suppliers`);

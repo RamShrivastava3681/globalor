@@ -36,7 +36,8 @@ async function main() {
   console.log("🔍 Checking existing debtors...\n");
 
   const existing = await scanTable<Debtor>(TABLES.DEBTORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const existingNames = new Set(existing.map((d) => d.name));
   console.log(`   Found ${existing.length} existing debtors`);

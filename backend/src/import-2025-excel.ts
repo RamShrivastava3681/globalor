@@ -125,7 +125,6 @@ async function resolveDebtor(name: string, clientId: string, companyId: string |
   const id = generateId();
   const debtor: Debtor = {
     id,
-    client_id: clientId,
     company_id: companyId,
     name,
     legal_entity_name: null,
@@ -316,6 +315,10 @@ async function main() {
         linked_invoice_type: "sales",
         reason: row.description.includes(" - ") ? row.description.split(" - ").slice(1).join(" - ").trim() : null,
         status: "paid",
+        reviewed_at: null,
+        reviewed_by: null,
+        settled_at: null,
+        settled_by: null,
         created_at: NOW,
         updated_at: NOW,
       };
@@ -447,6 +450,10 @@ async function main() {
         linked_invoice_type: "purchase",
         reason: row.description.includes(" - ") ? row.description.split(" - ").slice(1).join(" - ").trim() : null,
         status: "paid",
+        reviewed_at: null,
+        reviewed_by: null,
+        settled_at: null,
+        settled_by: null,
         created_at: NOW,
         updated_at: NOW,
       };

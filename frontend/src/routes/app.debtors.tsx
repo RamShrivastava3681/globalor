@@ -529,7 +529,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
                             </td>
                           )}
                           <td className="px-4 py-2.5">
-                            <Link to="/app/invoices" search={{ view: inv.id }} className="font-mono text-xs text-primary hover:underline">
+                            <Link to="/app/invoices" search={{ tab: "list", view: inv.id }} className="font-mono text-xs text-primary hover:underline">
                               {inv.invoice_number}
                             </Link>
                           </td>

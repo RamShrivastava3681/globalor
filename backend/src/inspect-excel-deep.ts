@@ -27,7 +27,7 @@ function inspectSheet(filePath: string, label: string) {
   const dataRows: any[][] = [];
   
   for (let i = 3; i < raw.length; i++) { // skip first 3 rows (title, period, header)
-    const row = raw[i] as any[];
+    const row = raw[i] as unknown as any[];
     if (!row || row.length === 0) continue;
     
     const col0 = String(row[0] ?? "").trim();

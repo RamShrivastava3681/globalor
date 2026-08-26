@@ -4,7 +4,7 @@ import { fmtMoney, fmtDate, fmtDateTime, daysBetween } from "@/lib/format";
 
 export { fmtMoney, fmtDate, fmtDateTime, daysBetween };
 
-export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
+export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: string; actions?: ReactNode }) {
   return (
     <div className="border-b border-border bg-background px-4 py-5 md:px-6 md:py-6">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-end justify-between gap-4">

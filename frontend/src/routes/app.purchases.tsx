@@ -164,7 +164,7 @@ function PurchasesPage() {
       const found = data.find((p: any) => p.id === view);
       if (found) {
         setViewing(found);
-        navigate({ to: "/app/purchases", search: { view: undefined }, replace: true });
+        navigate({ to: "/app/purchases", search: { tab, view: undefined }, replace: true });
       }
     }
   }, [view, piQ.data]);
@@ -496,7 +496,7 @@ function PurchasesPage() {
                           ) : (
                             <div className="space-y-0.5">
                               {links.map((s: any) => (
-                                <Link key={s.id} to="/app/invoices" search={{ view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                <Link key={s.id} to="/app/invoices" search={{ tab: "list", view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
                                   <Link2 className="h-3 w-3" />{s.invoice_number}
                                   <span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
                                 </Link>
@@ -1071,7 +1071,7 @@ function CreatePurchaseView() {
       <PurchaseInvoiceForm
         editing={null}
         vendors={vendorsQ.data ?? []}
-        onClose={() => navigate({ to: "/app/purchases", search: { tab: "list" }, replace: true })}
+        onClose={() => navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true })}
         onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         isStandalone
       />
@@ -1736,7 +1736,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                     {salesLinks.map((s: any) => (
                       <tr key={s.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5 font-mono text-xs">
-                          <Link to="/app/invoices" search={{ view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
+                          <Link to="/app/invoices" search={{ tab: "list", view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
                         </td>
                         <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>

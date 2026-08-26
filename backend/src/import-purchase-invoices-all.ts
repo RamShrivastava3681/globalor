@@ -137,7 +137,8 @@ async function main() {
   // ── Load existing vendors ──
   console.log("📋 Loading existing vendors...");
   const existingVendors = await scanTable<Vendor>(TABLES.VENDORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   console.log(`   Found ${existingVendors.length} existing vendors.`);
 
@@ -189,7 +190,8 @@ async function main() {
   // ── Also load existing purchase invoices to skip duplicates ──
   console.log("📋 Loading existing purchase invoices for dedup...");
   const existingPIs = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
   const existingPIKeys = new Set(
     existingPIs.map((p) => `${p.vendor_id}::${p.invoice_number}`.toLowerCase()),

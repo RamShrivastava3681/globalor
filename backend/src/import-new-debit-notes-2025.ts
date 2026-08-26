@@ -60,7 +60,8 @@ async function delete2025DebitNotes() {
   console.log("🗑️  Scanning and deleting existing 2025 sales credit notes...");
 
   const allNotes = await scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
 
   const notes2025 = allNotes.filter((n) => {
@@ -92,7 +93,8 @@ async function importNewDebitNotes() {
 
   // Load existing debtors
   const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
 
   console.log(`📋 Loaded ${existingDebtors.length} debtors.`);

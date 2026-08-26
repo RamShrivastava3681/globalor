@@ -377,7 +377,7 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
                       return (
                         <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                           <td className="px-4 py-2.5">
-                            <Link to="/app/purchases" search={{ view: p.id }} className="font-mono text-xs text-primary hover:underline">
+                            <Link to="/app/purchases" search={{ tab: "list", view: p.id }} className="font-mono text-xs text-primary hover:underline">
                               {p.invoice_number}
                             </Link>
                           </td>

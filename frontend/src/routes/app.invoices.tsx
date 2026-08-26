@@ -281,7 +281,7 @@ function InvoicesPage() {
             // silently fail — invoice may have been deleted
           }
         }
-        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
+        navigate({ to: "/app/invoices", search: { tab, view: undefined }, replace: true });
       })();
     }
   }, [view]);
@@ -477,7 +477,7 @@ function InvoicesPage() {
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
                           {i.purchase && (
-                            <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+                            <Link to="/app/purchases" search={{ tab: "list", view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
                               <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
                             </Link>
                           )}

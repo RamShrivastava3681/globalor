@@ -60,7 +60,8 @@ async function delete2025PurchaseInvoices() {
   console.log("🗑️  Scanning and deleting existing 2025 purchase invoices...");
 
   const allPurchases = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
 
   const purchases2025 = allPurchases.filter((p) => {
@@ -92,7 +93,8 @@ async function importNewPurchaseInvoices() {
 
   // Load existing vendors
   const existingVendors = await scanTable<Vendor>(TABLES.VENDORS, {
-    company_id: COMPANY_ID,
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": COMPANY_ID },
   });
 
   console.log(`📋 Loaded ${existingVendors.length} vendors.`);

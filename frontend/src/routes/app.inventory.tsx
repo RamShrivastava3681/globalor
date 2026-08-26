@@ -387,11 +387,11 @@ function InventoryPage() {
                       </td>
                       <td className="px-5 py-3">
                         {m.invoice ? (
-                          <Link to="/app/invoices" search={{ view: m.invoice.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                          <Link to="/app/invoices" search={{ tab: "list", view: m.invoice.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                             <Link2 className="h-3 w-3" />{m.invoice.invoice_number}
                           </Link>
                         ) : m.purchase ? (
-                          <Link to="/app/purchases" search={{ view: m.purchase.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                          <Link to="/app/purchases" search={{ tab: "list", view: m.purchase.id }} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                             <Link2 className="h-3 w-3" />{m.purchase.invoice_number}
                           </Link>
                         ) : m.linked_document_number ? (
