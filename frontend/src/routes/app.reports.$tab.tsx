@@ -302,7 +302,8 @@ function ReportViewPage() {
     push("Gross Sales", d.grossSales, { depth: 1 });
     push("Other Sales Income", d.otherSalesIncome, { depth: 1 });
     push("Sales Adjustments (Debit Notes)", -d.debitNoteTotal, { depth: 1 });
-    push("Total Turnover", d.totalTurnover, { bold: true, doubleLine: true });
+    if (turnoverFxDepreciation !== 0) push("Exchange Rate Difference", turnoverFxDepreciation, { depth: 1 });
+    push("Total Turnover", d.totalTurnover + turnoverFxDepreciation, { bold: true, doubleLine: true });
 
     push("COST OF SALES", 0, { accent: true });
     push("Gross Purchases", d.grossPurchases, { depth: 1 });
@@ -313,9 +314,10 @@ function ReportViewPage() {
     push("Customs / Duties", d.customsDuties, { depth: 1 });
     push("Freight Charges", d.freightCharges, { depth: 1 });
     push("Other Direct Costs", d.otherDirectCosts, { depth: 1 });
-    push("Total Cost of Sales", d.totalCostOfSales, { bold: true, doubleLine: true });
+    if (costOfSalesFxDepreciation !== 0) push("Exchange Rate Difference", costOfSalesFxDepreciation, { depth: 1 });
+    push("Total Cost of Sales", d.totalCostOfSales + costOfSalesFxDepreciation, { bold: true, doubleLine: true });
 
-    push("Gross Profit", d.grossProfit, { bold: true, doubleLine: true });
+    push("Gross Profit", (d.totalTurnover + turnoverFxDepreciation) - (d.totalCostOfSales + costOfSalesFxDepreciation), { bold: true, doubleLine: true });
 
     push("ADMINISTRATIVE COSTS", 0, { accent: true });
     if (adminEntries.length === 0) {
@@ -327,8 +329,9 @@ function ReportViewPage() {
     }
     push("Total Administrative Costs", d.totalAdminCosts, { bold: true, doubleLine: true });
 
-    push("Operating Profit", d.operatingProfit, { bold: true, doubleLine: true });
-    push("Profit on Ordinary Activities Before Taxation", d.profitBeforeTax, { bold: true, doubleLine: true });
+    const fxNetAdjustment = turnoverFxDepreciation - costOfSalesFxDepreciation;
+    push("Operating Profit", d.operatingProfit + fxNetAdjustment, { bold: true, doubleLine: true });
+    push("Profit on Ordinary Activities Before Taxation", d.profitBeforeTax + fxNetAdjustment, { bold: true, doubleLine: true });
 
     push("TAXATION", 0, { accent: true });
     if (taxEntries.length === 0) {
@@ -340,7 +343,7 @@ function ReportViewPage() {
     }
     push("Total Taxation", d.totalTaxation, { bold: true, doubleLine: true });
 
-    push("Profit After Taxation", d.profitAfterTax, { bold: true, doubleLine: true });
+    push("Profit After Taxation", d.profitAfterTax + fxNetAdjustment, { bold: true, doubleLine: true });
 
     return rows;
   }
@@ -846,7 +849,18 @@ function ReportViewPage() {
         ) : isBalanceSheet ? (
           <BalanceSheetView />
         ) : isPnL ? (
-          <PnLReportView pnlData={pnlData} companyName={companyName} />
+          <PnLReportView
+            pnlData={pnlData}
+            companyName={companyName}
+            turnoverFxDepreciation={turnoverFxDepreciation}
+            setTurnoverFxDepreciation={setTurnoverFxDepreciation}
+            turnoverFxOpen={turnoverFxOpen}
+            setTurnoverFxOpen={setTurnoverFxOpen}
+            costOfSalesFxDepreciation={costOfSalesFxDepreciation}
+            setCostOfSalesFxDepreciation={setCostOfSalesFxDepreciation}
+            costOfSalesFxOpen={costOfSalesFxOpen}
+            setCostOfSalesFxOpen={setCostOfSalesFxOpen}
+          />
         ) : tabId === "portfolio" ? (
           <PortfolioView data={data} exportPortfolioPdf={exportPortfolioPdf} />
         ) : tabId === "inventory-tracking" ? (
@@ -873,7 +887,29 @@ function ReportViewPage() {
 //  SUB-COMPONENTS
 // ══════════════════════════════════
 
-function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; companyName: string }) {
+function PnLReportView({
+  pnlData,
+  companyName,
+  turnoverFxDepreciation,
+  setTurnoverFxDepreciation,
+  turnoverFxOpen,
+  setTurnoverFxOpen,
+  costOfSalesFxDepreciation,
+  setCostOfSalesFxDepreciation,
+  costOfSalesFxOpen,
+  setCostOfSalesFxOpen,
+}: {
+  pnlData: PnLReport | null;
+  companyName: string;
+  turnoverFxDepreciation: number;
+  setTurnoverFxDepreciation: (v: number) => void;
+  turnoverFxOpen: boolean;
+  setTurnoverFxOpen: (v: boolean) => void;
+  costOfSalesFxDepreciation: number;
+  setCostOfSalesFxDepreciation: (v: number) => void;
+  costOfSalesFxOpen: boolean;
+  setCostOfSalesFxOpen: (v: boolean) => void;
+}) {
   if (!pnlData) {
     return (
       <Card title="Profit & Loss Statement">
@@ -888,6 +924,10 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
   const d = pnlData;
   const adminEntries = Object.entries(d.adminCostByCategory).sort(([a], [b]) => a.localeCompare(b));
   const taxEntries = Object.entries(d.taxByCategory).sort(([a], [b]) => a.localeCompare(b));
+
+  const adjustedTotalTurnover = d.totalTurnover + turnoverFxDepreciation;
+  const adjustedTotalCostOfSales = d.totalCostOfSales + costOfSalesFxDepreciation;
+  const adjustedGrossProfit = adjustedTotalTurnover - adjustedTotalCostOfSales;
 
   return (
     <Card
@@ -904,14 +944,81 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
         <table className="w-full text-sm">
           <tbody>
             {/* Turnover Section */}
-            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-blue-600 bg-blue-50/50 dark:text-blue-400 dark:bg-blue-950/30 rounded-t-lg">Turnover</td></tr>
+            <tr>
+              <td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-blue-600 bg-blue-50/50 dark:text-blue-400 dark:bg-blue-950/30 rounded-t-lg">
+                <div className="flex items-center gap-2">
+                  Turnover
+                  <Popover open={turnoverFxOpen} onOpenChange={setTurnoverFxOpen}>
+                    <PopoverTrigger asChild>
+                      <button className="inline-flex items-center justify-center h-5 w-5 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors text-blue-500" title="Exchange rate difference">
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-3" align="start">
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-foreground">Exchange Rate Difference</label>
+                        <p className="text-[10px] text-muted-foreground">Enter a positive or negative value to adjust turnover.</p>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={turnoverFxDepreciation || ""}
+                          onChange={(e) => setTurnoverFxDepreciation(parseFloat(e.target.value) || 0)}
+                          placeholder="0.00"
+                          className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        />
+                        {turnoverFxDepreciation !== 0 && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Adjustment: <span className={turnoverFxDepreciation >= 0 ? "text-success font-medium" : "text-destructive font-medium"}>{fmtPnlMoney(turnoverFxDepreciation)}</span>
+                          </p>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </td>
+            </tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Gross Sales</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.grossSales)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Other Sales Income</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.otherSalesIncome)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Sales Adjustments (Debit Notes)</td><td className="py-1.5 pr-6 text-right num text-destructive">{fmtPnlMoney(-d.debitNoteTotal)}</td></tr>
-            <tr className="border-t-2 border-blue-200"><td className="py-2 pl-10 font-bold">Total Turnover</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalTurnover)}</td></tr>
+            {turnoverFxDepreciation !== 0 && (
+              <tr><td className="py-1.5 pl-10 text-muted-foreground">Exchange Rate Difference</td><td className={`py-1.5 pr-6 text-right num ${turnoverFxDepreciation >= 0 ? "text-success" : "text-destructive"}`}>{fmtPnlMoney(turnoverFxDepreciation)}</td></tr>
+            )}
+            <tr className="border-t-2 border-blue-200"><td className="py-2 pl-10 font-bold">Total Turnover</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(adjustedTotalTurnover)}</td></tr>
 
             {/* Cost of Sales Section */}
-            <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-success bg-success/10">Cost of Sales</td></tr>
+            <tr>
+              <td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-success bg-success/10">
+                <div className="flex items-center gap-2">
+                  Cost of Sales
+                  <Popover open={costOfSalesFxOpen} onOpenChange={setCostOfSalesFxOpen}>
+                    <PopoverTrigger asChild>
+                      <button className="inline-flex items-center justify-center h-5 w-5 rounded-md hover:bg-green-100 dark:hover:bg-green-900 transition-colors text-green-600" title="Exchange rate difference">
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-64 p-3" align="start">
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-foreground">Exchange Rate Difference</label>
+                        <p className="text-[10px] text-muted-foreground">Enter a positive or negative value to adjust cost of sales.</p>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={costOfSalesFxDepreciation || ""}
+                          onChange={(e) => setCostOfSalesFxDepreciation(parseFloat(e.target.value) || 0)}
+                          placeholder="0.00"
+                          className="h-8 w-full rounded-md border border-border bg-background px-2.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        />
+                        {costOfSalesFxDepreciation !== 0 && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Adjustment: <span className={costOfSalesFxDepreciation >= 0 ? "text-destructive font-medium" : "text-success font-medium"}>{fmtPnlMoney(costOfSalesFxDepreciation)}</span>
+                          </p>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </td>
+            </tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Gross Purchases</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.grossPurchases)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Credit Notes (Purchase Returns)</td><td className="py-1.5 pr-6 text-right num text-destructive">{fmtPnlMoney(-d.creditNoteTotal)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Logistics & Procurement</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.logisticsAndProcurement)}</td></tr>
@@ -920,10 +1027,13 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Customs / Duties</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.customsDuties)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Freight Charges</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.freightCharges)}</td></tr>
             <tr><td className="py-1.5 pl-10 text-muted-foreground">Other Direct Costs</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(d.otherDirectCosts)}</td></tr>
-            <tr className="border-t-2 border-success/30"><td className="py-2 pl-10 font-bold">Total Cost of Sales</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalCostOfSales)}</td></tr>
+            {costOfSalesFxDepreciation !== 0 && (
+              <tr><td className="py-1.5 pl-10 text-muted-foreground">Exchange Rate Difference</td><td className={`py-1.5 pr-6 text-right num ${costOfSalesFxDepreciation >= 0 ? "text-destructive" : "text-success"}`}>{fmtPnlMoney(costOfSalesFxDepreciation)}</td></tr>
+            )}
+            <tr className="border-t-2 border-success/30"><td className="py-2 pl-10 font-bold">Total Cost of Sales</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(adjustedTotalCostOfSales)}</td></tr>
 
             {/* Gross Profit */}
-            <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Gross Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.grossProfit)}</td></tr>
+            <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Gross Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(adjustedGrossProfit)}</td></tr>
 
             {/* Admin Costs */}
             <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-warning bg-warning/10">Administrative Costs</td></tr>
@@ -934,13 +1044,11 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
                 <tr key={cat}><td className="py-1.5 pl-10 text-muted-foreground">{ADMIN_CAT_LABELS[cat] ?? cat}</td><td className="py-1.5 pr-6 text-right num">{fmtPnlMoney(amount)}</td></tr>
               ))
             )}
-            <tr className="border-t-2 border-warning/30"><td className="py-2 pl-10 font-bold">Total Administrative Costs</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalAdminCosts)}</td></tr>
-
-            {/* Operating Profit */}
-            <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Operating Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.operatingProfit)}</td></tr>
+            <tr className="border-t-2 border-warning/30"><td className="py-2 pl-10 font-bold">Total Administrative Costs</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalAdminCosts)}</td></tr>              {/* Operating Profit */}
+            <tr className="border-t-2 border-border"><td className="py-3 pl-4 text-base font-bold">Operating Profit</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.operatingProfit + turnoverFxDepreciation - costOfSalesFxDepreciation)}</td></tr>
 
             {/* Profit Before Tax */}
-            <tr className="border-t border-border"><td className="py-3 pl-4 text-base font-bold">Profit Before Taxation</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.profitBeforeTax)}</td></tr>
+            <tr className="border-t border-border"><td className="py-3 pl-4 text-base font-bold">Profit Before Taxation</td><td className="py-3 pr-6 text-right num text-base font-bold">{fmtPnlMoney(d.profitBeforeTax + turnoverFxDepreciation - costOfSalesFxDepreciation)}</td></tr>
 
             {/* Taxation */}
             <tr><td colSpan={2} className="py-3 pl-4 text-xs font-bold uppercase tracking-widest text-destructive bg-destructive/10">Taxation</td></tr>
@@ -953,8 +1061,8 @@ function PnLReportView({ pnlData, companyName }: { pnlData: PnLReport | null; co
             )}
             <tr className="border-t-2 border-destructive/30"><td className="py-2 pl-10 font-bold">Total Taxation</td><td className="py-2 pr-6 text-right num font-bold">{fmtPnlMoney(d.totalTaxation)}</td></tr>
 
-            {/* Net Profit */}
-            <tr className="border-t-2 border-border"><td className="py-4 pl-4 text-lg font-bold text-primary">Profit After Taxation</td><td className="py-4 pr-6 text-right num text-lg font-bold text-primary">{fmtPnlMoney(d.profitAfterTax)}</td></tr>
+              {/* Net Profit */}
+            <tr className="border-t-2 border-border"><td className="py-4 pl-4 text-lg font-bold text-primary">Profit After Taxation</td><td className="py-4 pr-6 text-right num text-lg font-bold text-primary">{fmtPnlMoney(d.profitAfterTax + turnoverFxDepreciation - costOfSalesFxDepreciation)}</td></tr>
           </tbody>
         </table>
       </div>
