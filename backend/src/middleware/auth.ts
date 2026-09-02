@@ -238,19 +238,21 @@ export async function countUsers(): Promise<number> {
  *
  * When the user has a company_id, results are scoped to that company only.
  * Super admins (company_id = null) see all data — no filter is returned.
+ * Factor admins also see all data (they manage their company's full context).
  *
  * Usage:
  *   const items = await scanTable(TABLE, getCompanyFilter(req.user!));
  */
-export function getCompanyFilter(user: { company_id: string | null }): {
+export function getCompanyFilter(user: { company_id: string | null; roles?: AppRole[] }): {
   filterExpression?: string;
   expressionAttributeValues?: Record<string, unknown>;
 } {
-  if (user.company_id) {
-    return {
-      filterExpression: "company_id = :cid",
-      expressionAttributeValues: { ":cid": user.company_id },
-    };
+  // Super admins (company_id = null) and factor admins see all data
+  if (!user.company_id || user.roles?.includes("factor_admin")) {
+    return {};
   }
-  return {};
+  return {
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": user.company_id },
+  };
 }
