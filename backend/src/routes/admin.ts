@@ -16,7 +16,7 @@ import { runOverdueReminderSweep } from "../utils/reminders.js";
 import { config } from "../config.js";
 import type {
   AppRole, UserRole, Profile, Invoice, Debtor, Alert,
-  NoaInvoiceResult, NoaStatus, User,
+  NoaInvoiceResult, NoaStatus, User, Company
 } from "../types/index.js";
 
 const router = Router();
@@ -32,6 +32,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   company_name: z.string().min(1),
+  company_id: z.string().optional(),
   contact_name: z.string().optional(),
   role: z.enum(["client", "factor_admin", "treasury", "checker", "operations", "viewer"]),
 });
@@ -45,7 +46,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     }
 
     const parsed = createUserSchema.parse(req.body);
-    const { email, password, company_name, contact_name, role } = parsed;
+    const { email, password, company_name, company_id, contact_name, role } = parsed;
 
     // Check if user exists
     const existingUsers = await scanTable<User>(TABLES.USERS, {
@@ -62,8 +63,35 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
-    // Determine company_id: super admin creates users for their own company; otherwise use null
-    const assignedCompanyId = req.user!.company_id ?? null;
+    // Determine company_id:
+    let assignedCompanyId = company_id || req.user!.company_id;
+    
+    // If we still don't have a company_id, try to find an existing company by name
+    if (!assignedCompanyId) {
+      const existingCompanies = await scanTable<Company>(TABLES.COMPANIES, {
+        filterExpression: "#name = :name",
+        expressionAttributeNames: { "#name": "name" },
+        expressionAttributeValues: { ":name": company_name },
+      });
+      
+      if (existingCompanies.length > 0) {
+        assignedCompanyId = existingCompanies[0].id;
+      } else {
+        // Create a new company
+        assignedCompanyId = generateId();
+        const newCompany: Company = {
+          id: assignedCompanyId,
+          name: company_name,
+          email: email,
+          phone: null,
+          address: null,
+          settings: null,
+          created_at: now,
+          updated_at: now,
+        };
+        await putItem(TABLES.COMPANIES, newCompany as any);
+      }
+    }
 
     // Create user
     const user: User = { id, email, password_hash, company_id: assignedCompanyId, created_at: now };

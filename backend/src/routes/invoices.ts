@@ -12,7 +12,7 @@ import {
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
-import { generateId, generateNoaToken, generateDocNumber, nowISO } from "../utils/helpers.js";
+import { generateId, generateNoaToken, generateDocNumber, nowISO, inferCompanyId } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { config } from "../config.js";
 import { sendNoaEmail, sendReminderEmail } from "../utils/email.js";
@@ -514,7 +514,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
-      company_id: req.user!.company_id,
+      company_id: inferCompanyId(req.user!.company_id, so.company_id),
       debtor_id: so.customer_id,
       supplier_id: null,
       invoice_number: generateDocNumber("INV"),
@@ -671,6 +671,9 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const now = nowISO();
     const noa_token = generateNoaToken();
 
+    // Look up the debtor to infer company_id for super admins (who have company_id = null)
+    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
+
     const termsDays = parsed.payment_terms_days;
     const dueDate = parsed.due_date !== null
       ? (parsed.due_date || (() => {
@@ -684,7 +687,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
-      company_id: req.user!.company_id,
+      company_id: inferCompanyId(req.user!.company_id, debtor?.company_id),
       debtor_id: parsed.debtor_id,
       supplier_id: null,
       invoice_number: parsed.invoice_number,
@@ -775,7 +778,6 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     }
 
     // Create activity alert
-    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
@@ -957,6 +959,10 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     const created: Invoice[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
+    // Look up the debtor to infer company_id for super admins
+    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
+    const resolvedCompanyId = inferCompanyId(req.user!.company_id, debtor?.company_id);
+
     // Build all invoice objects first
     const invoicesToCreate: Invoice[] = [];
     for (const item of parsed.invoices) {
@@ -974,7 +980,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
         const invoice: Invoice = {
           id,
           client_id: req.user!.id,
-          company_id: req.user!.company_id,
+          company_id: resolvedCompanyId,
           debtor_id: parsed.debtor_id,
           supplier_id: null,
           invoice_number: item.invoice_number,

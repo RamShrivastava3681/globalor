@@ -56,3 +56,20 @@ export function diffDaysUTC(from?: string | null, to?: string | null): number {
 export function safeMoney(val: unknown): number {
   return Number(val) || 0;
 }
+
+/**
+ * Resolve the company_id for a new entity when the creating user has no
+ * company_id (e.g. a super admin). Falls back to the debtor's company_id,
+ * then the user's company_id. Returns null only if nothing is available.
+ *
+ * This prevents invoices (and other entities) from being created with
+ * company_id = null, which would make them invisible to other admins
+ * in the same company.
+ */
+export function inferCompanyId(
+  userCompanyId: string | null | undefined,
+  debtorCompanyId?: string | null,
+  fallbackCompanyId?: string | null,
+): string | null {
+  return userCompanyId || debtorCompanyId || fallbackCompanyId || null;
+}
