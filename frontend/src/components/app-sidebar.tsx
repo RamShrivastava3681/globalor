@@ -1,7 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   BarChart3,
   BellRing,
   Briefcase,
@@ -75,7 +74,6 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
       { label: "Procurement", icon: ShoppingCart, to: "/app/procurement-workbench", roles: ["operations", "admin"] },
       { label: "Sales", icon: ShoppingBag, to: "/app/sales-workbench", roles: ["sales_rep", "operations", "admin"] },
       { label: "Leads", icon: Users, to: "/app/crm", roles: ["sales_rep"] },
-      { label: "Naughty List", icon: AlertTriangle, to: "/app/naughty-list", roles: ["sales_rep"] },
       { label: "Customers", icon: Building2, to: "/app/debtors", roles: ["sales_rep", "operations", "admin"] },
       { label: "Suppliers", icon: Truck, to: "/app/suppliers", roles: ["operations", "admin"] },
       { label: "Product Catalogue", icon: Package, to: "/app/products", roles: ["operations", "admin"] },
@@ -98,7 +96,7 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
 
     const buckets: Bucket[] = [
       { id: "main", label: "MAIN", entries: pick(["Dashboard", "My Queue", "My Workspace", "Checker"]) },
-      { id: "sales", label: "SALES & CUSTOMERS", entries: pick(["Sales", "Leads", "Naughty List", "Customers"]) },
+      { id: "sales", label: "SALES & CUSTOMERS", entries: pick(["Sales", "Leads", "Customers"]) },
       { id: "proc", label: "PROCUREMENT & SUPPLIERS", entries: pick(["Procurement", "Suppliers"]) },
       { id: "prod", label: "PRODUCTS & INVENTORY", entries: pick(["Product Catalogue", "Warehouse Control"]) },
       { id: "fin", label: "FINANCE", entries: pick(["Finance", "Cash"]) },
