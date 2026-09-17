@@ -139,6 +139,10 @@ app.use("/api/balance-sheet-items", requireAuth, balanceSheetItemRoutes);
 import companyRoutes from "./routes/companies.js";
 app.use("/api/companies", companyRoutes);
 
+// Cash Command Centre (Treasury & Liquidity)
+import cashRoutes from "./routes/cash.js";
+app.use("/api/cash", cashRoutes);
+
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

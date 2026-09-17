@@ -211,6 +211,48 @@ const tableDefs = [
     BillingMode: "PAY_PER_REQUEST",
   },
   {
+    TableName: TABLES.CASH_ACCOUNTS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.EXPECTED_INFLOWS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.EXPECTED_OUTFLOWS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.MARKETPLACE_SETTLEMENTS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.RECURRING_EXPENSES,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.PURCHASE_COMMITMENTS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.TREASURY_SETTINGS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
     // Email → user_id registry: fast lookup by email and atomic signup
     // uniqueness (conditional writes). Auto-created on startup for new
     // deployments; existing deployments should run migrate-email-registry.ts.

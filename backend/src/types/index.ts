@@ -1005,3 +1005,107 @@ export interface NoaInvoiceResult {
   debtor_contact_name: string;
   debtor_contact_email: string;
 }
+
+// ── Cash Command Centre (Treasury & Liquidity) ──
+// All money fields are plain numbers in dollars (2 decimals). No currency codes.
+
+export type CashAccountType = "BANK" | "CASH" | "MARKETPLACE" | "FIXED_DEPOSIT";
+export type CashAccountStatus = "active" | "inactive";
+
+export interface CashAccount {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  name: string;
+  type: CashAccountType;
+  current_balance: number;
+  restricted_balance: number;
+  status: CashAccountStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExpectedFlowStatus = "EXPECTED" | "OVERDUE" | "RECEIVED" | "PAID" | "CANCELLED";
+
+export interface ExpectedInflow {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  type: string;
+  amount: number;
+  expected_date: string;
+  status: ExpectedFlowStatus;
+  source: "manual" | "invoice" | "settlement";
+  source_id: string | null;
+  customer_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExpectedOutflowType = "SUPPLIER_PAYMENT" | "OPERATIONAL" | "OTHER";
+
+export interface ExpectedOutflow {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  type: ExpectedOutflowType;
+  amount: number;
+  expected_date: string;
+  status: ExpectedFlowStatus;
+  supplier_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SettlementStatus = "EXPECTED" | "DELAYED" | "RECEIVED" | "DISPUTED";
+
+export interface MarketplaceSettlement {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  marketplace_name: string;
+  net_expected: number;
+  expected_date: string;
+  actual_date: string | null;
+  status: SettlementStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RecurringFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";
+
+export interface RecurringExpense {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  category: string;
+  amount: number;
+  frequency: RecurringFrequency;
+  payment_day: number;
+  status: "active" | "paused";
+  created_at: string;
+  updated_at: string;
+}
+
+export type CommitmentStatus = "PENDING" | "APPROVED" | "CANCELLED";
+
+export interface PurchaseCommitment {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  supplier_name: string;
+  expected_payment_amount: number;
+  expected_payment_date: string;
+  status: CommitmentStatus;
+  linked_po: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TreasurySettings {
+  id: string;
+  company_id: string | null;
+  minimum_buffer: number;
+  created_at: string;
+  updated_at: string;
+}

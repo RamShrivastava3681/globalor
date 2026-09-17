@@ -60,6 +60,13 @@ export const TABLES = {
   GOODS_DISPATCHES: `${p()}_goods_dispatches`,
   QUOTATIONS: `${p()}_quotations`,
   FORECAST_VARIABLES: `${p()}_forecast_variables`,
+  CASH_ACCOUNTS: `${p()}_cash_accounts`,
+  EXPECTED_INFLOWS: `${p()}_expected_inflows`,
+  EXPECTED_OUTFLOWS: `${p()}_expected_outflows`,
+  MARKETPLACE_SETTLEMENTS: `${p()}_marketplace_settlements`,
+  RECURRING_EXPENSES: `${p()}_recurring_expenses`,
+  PURCHASE_COMMITMENTS: `${p()}_purchase_commitments`,
+  TREASURY_SETTINGS: `${p()}_treasury_settings`,
   /**
    * email → user_id registry. Used to look up users by email without a full
    * table scan, and as an atomic uniqueness constraint on signup (conditional

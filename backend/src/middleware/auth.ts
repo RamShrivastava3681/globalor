@@ -108,7 +108,7 @@ export function requireRole(...roles: AppRole[]) {
 //   "suppliers", "debtors", "invoices", "purchase-invoices",
 //   "purchase-orders", "stock-movements", "advances", "expenses",
 //   "vendors", "products", "goods-purchase-orders", "goods-sales-orders",
-//   "quotations", "checker-desk", "funding-queue", "upload", "admin"
+//   "quotations", "checker-desk", "funding-queue", "upload", "admin", "cash"
 
 type ResourcePermission = {
   read: string[];   // '*' means all
@@ -144,7 +144,7 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
   },
   treasury: {
     read: ["*"],
-    write: ["funding-queue"],
+    write: ["funding-queue", "cash"],
   },
   client: {
     read: ["*"],

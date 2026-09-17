@@ -7,6 +7,19 @@ export function fmtMoney(n: number | string | null | undefined) {
 }
 
 /**
+ * Compact USD formatting for KPI cards ($1.2K / $3.4M / $1.2B).
+ */
+export function fmtCompact(n: number | string | null | undefined) {
+  const v = Number(n ?? 0);
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}K`;
+  return fmtMoney(v);
+}
+
+/**
  * Format a date string to a human-readable short format (e.g. "Jan 15, 2026").
  */
 export function fmtDate(d: string | null | undefined) {

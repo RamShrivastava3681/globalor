@@ -14,28 +14,43 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as ApprovalsTokenRouteImport } from './routes/approvals.$token'
+import { Route as AppWorkspaceRouteImport } from './routes/app.workspace'
+import { Route as AppWarehouseWorkbenchRouteImport } from './routes/app.warehouse-workbench'
+import { Route as AppWarehouseRouteImport } from './routes/app.warehouse'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
 import { Route as AppUploadInvoiceRouteImport } from './routes/app.upload-invoice'
+import { Route as AppTemplateRouteImport } from './routes/app.template'
+import { Route as AppTasksRouteImport } from './routes/app.tasks'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
+import { Route as AppStockAllocationRouteImport } from './routes/app.stock-allocation'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as AppSampleDistributionRouteImport } from './routes/app.sample-distribution'
+import { Route as AppSalesWorkbenchRouteImport } from './routes/app.sales-workbench'
 import { Route as AppSalesOrdersRouteImport } from './routes/app.sales-orders'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
+import { Route as AppRemindersRouteImport } from './routes/app.reminders'
 import { Route as AppQuotationsRouteImport } from './routes/app.quotations'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppProductsRouteImport } from './routes/app.products'
+import { Route as AppProcurementWorkbenchRouteImport } from './routes/app.procurement-workbench'
+import { Route as AppNaughtyListRouteImport } from './routes/app.naughty-list'
+import { Route as AppMyReportsRouteImport } from './routes/app.my-reports'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppGoodsReceiptsRouteImport } from './routes/app.goods-receipts'
 import { Route as AppForecastingRouteImport } from './routes/app.forecasting'
+import { Route as AppFinanceWorkbenchRouteImport } from './routes/app.finance-workbench'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
 import { Route as AppDispatchesRouteImport } from './routes/app.dispatches'
 import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
+import { Route as AppCrmRouteImport } from './routes/app.crm'
 import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 import { Route as AppCheckerRouteImport } from './routes/app.checker'
+import { Route as AppCashRouteImport } from './routes/app.cash'
 import { Route as AppBulkPaymentsRouteImport } from './routes/app.bulk-payments'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
@@ -69,6 +84,21 @@ const ApprovalsTokenRoute = ApprovalsTokenRouteImport.update({
   path: '/approvals/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWarehouseWorkbenchRoute = AppWarehouseWorkbenchRouteImport.update({
+  id: '/warehouse-workbench',
+  path: '/warehouse-workbench',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWarehouseRoute = AppWarehouseRouteImport.update({
+  id: '/warehouse',
+  path: '/warehouse',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppVendorsRoute = AppVendorsRouteImport.update({
   id: '/vendors',
   path: '/vendors',
@@ -79,14 +109,39 @@ const AppUploadInvoiceRoute = AppUploadInvoiceRouteImport.update({
   path: '/upload-invoice',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTemplateRoute = AppTemplateRouteImport.update({
+  id: '/template',
+  path: '/template',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSuppliersRoute = AppSuppliersRouteImport.update({
   id: '/suppliers',
   path: '/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppStockAllocationRoute = AppStockAllocationRouteImport.update({
+  id: '/stock-allocation',
+  path: '/stock-allocation',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSampleDistributionRoute = AppSampleDistributionRouteImport.update({
+  id: '/sample-distribution',
+  path: '/sample-distribution',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesWorkbenchRoute = AppSalesWorkbenchRouteImport.update({
+  id: '/sales-workbench',
+  path: '/sales-workbench',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSalesOrdersRoute = AppSalesOrdersRouteImport.update({
@@ -97,6 +152,11 @@ const AppSalesOrdersRoute = AppSalesOrdersRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRemindersRoute = AppRemindersRouteImport.update({
+  id: '/reminders',
+  path: '/reminders',
   getParentRoute: () => AppRoute,
 } as any)
 const AppQuotationsRoute = AppQuotationsRouteImport.update({
@@ -129,6 +189,21 @@ const AppProductsRoute = AppProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProcurementWorkbenchRoute = AppProcurementWorkbenchRouteImport.update({
+  id: '/procurement-workbench',
+  path: '/procurement-workbench',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNaughtyListRoute = AppNaughtyListRouteImport.update({
+  id: '/naughty-list',
+  path: '/naughty-list',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMyReportsRoute = AppMyReportsRouteImport.update({
+  id: '/my-reports',
+  path: '/my-reports',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
@@ -147,6 +222,11 @@ const AppGoodsReceiptsRoute = AppGoodsReceiptsRouteImport.update({
 const AppForecastingRoute = AppForecastingRouteImport.update({
   id: '/forecasting',
   path: '/forecasting',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinanceWorkbenchRoute = AppFinanceWorkbenchRouteImport.update({
+  id: '/finance-workbench',
+  path: '/finance-workbench',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExpensesRoute = AppExpensesRouteImport.update({
@@ -169,6 +249,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCrmRoute = AppCrmRouteImport.update({
+  id: '/crm',
+  path: '/crm',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
   id: '/credit-debit-notes',
   path: '/credit-debit-notes',
@@ -177,6 +262,11 @@ const AppCreditDebitNotesRoute = AppCreditDebitNotesRouteImport.update({
 const AppCheckerRoute = AppCheckerRouteImport.update({
   id: '/checker',
   path: '/checker',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCashRoute = AppCashRouteImport.update({
+  id: '/cash',
+  path: '/cash',
   getParentRoute: () => AppRoute,
 } as any)
 const AppBulkPaymentsRoute = AppBulkPaymentsRouteImport.update({
@@ -224,28 +314,43 @@ export interface FileRoutesByFullPath {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
+  '/app/cash': typeof AppCashRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecasting': typeof AppForecastingRoute
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/my-reports': typeof AppMyReportsRoute
+  '/app/naughty-list': typeof AppNaughtyListRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
+  '/app/reminders': typeof AppRemindersRoute
   '/app/reports': typeof AppReportsRouteWithChildren
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
+  '/app/template': typeof AppTemplateRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -260,27 +365,42 @@ export interface FileRoutesByTo {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
+  '/app/cash': typeof AppCashRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecasting': typeof AppForecastingRoute
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/my-reports': typeof AppMyReportsRoute
+  '/app/naughty-list': typeof AppNaughtyListRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
+  '/app/reminders': typeof AppRemindersRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
+  '/app/template': typeof AppTemplateRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -296,28 +416,43 @@ export interface FileRoutesById {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
+  '/app/cash': typeof AppCashRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
+  '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecasting': typeof AppForecastingRoute
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/my-reports': typeof AppMyReportsRoute
+  '/app/naughty-list': typeof AppNaughtyListRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
+  '/app/reminders': typeof AppRemindersRoute
   '/app/reports': typeof AppReportsRouteWithChildren
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
+  '/app/template': typeof AppTemplateRoute
   '/app/upload-invoice': typeof AppUploadInvoiceRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/approvals/$token': typeof ApprovalsTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/reports/$tab': typeof AppReportsTabRoute
@@ -334,28 +469,43 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/bulk-payments'
+    | '/app/cash'
     | '/app/checker'
     | '/app/credit-debit-notes'
+    | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-workbench'
     | '/app/forecasting'
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/my-reports'
+    | '/app/naughty-list'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/quotations'
+    | '/app/reminders'
     | '/app/reports'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
+    | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
+    | '/app/template'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/app/warehouse'
+    | '/app/warehouse-workbench'
+    | '/app/workspace'
     | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -370,27 +520,42 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/bulk-payments'
+    | '/app/cash'
     | '/app/checker'
     | '/app/credit-debit-notes'
+    | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-workbench'
     | '/app/forecasting'
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/my-reports'
+    | '/app/naughty-list'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/quotations'
+    | '/app/reminders'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
+    | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
+    | '/app/template'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/app/warehouse'
+    | '/app/warehouse-workbench'
+    | '/app/workspace'
     | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -405,28 +570,43 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/bulk-payments'
+    | '/app/cash'
     | '/app/checker'
     | '/app/credit-debit-notes'
+    | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-workbench'
     | '/app/forecasting'
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/my-reports'
+    | '/app/naughty-list'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/quotations'
+    | '/app/reminders'
     | '/app/reports'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
+    | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
+    | '/app/template'
     | '/app/upload-invoice'
     | '/app/vendors'
+    | '/app/warehouse'
+    | '/app/warehouse-workbench'
+    | '/app/workspace'
     | '/approvals/$token'
     | '/noa/$token'
     | '/app/reports/$tab'
@@ -478,6 +658,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApprovalsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/workspace': {
+      id: '/app/workspace'
+      path: '/workspace'
+      fullPath: '/app/workspace'
+      preLoaderRoute: typeof AppWorkspaceRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/warehouse-workbench': {
+      id: '/app/warehouse-workbench'
+      path: '/warehouse-workbench'
+      fullPath: '/app/warehouse-workbench'
+      preLoaderRoute: typeof AppWarehouseWorkbenchRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/warehouse': {
+      id: '/app/warehouse'
+      path: '/warehouse'
+      fullPath: '/app/warehouse'
+      preLoaderRoute: typeof AppWarehouseRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/vendors': {
       id: '/app/vendors'
       path: '/vendors'
@@ -492,6 +693,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUploadInvoiceRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/template': {
+      id: '/app/template'
+      path: '/template'
+      fullPath: '/app/template'
+      preLoaderRoute: typeof AppTemplateRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/tasks': {
+      id: '/app/tasks'
+      path: '/tasks'
+      fullPath: '/app/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/suppliers': {
       id: '/app/suppliers'
       path: '/suppliers'
@@ -499,11 +714,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/stock-allocation': {
+      id: '/app/stock-allocation'
+      path: '/stock-allocation'
+      fullPath: '/app/stock-allocation'
+      preLoaderRoute: typeof AppStockAllocationRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/settings': {
       id: '/app/settings'
       path: '/settings'
       fullPath: '/app/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/sample-distribution': {
+      id: '/app/sample-distribution'
+      path: '/sample-distribution'
+      fullPath: '/app/sample-distribution'
+      preLoaderRoute: typeof AppSampleDistributionRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/sales-workbench': {
+      id: '/app/sales-workbench'
+      path: '/sales-workbench'
+      fullPath: '/app/sales-workbench'
+      preLoaderRoute: typeof AppSalesWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/sales-orders': {
@@ -518,6 +754,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/app/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/reminders': {
+      id: '/app/reminders'
+      path: '/reminders'
+      fullPath: '/app/reminders'
+      preLoaderRoute: typeof AppRemindersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/quotations': {
@@ -562,6 +805,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/procurement-workbench': {
+      id: '/app/procurement-workbench'
+      path: '/procurement-workbench'
+      fullPath: '/app/procurement-workbench'
+      preLoaderRoute: typeof AppProcurementWorkbenchRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/naughty-list': {
+      id: '/app/naughty-list'
+      path: '/naughty-list'
+      fullPath: '/app/naughty-list'
+      preLoaderRoute: typeof AppNaughtyListRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/my-reports': {
+      id: '/app/my-reports'
+      path: '/my-reports'
+      fullPath: '/app/my-reports'
+      preLoaderRoute: typeof AppMyReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/invoices': {
       id: '/app/invoices'
       path: '/invoices'
@@ -588,6 +852,13 @@ declare module '@tanstack/react-router' {
       path: '/forecasting'
       fullPath: '/app/forecasting'
       preLoaderRoute: typeof AppForecastingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-workbench': {
+      id: '/app/finance-workbench'
+      path: '/finance-workbench'
+      fullPath: '/app/finance-workbench'
+      preLoaderRoute: typeof AppFinanceWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/expenses': {
@@ -618,6 +889,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/crm': {
+      id: '/app/crm'
+      path: '/crm'
+      fullPath: '/app/crm'
+      preLoaderRoute: typeof AppCrmRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/credit-debit-notes': {
       id: '/app/credit-debit-notes'
       path: '/credit-debit-notes'
@@ -630,6 +908,13 @@ declare module '@tanstack/react-router' {
       path: '/checker'
       fullPath: '/app/checker'
       preLoaderRoute: typeof AppCheckerRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/cash': {
+      id: '/app/cash'
+      path: '/cash'
+      fullPath: '/app/cash'
+      preLoaderRoute: typeof AppCashRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/bulk-payments': {
@@ -704,28 +989,43 @@ interface AppRouteChildren {
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
   AppBulkPaymentsRoute: typeof AppBulkPaymentsRoute
+  AppCashRoute: typeof AppCashRoute
   AppCheckerRoute: typeof AppCheckerRoute
   AppCreditDebitNotesRoute: typeof AppCreditDebitNotesRoute
+  AppCrmRoute: typeof AppCrmRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDebtorsRoute: typeof AppDebtorsRoute
   AppDispatchesRoute: typeof AppDispatchesRoute
   AppExpensesRoute: typeof AppExpensesRoute
+  AppFinanceWorkbenchRoute: typeof AppFinanceWorkbenchRoute
   AppForecastingRoute: typeof AppForecastingRoute
   AppGoodsReceiptsRoute: typeof AppGoodsReceiptsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppMyReportsRoute: typeof AppMyReportsRoute
+  AppNaughtyListRoute: typeof AppNaughtyListRoute
+  AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
   AppProformasRoute: typeof AppProformasRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
   AppQuotationsRoute: typeof AppQuotationsRoute
+  AppRemindersRoute: typeof AppRemindersRoute
   AppReportsRoute: typeof AppReportsRouteWithChildren
   AppSalesOrdersRoute: typeof AppSalesOrdersRoute
+  AppSalesWorkbenchRoute: typeof AppSalesWorkbenchRoute
+  AppSampleDistributionRoute: typeof AppSampleDistributionRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppStockAllocationRoute: typeof AppStockAllocationRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppTasksRoute: typeof AppTasksRoute
+  AppTemplateRoute: typeof AppTemplateRoute
   AppUploadInvoiceRoute: typeof AppUploadInvoiceRoute
   AppVendorsRoute: typeof AppVendorsRoute
+  AppWarehouseRoute: typeof AppWarehouseRoute
+  AppWarehouseWorkbenchRoute: typeof AppWarehouseWorkbenchRoute
+  AppWorkspaceRoute: typeof AppWorkspaceRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -734,28 +1034,43 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
   AppBulkPaymentsRoute: AppBulkPaymentsRoute,
+  AppCashRoute: AppCashRoute,
   AppCheckerRoute: AppCheckerRoute,
   AppCreditDebitNotesRoute: AppCreditDebitNotesRoute,
+  AppCrmRoute: AppCrmRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDebtorsRoute: AppDebtorsRoute,
   AppDispatchesRoute: AppDispatchesRoute,
   AppExpensesRoute: AppExpensesRoute,
+  AppFinanceWorkbenchRoute: AppFinanceWorkbenchRoute,
   AppForecastingRoute: AppForecastingRoute,
   AppGoodsReceiptsRoute: AppGoodsReceiptsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppMyReportsRoute: AppMyReportsRoute,
+  AppNaughtyListRoute: AppNaughtyListRoute,
+  AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,
   AppProformasRoute: AppProformasRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
   AppQuotationsRoute: AppQuotationsRoute,
+  AppRemindersRoute: AppRemindersRoute,
   AppReportsRoute: AppReportsRouteWithChildren,
   AppSalesOrdersRoute: AppSalesOrdersRoute,
+  AppSalesWorkbenchRoute: AppSalesWorkbenchRoute,
+  AppSampleDistributionRoute: AppSampleDistributionRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppStockAllocationRoute: AppStockAllocationRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppTasksRoute: AppTasksRoute,
+  AppTemplateRoute: AppTemplateRoute,
   AppUploadInvoiceRoute: AppUploadInvoiceRoute,
   AppVendorsRoute: AppVendorsRoute,
+  AppWarehouseRoute: AppWarehouseRoute,
+  AppWarehouseWorkbenchRoute: AppWarehouseWorkbenchRoute,
+  AppWorkspaceRoute: AppWorkspaceRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

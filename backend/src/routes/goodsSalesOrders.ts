@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";

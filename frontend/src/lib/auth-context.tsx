@@ -31,6 +31,7 @@ export type WriteResource =
   | "checker-desk"
   | "funding-queue"
   | "upload"
+  | "cash"
   | "admin";
 
 // Permission map mirrors the backend
@@ -45,7 +46,7 @@ export const roleWritePermissions: Record<AppRole, readonly (WriteResource | "*"
     "quotations",
   ],
   checker: ["checker-desk"],
-  treasury: ["funding-queue"],
+  treasury: ["funding-queue", "cash"],
   // Clients maintain their own product catalogue and place their own
   // purchase orders + goods receipts (maker model).
   client: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
