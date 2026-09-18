@@ -214,11 +214,6 @@ export function AppSidebar({
       <nav aria-label="Primary" className="flex-1 space-y-4 overflow-y-auto px-3 py-2">
         {buckets.map((bucket) => (
           <div key={bucket.id}>
-            {!collapsed && (
-              <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#64748b]">
-                {bucket.label}
-              </div>
-            )}
             <div className="flex flex-col gap-[2px]">
               {bucket.entries.map((e) => {
                 const active = isActive(e.to);
