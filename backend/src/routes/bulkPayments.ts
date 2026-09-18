@@ -12,7 +12,7 @@ import { requireAuth, requireAnyWriteAccess, getCompanyFilter, type AuthRequest 
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
-import { scanCustomersMerged } from "../utils/customers.js";
+import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -24,10 +24,15 @@ function computeLateDays(dueDate: string | null, closeDate: string): number {
 
 // ── Helper: outstanding balance of an invoice ──
 function outstandingBalance(inv: Invoice): number {
-  return inv.amount_received != null
+  const raw = inv.amount_received != null
     ? Math.max(0, Number(inv.amount) - Number(inv.amount_received))
     : Number(inv.amount);
+  // Round to cents so float dust (e.g. 100.0000001 vs 100) can't keep an invoice open
+  return Math.round(raw * 100) / 100;
 }
+
+// Small tolerance so `remaining >= balance` holds when amounts match to the cent
+const AMOUNT_EPS = 0.005;
 
 // ── Helper: close a single invoice fully ──
 async function closeInvoice(inv: Invoice, closeDate: string, now: string) {
@@ -87,8 +92,22 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       availableAmount += totalRemaining;
     }
 
+    // ── 2b. Credit notes applied in the UI boost the available amount (Available =
+    // payment + previous balance + credit). Add their total here so the backend
+    // closes the same invoices the FIFO/manual preview shows.
+    let creditBoost = 0;
+    for (const noteId of parsed.settle_credit_note_ids) {
+      const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+      if (note && note.type === "credit" && note.status === "approved") {
+        creditBoost += Number(note.amount) || 0;
+      }
+    }
+    availableAmount += creditBoost;
+    // Re-round to cents after adding credit
+    availableAmount = Math.round(availableAmount * 100) / 100;
+
     if (availableAmount <= 0) {
-      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount or use remaining balance)" });
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount, use remaining balance, or apply credit)" });
       return;
     }
 
@@ -96,9 +115,10 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     const allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     // Match the Bulk payments UI list (everything except terminal states) so every
     // invoice the user sees selected actually gets closed/partially paid.
+    // NOTE: live rows link via `debtor_id` (legacy) — resolve either id, same as GET /api/invoices.
     const ineligibleStatuses = new Set(["paid", "rejected"]);
     let openInvoices = allInvoices
-      .filter((i) => i.customer_id === parsed.customer_id && !ineligibleStatuses.has(i.status))
+      .filter((i) => getInvoicePartyId(i as any) === parsed.customer_id && !ineligibleStatuses.has(i.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
 
     // ── 3. Process by mode ──
@@ -115,7 +135,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           // Full payment — close the invoice
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
@@ -146,7 +166,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
@@ -165,7 +185,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
@@ -180,7 +200,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           // Future invoice: close with date = due_date (so late days = 0)
           const closeDate = inv.due_date ?? parsed.payment_date;
           const lateDays = computeLateDays(inv.due_date, closeDate); // will be 0 since closeDate === due_date
@@ -205,6 +225,9 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     }
 
     // ── 4. Settle credit notes ──
+    // Clamp dust to zero so a fully-applied payment doesn't leave $0.001 remaining
+    remainingAfterProcessing = Math.round(remainingAfterProcessing * 100) / 100;
+    if (remainingAfterProcessing < AMOUNT_EPS) remainingAfterProcessing = 0;
     const settledCredits: string[] = [];
     const creditErrors: Array<{ id: string; error: string }> = [];
 
@@ -534,9 +557,10 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
 
 // ── Helper: outstanding balance of a purchase invoice ──
 function outstandingPurchaseBalance(inv: PurchaseInvoice): number {
-  return inv.amount_paid != null
+  const raw = inv.amount_paid != null
     ? Math.max(0, Number(inv.amount) - Number(inv.amount_paid))
     : Number(inv.amount);
+  return Math.round(raw * 100) / 100;
 }
 
 // ── Helper: fully close a purchase invoice ──
@@ -600,19 +624,30 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       availableAmount += totalRemaining;
     }
 
-    if (availableAmount <= 0) {
-      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount or use remaining balance)" });
-      return;
-    }
-
     // ── 3. Fetch open purchase invoices for this vendor ──
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     // Match the Bulk payments UI list (everything except terminal states) so every
     // invoice the user sees selected actually gets closed/partially paid.
     const ineligiblePiStatuses = new Set(["paid", "rejected", "disputed"]);
     let openPurchaseInvoices = allPurchaseInvoices
-      .filter((pi) => pi.vendor_id === vendor.id && !ineligiblePiStatuses.has(pi.status))
+      .filter((pi) => (pi.vendor_id === vendor.id || (pi as any).supplier_id === vendor.id) && !ineligiblePiStatuses.has(pi.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
+
+    // Credit notes applied in the UI boost the available amount — same as sales flow.
+    let purchaseCreditBoost = 0;
+    for (const noteId of parsed.settle_credit_note_ids) {
+      const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+      if (note && note.type === "credit" && note.status === "approved") {
+        purchaseCreditBoost += Number(note.amount) || 0;
+      }
+    }
+    availableAmount += purchaseCreditBoost;
+    availableAmount = Math.round(availableAmount * 100) / 100;
+
+    if (availableAmount <= 0) {
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount, use remaining balance, or apply credit)" });
+      return;
+    }
 
     // ── 4. Process by mode ──
     const closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }> = [];
@@ -627,7 +662,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
@@ -654,7 +689,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
@@ -671,7 +706,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
@@ -685,7 +720,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           const closeDate = inv.due_date ?? parsed.payment_date;
           const lateDays = computeLateDays(inv.due_date, closeDate);
           await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
@@ -706,6 +741,8 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     }
 
     // ── 5. Settle credit notes ──
+    remainingAfterProcessing = Math.round(remainingAfterProcessing * 100) / 100;
+    if (remainingAfterProcessing < AMOUNT_EPS) remainingAfterProcessing = 0;
     const settledCredits: string[] = [];
     const creditErrors: Array<{ id: string; error: string }> = [];
 
