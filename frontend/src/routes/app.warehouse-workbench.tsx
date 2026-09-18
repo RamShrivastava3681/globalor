@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Suspense, lazy, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -8,7 +8,6 @@ import {
 } from "@/components/workbench";
 import type { WorkItem } from "@/components/workbench";
 import { WorkItemsTable } from "@/components/work-items-table";
-import { WarehousePanel } from "@/components/warehouse-panel";
 import {
   Warehouse, ClipboardList, PackageCheck, Truck, FileText, BarChart3,
   Boxes, ClipboardCheck, CalendarClock, ArrowRight,
@@ -18,10 +17,11 @@ export const Route = createFileRoute("/app/warehouse-workbench")({
   component: WarehouseWorkbenchPage,
 });
 
-const ForecastPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.ForecastPanel })));
-const GrnPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GrnPanel })));
-const DispatchPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DispatchPanel })));
-const StockAllocationPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.StockAllocationPanel })));
+const WarehouseEmbedded = lazy(() => import("@/routes/app.warehouse").then((m) => ({ default: m.WarehousePage })));
+const ForecastingEmbedded = lazy(() => import("@/routes/app.forecasting").then((m) => ({ default: m.ForecastingPage })));
+const GrnEmbedded = lazy(() => import("@/routes/app.goods-receipts").then((m) => ({ default: () => <m.GoodsReceiptsPage embedded /> })));
+const DispatchEmbedded = lazy(() => import("@/routes/app.dispatches").then((m) => ({ default: () => <m.DispatchesPage embedded /> })));
+const InventoryEmbedded = lazy(() => import("@/routes/app.inventory").then((m) => ({ default: m.InventoryPage })));
 const SamplesPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.SamplesPanel })));
 const ActivityPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.WarehouseActivityPanel })));
 
@@ -89,6 +89,18 @@ function WarehouseWorkbenchPage() {
     [sos],
   );
 
+  // Row actions open the matching sub-tab page below instead of redirecting away.
+  const SECTION_BY_ROUTE: Record<string, string> = {
+    "/app/goods-receipts": "grn",
+    "/app/dispatches": "dispatch",
+    "/app/inventory": "allocation",
+    "/app/forecasting": "forecast",
+  };
+  const openItemBelow = (w: WorkItem) => {
+    const s = w.openTo ? SECTION_BY_ROUTE[w.openTo] : undefined;
+    if (s) setSection(s);
+  };
+
   return (
     <div>
       <PageHeader
@@ -138,7 +150,7 @@ function WarehouseWorkbenchPage() {
                     items={items}
                     title="Warehouse work items"
                     subtitle="GRNs and dispatches that need action before the next step."
-                    viewAllTo="/app/warehouse-workbench"
+                    onAction={openItemBelow}
                   />
                 )}
               </div>
@@ -163,29 +175,31 @@ function WarehouseWorkbenchPage() {
           </div>
         )}
 
-        {section === "warehouse" && <WarehousePanel />}
+        {section === "warehouse" && (
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><WarehouseEmbedded /></Suspense>
+        )}
 
         {section === "forecast" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ForecastPanel /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ForecastingEmbedded /></Suspense>
         )}
         {section === "grn" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><GrnPanel /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><GrnEmbedded /></Suspense>
         )}
         {section === "dispatch" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DispatchPanel /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DispatchEmbedded /></Suspense>
         )}
         {section === "allocation" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><StockAllocationPanel /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><InventoryEmbedded /></Suspense>
         )}
         {section === "samples" && (
           <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SamplesPanel /></Suspense>
         )}
         {section === "activity" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} onAction={openItemBelow} /></Suspense>
         )}
       </div>
       <FooterBanner>
-        <span>Warehouse approval sends orders to the Checker · <Link to="/app/dispatches" search={{ so: undefined }} className="font-semibold text-primary hover:underline">open Dispatches</Link> · <Link to="/app/goods-receipts" search={{ po: undefined }} className="font-semibold text-primary hover:underline">open GRNs</Link> · <Link to="/app/inventory" className="font-semibold text-primary hover:underline">full inventory history</Link></span>
+        <span>Warehouse approval sends orders to the Checker · <button onClick={() => setSection("dispatch")} className="font-semibold text-primary hover:underline">open Dispatches below</button> · <button onClick={() => setSection("grn")} className="font-semibold text-primary hover:underline">open GRNs below</button> · <button onClick={() => setSection("allocation")} className="font-semibold text-primary hover:underline">full inventory below</button></span>
       </FooterBanner>
     </div>
   );

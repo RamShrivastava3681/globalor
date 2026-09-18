@@ -22,8 +22,8 @@ function AppLayout() {
   // Role-based route wall
   useEffect(() => {
     if (loading || !user) return;
-    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/inventory", "/app/suppliers", "/app/admin"];
-    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/debtors", "/app/suppliers", "/app/admin"];
+    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/customers", "/app/inventory", "/app/suppliers", "/app/admin"];
+    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/customers", "/app/suppliers", "/app/admin"];
     const operationsBlocked: string[] = [];
     const viewerBlocked = ["/app/admin", "/app/queue", "/app/checker"];
     if (isViewer && viewerBlocked.some((p) => pathname.startsWith(p))) {
@@ -81,7 +81,7 @@ function AppLayout() {
         { to: "/app/expenses", label: "Expenses", icon: Receipt },
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/inventory", label: "Inventory", icon: Boxes },
-        { to: "/app/debtors", label: "Debtors", icon: Building2 },
+        { to: "/app/customers", label: "Customers", icon: Building2 },
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },
@@ -98,7 +98,7 @@ function AppLayout() {
         { to: "/app/expenses", label: "Expenses", icon: Receipt },
         { to: "/app/advances", label: "Advances", icon: Wallet },
         { to: "/app/inventory", label: "Inventory", icon: Boxes },
-        { to: "/app/debtors", label: "Debtors", icon: Building2 },
+        { to: "/app/customers", label: "Customers", icon: Building2 },
         { to: "/app/vendors", label: "Suppliers", icon: Truck },
         { to: "/app/credit-debit-notes", label: "Credit/Debit notes", icon: ScrollText },
         { to: "/app/alerts", label: "Alerts", icon: BellRing },

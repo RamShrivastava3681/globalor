@@ -21,7 +21,7 @@ We collect information to provide, maintain, and improve our services. Since Whi
 ### B. Financial and Transactional Data
 We collect and process data you input or upload into the system, which includes:
 - **Ledger & Accounting:** Invoices, credit/debit notes, proformas, advances, and bulk payments.
-- **Entity Data:** Debtors, vendors, and suppliers information.
+- **Entity Data:** Customers, vendors, and suppliers information.
 - **Inventory & Operations:** Inventory tracking, expenses, and queue management details.
 
 ### C. Automatically Collected Data & Uploaded Documents

@@ -7,7 +7,7 @@ export const Route = createFileRoute("/app/warehouse")({
   component: WarehousePage,
 });
 
-function WarehousePage() {
+export function WarehousePage() {
   return (
     <div>
       <PageHeader

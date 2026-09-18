@@ -712,7 +712,7 @@ function ListView({ piQ, vendorsQ, salesQ, isAdmin, canEdit, canCreate, canRevie
                           <div className="space-y-0.5">
                             {links.map((s: any) => (
                               <Link key={s.id} to="/app/invoices" search={{ view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
-                                <Link2 className="h-3 w-3" />{s.invoice_number}<span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
+                                <Link2 className="h-3 w-3" />{s.invoice_number}<span className="text-muted-foreground">→ {s.customer?.name ?? "?"}</span>
                               </Link>
                             ))}
                           </div>
@@ -1169,13 +1169,13 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
               <div className="-mx-4 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                    <tr className="border-b border-border"><th className="px-4 py-2 text-left font-normal">Invoice</th><th className="px-4 py-2 text-left font-normal">Debtor</th><th className="px-4 py-2 text-right font-normal">Amount</th><th className="px-4 py-2 text-left font-normal">Status</th></tr>
+                    <tr className="border-b border-border"><th className="px-4 py-2 text-left font-normal">Invoice</th><th className="px-4 py-2 text-left font-normal">Customer</th><th className="px-4 py-2 text-right font-normal">Amount</th><th className="px-4 py-2 text-left font-normal">Status</th></tr>
                   </thead>
                   <tbody>
                     {salesLinks.map((s: any) => (
                       <tr key={s.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5 font-mono text-xs"><Link to="/app/invoices" search={{ view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link></td>
-                        <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-2.5">{s.customer?.name ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>
                         <td className="px-4 py-2.5"><StatusPill status={s.status} /></td>
                       </tr>

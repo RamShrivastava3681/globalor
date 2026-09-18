@@ -391,7 +391,7 @@ export function WarehousePanel() {
                         {approvedInvoices.map((inv: any) => (
                           <tr key={inv.id}>
                             <td className="px-3 py-2.5 font-mono text-[13px]">{inv.invoice_number ?? inv.proforma_number ?? inv.id.slice(0, 8)}{inv.so_number ? <span className="ml-1 text-[11px] text-muted-foreground">· {inv.so_number}</span> : null}</td>
-                            <td className="px-3 py-2.5">{inv.party ?? inv.debtor_name ?? inv.customer_name ?? "—"}</td>
+                            <td className="px-3 py-2.5">{inv.party ?? inv.customer_name ?? inv.customer_name ?? "—"}</td>
                             <td className="px-3 py-2.5 text-right num">{fmtMoney(Number(inv.amount ?? inv.grand_total ?? 0))}</td>
                             <td className="px-3 py-2.5 text-muted-foreground">{inv.due_date ? fmtDate(inv.due_date) : "—"}</td>
                             <td className="px-3 py-2.5"><DaysLeftChip due={inv.due_date} /></td>

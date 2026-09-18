@@ -76,7 +76,7 @@ const KIND_CONFIG = {
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════════ */
 
-function QueuePage() {
+export function QueuePage() {
   const { isAdmin, isTreasury: isTreasuryRole, canWrite } = useAuth();
   const canAct = canWrite("funding-queue");
   const isTreasury = canAct;
@@ -90,7 +90,7 @@ function QueuePage() {
 
   // Payment history
   const [payHistoryOpen, setPayHistoryOpen] = useState(false);
-  const [payHistoryFilter, setPayHistoryFilter] = useState<"all" | "debtor" | "supplier">("all");
+  const [payHistoryFilter, setPayHistoryFilter] = useState<"all" | "customer" | "supplier">("all");
 
   const payHistoryQ = useQuery({
     queryKey: ["payments-history", payHistoryFilter],
@@ -221,7 +221,7 @@ function QueuePage() {
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
         due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
+        status: i.status, party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
         has_contractual_due_date: i.has_contractual_due_date,
       };
     }),
@@ -248,7 +248,7 @@ function QueuePage() {
       due_date: null,
       issue_date: p.proforma_date ?? p.issue_date,
       status: p.proforma_status,
-      party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
+      party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
@@ -738,7 +738,7 @@ function QueuePage() {
                   <div className="flex flex-wrap gap-2">
                     {([
                       { key: "all" as const, label: "All" },
-                      { key: "debtor" as const, label: "Debtors (AR)" },
+                      { key: "customer" as const, label: "Customers (AR)" },
                       { key: "supplier" as const, label: "Suppliers (AP)" },
                     ]).map((opt) => (
                       <button
@@ -750,7 +750,7 @@ function QueuePage() {
                             : "border-border text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        {opt.key === "debtor" ? <ArrowDownRight className="h-3 w-3 text-success" /> :
+                        {opt.key === "customer" ? <ArrowDownRight className="h-3 w-3 text-success" /> :
                          opt.key === "supplier" ? <ArrowUpRight className="h-3 w-3 text-warning" /> : null}
                         {opt.label}
                       </button>
@@ -780,27 +780,27 @@ function QueuePage() {
                         </thead>
                         <tbody>
                           {(payHistoryQ.data?.payments ?? []).map((p: any) => {
-                            const isDebtor = p.type === "debtor_payment";
+                            const isCustomer = p.type === "customer_payment";
                             const paidAmount = p.amount_received ?? p.amount;
                             return (
                               <tr key={`${p.type}-${p.id}`} className="border-b border-border/60 hover:bg-muted/30 transition-colors">
                                 <td className="px-4 py-3 text-xs font-mono">{p.paid_date ? fmtDate(p.paid_date) : "—"}</td>
                                 <td className="px-4 py-3 text-xs font-medium">
                                   <span className="inline-flex items-center gap-1.5">
-                                    {isDebtor ? <ArrowDownRight className="h-3 w-3 text-success" /> : <ArrowUpRight className="h-3 w-3 text-warning" />}
+                                    {isCustomer ? <ArrowDownRight className="h-3 w-3 text-success" /> : <ArrowUpRight className="h-3 w-3 text-warning" />}
                                     {p.party_name}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider font-semibold ${
-                                    isDebtor ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                                    isCustomer ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
                                   }`}>
-                                    {isDebtor ? "Receipt" : "Payment"}
+                                    {isCustomer ? "Receipt" : "Payment"}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 font-mono text-xs">{p.invoice_number}</td>
                                 <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.amount)}</td>
-                                <td className={`px-4 py-3 text-right font-mono text-xs font-medium ${isDebtor ? "text-success" : "text-warning"}`}>
+                                <td className={`px-4 py-3 text-right font-mono text-xs font-medium ${isCustomer ? "text-success" : "text-warning"}`}>
                                   {fmtMoney(paidAmount)}
                                 </td>
                                 <td className={`px-4 py-3 text-right font-mono text-xs ${(p.late_days ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"}`}>
@@ -1135,7 +1135,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
                       <tr key={r.invoice_number} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-4 py-3 text-xs text-muted-foreground">{idx + 1}</td>
                         <td className="px-4 py-3 font-mono text-xs">{r.invoice_number}</td>
-                        <td className="px-4 py-3">{r.invoice.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-3">{r.invoice.customer?.name ?? "—"}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.invoice.amount)}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs text-success">{fmtMoney(r.amount_received)}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${short > 0 ? "text-destructive" : "text-muted-foreground"}`}>{short > 0 ? fmtMoney(short) : "—"}</td>

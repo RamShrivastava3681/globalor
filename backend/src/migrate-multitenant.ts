@@ -239,9 +239,9 @@ interface TableDescriptor {
 }
 
 const DATA_TABLES: TableDescriptor[] = [
-  // Debtors don't have client_id — we can't determine their company from the debtor record alone.
-  // Use repair-debtors-company.ts to backfill after running this migration.
-  { tableName: TABLES.DEBTORS, label: "Debtors", userIdField: null },
+  // Customers don't have client_id — we can't determine their company from the customer record alone.
+  // Use repair-customers-company.ts to backfill after running this migration.
+  { tableName: TABLES.CUSTOMERS, label: "Customers", userIdField: null },
   { tableName: TABLES.VENDORS, label: "Vendors", userIdField: "client_id" },
   { tableName: TABLES.SUPPLIERS, label: "Suppliers", userIdField: "client_id" },
   { tableName: TABLES.INVOICES, label: "Sales invoices", userIdField: "client_id" },

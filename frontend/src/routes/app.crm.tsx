@@ -10,7 +10,7 @@ export const Route = createFileRoute("/app/crm")({
 });
 
 function CrmPage() {
-  const q = useQuery({ queryKey: ["debtors"], queryFn: async () => (await api.get<any[]>("/debtors")) ?? [] });
+  const q = useQuery({ queryKey: ["customers"], queryFn: async () => (await api.get<any[]>("/customers")) ?? [] });
   const rows = q.data ?? [];
   return (
     <div>

@@ -14,7 +14,7 @@ import { createActivityAlert } from "../utils/alerts.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import type {
   GoodsSalesOrder, GoodsSalesOrderLine,
-  Product, Debtor,
+  Product, Customer,
 } from "../types/index.js";
 
 const router = Router();
@@ -31,10 +31,10 @@ function matchExistingLine(
   return existing.find((l) => l.name === nl.name);
 }
 
-/** Debtor id → {name, contact, address, payment terms} (customer master). */
-async function buildDebtorMap(companyId: string | null): Promise<Map<string, Debtor>> {
-  const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter({ company_id: companyId }));
-  return new Map(debtors.map((d) => [d.id, d]));
+/** Customer id → {name, contact, address, payment terms} (customer master). */
+async function buildCustomerMap(companyId: string | null): Promise<Map<string, Customer>> {
+  const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter({ company_id: companyId }));
+  return new Map(customers.map((d) => [d.id, d]));
 }
 
 // ── Validation ──
@@ -70,15 +70,15 @@ const createSchema = z.object({
 // ── GET /api/goods-sales-orders ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const [orders, debtorMap] = await Promise.all([
+    const [orders, customerMap] = await Promise.all([
       scanTable<GoodsSalesOrder>(TABLES.GOODS_SALES_ORDERS, getCompanyFilter(req.user!)),
-      buildDebtorMap(req.user!.company_id),
+      buildCustomerMap(req.user!.company_id),
     ]);
     const enriched = orders
       .sort((a, b) => (b.order_date || "").localeCompare(a.order_date || "") || (b.created_at || "").localeCompare(a.created_at || ""))
       .map((so) => ({
         ...so,
-        customer_name: so.customer_name ?? (so.customer_id ? debtorMap.get(so.customer_id)?.name ?? null : null),
+        customer_name: so.customer_name ?? (so.customer_id ? customerMap.get(so.customer_id)?.name ?? null : null),
       }));
     res.json(enriched);
   } catch (err) {
@@ -139,8 +139,8 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
 
     const { subtotal, total_discount, gst_total, grand_total } = computeSalesTotals(lines, parsed.freight ?? 0);
 
-    const debtor = parsed.customer_id ? (await buildDebtorMap(req.user!.company_id)).get(parsed.customer_id) : undefined;
-    const customerName = parsed.customer_id ? (debtor?.name ?? null) : null;
+    const customer = parsed.customer_id ? (await buildCustomerMap(req.user!.company_id)).get(parsed.customer_id) : undefined;
+    const customerName = parsed.customer_id ? (customer?.name ?? null) : null;
 
     const soNumber = generateDocNumber("SO");
     const so: GoodsSalesOrder = {
@@ -151,13 +151,13 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       order_date: parsed.order_date,
       customer_id: parsed.customer_id || null,
       customer_name: customerName,
-      contact_person: parsed.contact_person ?? debtor?.contact_name ?? null,
-      billing_address: parsed.billing_address ?? debtor?.registered_address ?? null,
-      delivery_address: parsed.delivery_address ?? debtor?.registered_address ?? null,
+      contact_person: parsed.contact_person ?? customer?.contact_name ?? null,
+      billing_address: parsed.billing_address ?? customer?.registered_address ?? null,
+      delivery_address: parsed.delivery_address ?? customer?.registered_address ?? null,
       salesperson_name: parsed.salesperson_name ?? req.user!.email,
       linked_quotation_id: parsed.linked_quotation_id || null,
       linked_quotation_number: parsed.linked_quotation_number || null,
-      payment_terms: parsed.payment_terms ?? (debtor?.payment_terms_days ? `Net ${debtor.payment_terms_days}` : null),
+      payment_terms: parsed.payment_terms ?? (customer?.payment_terms_days ? `Net ${customer.payment_terms_days}` : null),
       expected_dispatch_date: parsed.expected_dispatch_date || null,
       expected_delivery_date: parsed.expected_delivery_date || null,
       notes: parsed.notes || null,

@@ -12,11 +12,11 @@ export const Route = createFileRoute("/app/sales-workbench")({
   component: SalesWorkbenchPage,
 });
 
-const CustomersPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.CustomersPanel })));
-const SalesOrdersPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.SalesOrdersPanel })));
-const ProformaPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DocListPanel })));
-const InvoicesPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DocListPanel })));
-const CreditNotesPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DocListPanel })));
+const CustomersEmbedded = lazy(() => import("@/routes/app.customers").then((m) => ({ default: m.CustomersPage })));
+const SalesOrdersEmbedded = lazy(() => import("@/routes/app.sales-orders").then((m) => ({ default: m.SalesOrdersPage })));
+const ProformaEmbedded = lazy(() => import("@/routes/app.proformas").then((m) => ({ default: () => <m.ProformasPage embedded /> })));
+const InvoicesEmbedded = lazy(() => import("@/routes/app.invoices").then((m) => ({ default: () => <m.InvoicesPage embedded /> })));
+const CreditNotesEmbedded = lazy(() => import("@/routes/app.credit-debit-notes").then((m) => ({ default: m.CreditDebitNotesPage })));
 const ActivityPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GenericActivityPanel })));
 
 const TABS = [
@@ -65,13 +65,13 @@ function SalesWorkbenchPage() {
       })),
       ...pros.map((p: any) => ({
         fam: "proforma", id: `pro-${p.id}`, docNumber: p.proforma_number ?? p.id.slice(0, 8), docKind: "Proforma",
-        counterparty: p.party ?? p.debtor_name ?? "—", value: Number(p.amount ?? 0), status: p.status ?? "pending",
+        counterparty: p.party ?? p.customer_name ?? "—", value: Number(p.amount ?? 0), status: p.status ?? "pending",
         nextStep: "Collect advance payment", owner: "Sales", dueDate: p.due_date ?? p.created_at,
         overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/proformas",
       })),
       ...invs.filter((i: any) => i.status !== "paid").map((i: any) => ({
         fam: "invoices", id: `inv-${i.id}`, docNumber: i.invoice_number ?? i.id.slice(0, 8), docKind: "Sales invoice",
-        counterparty: i.party ?? i.debtor_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
+        counterparty: i.party ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
         nextStep: "Submit for approval", owner: "Sales", dueDate: i.due_date ?? i.created_at,
         overdue: i.status === "overdue", priority: (i.status === "overdue" ? "high" : "normal") as WorkItem["priority"],
         actionLabel: "Open", openTo: "/app/invoices",
@@ -89,6 +89,19 @@ function SalesWorkbenchPage() {
   }, [sos, pros, invs, cns, family, query]);
 
   const focus = useMemo(() => items.slice(0, 5), [items]);
+
+  // Row actions open the matching sub-tab page below instead of redirecting away.
+  const SECTION_BY_ROUTE: Record<string, string> = {
+    "/app/sales-orders": "orders",
+    "/app/proformas": "proforma",
+    "/app/invoices": "invoices",
+    "/app/credit-debit-notes": "credit",
+    "/app/customers": "customers",
+  };
+  const openItemBelow = (w: WorkItem) => {
+    const s = w.openTo ? SECTION_BY_ROUTE[w.openTo] : undefined;
+    if (s) setSection(s);
+  };
 
   return (
     <div>
@@ -123,7 +136,7 @@ function SalesWorkbenchPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="lg:col-span-3">
-                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Sales work items" subtitle="Orders, proformas, invoices and credit notes needing action." />}
+                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Sales work items" subtitle="Orders, proformas, invoices and credit notes needing action." onAction={openItemBelow} />}
               </div>
               <SectionCard title="Needs attention" action={<button onClick={() => setSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
                 {focus.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">All clear</p> : (
@@ -136,12 +149,12 @@ function SalesWorkbenchPage() {
             </div>
           </div>
         )}
-        {section === "customers" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CustomersPanel /></Suspense>}
-        {section === "orders" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SalesOrdersPanel /></Suspense>}
-        {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformaPanel title="Proforma invoices" url="/proformas" to="/app/proformas" label="Proformas" numKey="proforma_number" /></Suspense>}
-        {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><InvoicesPanel title="Sales invoices" url="/invoices" to="/app/invoices" label="Invoices" /></Suspense>}
-        {section === "credit" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CreditNotesPanel title="Credit notes" url="/credit-debit-notes" to="/app/credit-debit-notes" label="Notes" numKey="note_number" /></Suspense>}
-        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Sales activity" /></Suspense>}
+        {section === "customers" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CustomersEmbedded /></Suspense>}
+        {section === "orders" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SalesOrdersEmbedded /></Suspense>}
+        {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformaEmbedded /></Suspense>}
+        {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><InvoicesEmbedded /></Suspense>}
+        {section === "credit" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CreditNotesEmbedded /></Suspense>}
+        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Sales activity" onAction={openItemBelow} /></Suspense>}
       </div>
       <p className="mt-3 text-xs text-muted-foreground">Sales-rep tools stay in the sidebar (<Link to="/app/crm" className="font-semibold text-primary hover:underline">Leads</Link> · <Link to="/app/naughty-list" className="font-semibold text-primary hover:underline">Naughty List</Link>).</p>
     </div>

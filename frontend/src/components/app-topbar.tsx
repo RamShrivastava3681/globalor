@@ -49,7 +49,7 @@ const PAGE_META: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/app/sales-workbench", label: "Sales", icon: ShoppingBag },
   { to: "/app/crm", label: "Leads", icon: Users },
   { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
-  { to: "/app/debtors", label: "Customers", icon: Building2 },
+  { to: "/app/customers", label: "Customers", icon: Building2 },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/products", label: "Product Catalogue", icon: Package },
   { to: "/app/warehouse-workbench", label: "Warehouse Control", icon: Warehouse },

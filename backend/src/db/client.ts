@@ -35,7 +35,7 @@ export const TABLES = {
   USERS: `${p()}_users`,
   PROFILES: `${p()}_profiles`,
   USER_ROLES: `${p()}_user_roles`,
-  DEBTORS: `${p()}_debtors`,
+  CUSTOMERS: `${p()}_customers`,
   VENDORS: `${p()}_vendors`,
   SUPPLIERS: `${p()}_suppliers`,
   INVOICES: `${p()}_invoices`,

@@ -64,7 +64,7 @@ const STATUS_META: Record<PO["status"], { label: string; cls: string }> = {
 const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
 const GST_OPTIONS = ["0", "5", "12", "18", "28"];
 
-function PurchaseOrdersPage() {
+export function PurchaseOrdersPage() {
   const { user, isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-purchase-orders");
   const canApprove = isAdmin || isChecker;

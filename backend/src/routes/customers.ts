@@ -10,36 +10,36 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { Debtor } from "../types/index.js";
+import type { Customer } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
 
-// ── GET /api/debtors ──
+// ── GET /api/customers ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    res.json(debtors.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+    const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    res.json(customers.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
   } catch (err) {
-    console.error("Get debtors error:", err);
+    console.error("Get customers error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ── GET /api/debtors/:id ──
+// ── GET /api/customers/:id ──
 router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const debtor = await getItem(TABLES.DEBTORS, { id: req.params.id }) as Debtor | undefined;
-    if (!debtor) { res.status(404).json({ error: "Debtor not found" }); return; }
-    res.json(debtor);
+    const customer = await getItem(TABLES.CUSTOMERS, { id: req.params.id }) as Customer | undefined;
+    if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
+    res.json(customer);
   } catch (err) {
-    console.error("Get debtor error:", err);
+    console.error("Get customer error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ── POST /api/debtors ──
-const createDebtorSchema = z.object({
+// ── POST /api/customers ──
+const createCustomerSchema = z.object({
   name: z.string().min(1).max(200),
   legal_entity_name: z.string().max(200).nullable().optional(),
   registration_no: z.string().max(100).nullable().optional(),
@@ -57,13 +57,13 @@ const createDebtorSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthRequest, res: Response) => {
+router.post("/", requireAuth, requireWriteAccess("customers"), async (req: AuthRequest, res: Response) => {
   try {
-    const parsed = createDebtorSchema.parse(req.body);
+    const parsed = createCustomerSchema.parse(req.body);
     const id = generateId();
     const now = nowISO();
 
-    const debtor: Debtor = {
+    const customer: Customer = {
       id,
       company_id: req.user!.company_id,
       name: parsed.name,
@@ -85,53 +85,53 @@ router.post("/", requireAuth, requireWriteAccess("debtors"), async (req: AuthReq
       updated_at: now,
     };
 
-    await putItem(TABLES.DEBTORS, debtor as any);
+    await putItem(TABLES.CUSTOMERS, customer as any);
 
     // Create activity alert
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: id,
-      type: "debtor_created",
+      customer_id: id,
+      type: "customer_created",
       severity: "info",
-      message: `Debtor "${parsed.name}" added to the ledger`,
+      message: `Customer "${parsed.name}" added to the ledger`,
       created_by: req.user!.id,
     });
 
-    res.status(201).json(debtor);
+    res.status(201).json(customer);
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: err.errors[0].message });
       return;
     }
-    console.error("Create debtor error:", err);
+    console.error("Create customer error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ── PATCH /api/debtors/:id ──
-router.patch("/:id", requireAuth, requireWriteAccess("debtors"), async (req: AuthRequest, res: Response) => {
+// ── PATCH /api/customers/:id ──
+router.patch("/:id", requireAuth, requireWriteAccess("customers"), async (req: AuthRequest, res: Response) => {
   try {
     const updates: Record<string, unknown> = { ...req.body, updated_at: nowISO() };
     delete updates.id;
     delete updates.created_at;
 
-    const updated = await updateItem(TABLES.DEBTORS, { id: req.params.id }, updates);
-    if (!updated) { res.status(404).json({ error: "Debtor not found" }); return; }
+    const updated = await updateItem(TABLES.CUSTOMERS, { id: req.params.id }, updates);
+    if (!updated) { res.status(404).json({ error: "Customer not found" }); return; }
     res.json(updated);
   } catch (err) {
-    console.error("Update debtor error:", err);
+    console.error("Update customer error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ── DELETE /api/debtors/:id ──
-router.delete("/:id", requireAuth, requireWriteAccess("debtors"), async (req: AuthRequest, res: Response) => {
+// ── DELETE /api/customers/:id ──
+router.delete("/:id", requireAuth, requireWriteAccess("customers"), async (req: AuthRequest, res: Response) => {
   try {
-    await deleteItem(TABLES.DEBTORS, { id: req.params.id });
+    await deleteItem(TABLES.CUSTOMERS, { id: req.params.id });
     res.json({ success: true });
   } catch (err) {
-    console.error("Delete debtor error:", err);
+    console.error("Delete customer error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -23,12 +23,12 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
-    const allDebtors = await scanTable<any>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allCustomers = await scanTable<any>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
     const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
     const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
     const enriched = advances
@@ -39,8 +39,8 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         if (a.invoice_id) {
           const inv = invoiceMap.get(a.invoice_id);
           if (inv) {
-            const debtor = debtorMap.get(inv.debtor_id);
-            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
+            const customer = customerMap.get(inv.customer_id);
+            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, customer: customer ? { name: customer.name } : undefined };
           }
         }
 
@@ -55,13 +55,13 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         if (a.purchase_order_id) {
           const po = poMap.get(a.purchase_order_id);
           if (po) {
-            const debtor = po.debtor_id ? debtorMap.get(po.debtor_id) : undefined;
+            const customer = po.customer_id ? customerMap.get(po.customer_id) : undefined;
             const vendor = po.vendor_id ? vendorMap.get(po.vendor_id) : undefined;
             order = {
               po_number: po.po_number,
               amount: po.amount,
               status: po.status,
-              debtor: debtor ? { name: debtor.name } : undefined,
+              customer: customer ? { name: customer.name } : undefined,
               vendor: vendor ? { name: vendor.name } : undefined,
             };
           }

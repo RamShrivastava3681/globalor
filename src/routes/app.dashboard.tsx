@@ -56,9 +56,9 @@ function Dashboard() {
     },
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const proformasQ = useQuery({
@@ -333,7 +333,7 @@ function Dashboard() {
                 <thead>
                   <tr>
                     <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Invoice</th>
-                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Debtor</th>
+                    <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Customer</th>
                     <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Amount</th>
                     <th className="px-5 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Due</th>
                     <th className="px-5 py-2.5 text-right font-medium text-[11px] uppercase tracking-wider text-muted-foreground bg-muted">Short pay</th>
@@ -345,7 +345,7 @@ function Dashboard() {
                   {invoices.slice(0, 6).map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted transition-colors">
                       <td className="px-5 py-3 font-mono text-xs text-foreground">{i.invoice_number}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{i.debtor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{i.customer?.name ?? "—"}</td>
                       <td className="px-5 py-3 text-right num font-medium">{fmtMoney(i.amount)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(i.due_date)}</td>
                       <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}</td>
@@ -381,7 +381,7 @@ function Dashboard() {
                     <tr key={p.id} className="border-b border-border/60 hover:bg-muted transition-colors">
                       <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? p.po_number}</td>
                       <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{p.po_number}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—"}</td>
                       <td className="px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground">{p.side}</td>
                       <td className="px-5 py-3 text-right num font-medium">{fmtMoney(p.amount)}</td>
                       <td className="px-5 py-3"><StatusPill status={p.proforma_status || p.status} /></td>
@@ -430,8 +430,8 @@ function Dashboard() {
                     .slice(0, 6)
                     .map((a: any) => {
                       const cp = a.order
-                        ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-                        : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                        ? (a.side === "sales" ? a.order.customer?.name : a.order.vendor?.name)
+                        : (a.side === "sales" ? a.invoice?.customer?.name : a.purchase?.vendor?.name);
                       return (
                         <tr key={a.id} className="border-b border-border/60 hover:bg-muted transition-colors">
                           <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
@@ -520,13 +520,13 @@ function Dashboard() {
           </Card>
         )}
 
-        {/* Debtor concentration */}
-        {isAdmin && (debtorsQ.data ?? []).length > 0 && (
-          <Card title="Debtor concentration" action={<Link to="/app/debtors" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">Manage →</Link>}>
+        {/* Customer concentration */}
+        {isAdmin && (customersQ.data ?? []).length > 0 && (
+          <Card title="Customer concentration" action={<Link to="/app/customers" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors">Manage →</Link>}>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={(debtorsQ.data ?? []).slice(0, 8).map((d: any) => {
-                  const exposure = invoices.filter((i: any) => i.debtor_id === d.id && i.status !== "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
+                <BarChart data={(customersQ.data ?? []).slice(0, 8).map((d: any) => {
+                  const exposure = invoices.filter((i: any) => i.customer_id === d.id && i.status !== "paid").reduce((s: number, i: any) => s + Number(i.amount), 0);
                   return { name: d.name.slice(0, 14), exposure };
                 })}>
                   <CartesianGrid stroke="var(--color-border)" strokeDasharray="4 4" vertical={false} />

@@ -12,9 +12,11 @@ export const Route = createFileRoute("/app/procurement-workbench")({
   component: ProcurementWorkbenchPage,
 });
 
-const SuppliersPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.SuppliersPanel })));
-const DocPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DocListPanel })));
-const GrnPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GrnPanel })));
+const SuppliersEmbedded = lazy(() => import("@/routes/app.suppliers").then((m) => ({ default: m.SuppliersPage })));
+const PurchaseOrdersEmbedded = lazy(() => import("@/routes/app.purchase-orders").then((m) => ({ default: m.PurchaseOrdersPage })));
+const ProformasEmbedded = lazy(() => import("@/routes/app.proformas").then((m) => ({ default: () => <m.ProformasPage embedded /> })));
+const PurchasesEmbedded = lazy(() => import("@/routes/app.purchases").then((m) => ({ default: () => <m.PurchasesPage embedded /> })));
+const GrnEmbedded = lazy(() => import("@/routes/app.goods-receipts").then((m) => ({ default: () => <m.GoodsReceiptsPage embedded /> })));
 const ActivityPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GenericActivityPanel })));
 
 const TABS = [
@@ -83,6 +85,19 @@ function ProcurementWorkbenchPage() {
       .filter((w) => match([w.docNumber, w.counterparty, w.nextStep, w.status].join(" ")));
   }, [pos, pinvs, grns, family, query, supplier]);
 
+  // Row actions open the matching sub-tab page below instead of redirecting away.
+  const SECTION_BY_ROUTE: Record<string, string> = {
+    "/app/purchase-orders": "orders",
+    "/app/proformas": "proforma",
+    "/app/purchases": "invoices",
+    "/app/goods-receipts": "grn",
+    "/app/suppliers": "suppliers",
+  };
+  const openItemBelow = (w: WorkItem) => {
+    const s = w.openTo ? SECTION_BY_ROUTE[w.openTo] : undefined;
+    if (s) setSection(s);
+  };
+
   return (
     <div>
       <PageHeader
@@ -120,7 +135,7 @@ function ProcurementWorkbenchPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="lg:col-span-3">
-                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Procurement work items" subtitle="Orders, invoices and receipts needing action." />}
+                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Procurement work items" subtitle="Orders, invoices and receipts needing action." onAction={openItemBelow} />}
               </div>
               <SectionCard title="Needs attention" action={<button onClick={() => setSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
                 {items.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">All clear</p> : (
@@ -133,12 +148,12 @@ function ProcurementWorkbenchPage() {
             </div>
           </div>
         )}
-        {section === "suppliers" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SuppliersPanel /></Suspense>}
-        {section === "orders" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Purchase orders" url="/goods-purchase-orders" to="/app/purchase-orders" label="Orders" numKey="po_number" partyKeys={["supplier_name"]} amountKeys={["grand_total", "total"]} /></Suspense>}
-        {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Purchase proformas" url="/purchase-orders" to="/app/purchase-orders" label="Proformas" numKey="po_number" partyKeys={["supplier_name", "party"]} amountKeys={["grand_total", "amount", "total"]} /></Suspense>}
-        {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Purchase invoices" url="/purchase-invoices" to="/app/purchases" label="Invoices" partyKeys={["party", "supplier_name"]} /></Suspense>}
-        {section === "grn" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><GrnPanel /></Suspense>}
-        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Procurement activity" /></Suspense>}
+        {section === "suppliers" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SuppliersEmbedded /></Suspense>}
+        {section === "orders" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><PurchaseOrdersEmbedded /></Suspense>}
+        {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformasEmbedded /></Suspense>}
+        {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><PurchasesEmbedded /></Suspense>}
+        {section === "grn" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><GrnEmbedded /></Suspense>}
+        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Procurement activity" onAction={openItemBelow} /></Suspense>}
       </div>
     </div>
   );

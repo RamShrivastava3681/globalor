@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,8 +27,14 @@ export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPage,
 });
 
-function PurchasesPage() {
-  const { view, tab } = Route.useSearch();
+export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string } });
+  const routeTab = (routerSearch as any)?.tab as string | undefined;
+  const routeView = (routerSearch as any)?.view as string | undefined;
+  const [localTab, setLocalTab] = useState<string | null>(null);
+  const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
+  const view = embedded ? undefined : routeView;
   const navigate = useNavigate();
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
@@ -99,7 +105,20 @@ function PurchasesPage() {
     };
   }, [allPi]);
 
-  const setTab = (t: string) => navigate({ to: "/app/purchases", search: { tab: t, view: undefined }, replace: true });
+  const setTab = (t: string) => {
+    if (embedded) {
+      setLocalTab(t);
+      return;
+    }
+    navigate({ to: "/app/purchases", search: { tab: t, view: undefined }, replace: true });
+  };
+  const closeToList = () => {
+    if (embedded) {
+      setLocalTab("list");
+      return;
+    }
+    navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true });
+  };
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -164,7 +183,9 @@ function PurchasesPage() {
       const found = data.find((p: any) => p.id === view);
       if (found) {
         setViewing(found);
-        navigate({ to: "/app/purchases", search: { tab, view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/purchases", search: { tab, view: undefined }, replace: true });
+        }
       }
     }
   }, [view, piQ.data]);
@@ -309,7 +330,7 @@ function PurchasesPage() {
       </div>
 
       {tab === "dashboard" && <DashboardView stats={dashboardStats} invoices={allPi} />}
-      {tab === "create" && <CreatePurchaseView />}
+      {tab === "create" && <CreatePurchaseView onExitCreate={closeToList} />}
       {tab === "list" && (
         <div className="space-y-4 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
@@ -498,7 +519,7 @@ function PurchasesPage() {
                               {links.map((s: any) => (
                                 <Link key={s.id} to="/app/invoices" search={{ tab: "list", view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
                                   <Link2 className="h-3 w-3" />{s.invoice_number}
-                                  <span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
+                                  <span className="text-muted-foreground">→ {s.customer?.name ?? "?"}</span>
                                 </Link>
                               ))}
                             </div>
@@ -1037,7 +1058,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
 
 // ── Page 2: Create Purchase Invoice ──
 
-function CreatePurchaseView() {
+function CreatePurchaseView({ onExitCreate }: { onExitCreate?: () => void }) {
   const navigate = useNavigate();
   const { canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
@@ -1071,7 +1092,7 @@ function CreatePurchaseView() {
       <PurchaseInvoiceForm
         editing={null}
         vendors={vendorsQ.data ?? []}
-        onClose={() => navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true })}
+        onClose={() => (onExitCreate ? onExitCreate() : navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true }))}
         onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         isStandalone
       />
@@ -1268,10 +1289,10 @@ async function exportPurchaseInvoicePdf(invoice: any) {
       pdfSectionHeading(doc, "LINKED SALES INVOICES", margin, y, contentW);
       y += 8;
 
-      const lsHead = [["Invoice #", "Debtor", "Amount", "Status"]];
+      const lsHead = [["Invoice #", "Customer", "Amount", "Status"]];
       const lsBody = linkedSales.map((s: any) => [
         s.invoice_number || "—",
-        s.debtor?.name || "—",
+        s.customer?.name || "—",
         pdfMoney(s.amount),
         s.status?.replace("_", " ") || "—",
       ]);
@@ -1727,7 +1748,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
                       <th className="px-4 py-2 text-left font-normal">Invoice</th>
-                      <th className="px-4 py-2 text-left font-normal">Debtor</th>
+                      <th className="px-4 py-2 text-left font-normal">Customer</th>
                       <th className="px-4 py-2 text-right font-normal">Amount</th>
                       <th className="px-4 py-2 text-left font-normal">Status</th>
                     </tr>
@@ -1738,7 +1759,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                         <td className="px-4 py-2.5 font-mono text-xs">
                           <Link to="/app/invoices" search={{ tab: "list", view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
                         </td>
-                        <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-2.5">{s.customer?.name ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>
                         <td className="px-4 py-2.5"><StatusPill status={s.status} /></td>
                       </tr>
@@ -2302,7 +2323,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                           <tr className="border-b border-border">
                             <th className="px-4 py-2 text-left font-normal">Type</th>
                             <th className="px-4 py-2 text-left font-normal">UID</th>
-                            <th className="px-4 py-2 text-left font-normal">Debtor / Supplier</th>
+                            <th className="px-4 py-2 text-left font-normal">Customer / Supplier</th>
                             <th className="px-4 py-2 text-left font-normal">Issue date</th>
                             <th className="px-4 py-2 text-right font-normal">Amount</th>
                             <th className="px-4 py-2 text-left font-normal">Status</th>
@@ -2321,7 +2342,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                               <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">#{entry.id.slice(-8).toUpperCase()}</td>
                               <td className="px-4 py-2.5">
                                 {entry.type === "sales"
-                                  ? (entry.debtor?.name ?? "—")
+                                  ? (entry.customer?.name ?? "—")
                                   : (entry.vendor?.name ?? "—")
                                 }
                               </td>

@@ -6,7 +6,7 @@ import {
   TABLES,
 } from "../db/client.js";
 import { nowISO } from "../utils/helpers.js";
-import type { Invoice, NoaInvoiceResult, Debtor, Profile } from "../types/index.js";
+import type { Invoice, NoaInvoiceResult, Customer, Profile } from "../types/index.js";
 
 const router = Router();
 
@@ -24,7 +24,7 @@ router.get("/:token", async (req: Request, res: Response) => {
     }
 
     const inv = invoices[0];
-    const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
+    const customer = await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined;
     const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
 
     const advanceAmount = (inv.amount * inv.advance_rate) / 100;
@@ -40,9 +40,9 @@ router.get("/:token", async (req: Request, res: Response) => {
       noa_status: inv.noa_status,
       noa_comments: inv.noa_comments || "",
       client_company: client?.company_name || client?.contact_name || "Unknown",
-      debtor_name: debtor?.name || "Unknown",
-      debtor_contact_name: debtor?.contact_name || "",
-      debtor_contact_email: debtor?.contact_email || "",
+      customer_name: customer?.name || "Unknown",
+      customer_contact_name: customer?.contact_name || "",
+      customer_contact_email: customer?.contact_email || "",
     };
 
     res.json(result);

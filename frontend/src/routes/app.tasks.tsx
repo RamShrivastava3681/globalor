@@ -14,7 +14,7 @@ function TasksPage() {
   const pinvQ = useQuery({ queryKey: ["purchase_invoices"], queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [] });
   const loading = invQ.isLoading || pinvQ.isLoading;
   const rows = [
-    ...((invQ.data ?? []).filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({ id: `s-${i.id}`, n: i.invoice_number ?? "—", p: i.party ?? i.debtor_name ?? "—", a: Number(i.amount ?? 0), s: i.status, to: "/app/invoices" }))),
+    ...((invQ.data ?? []).filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({ id: `s-${i.id}`, n: i.invoice_number ?? "—", p: i.party ?? i.customer_name ?? "—", a: Number(i.amount ?? 0), s: i.status, to: "/app/invoices" }))),
     ...((pinvQ.data ?? []).filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({ id: `p-${i.id}`, n: i.invoice_number ?? "—", p: i.party ?? i.supplier_name ?? "—", a: Number(i.amount ?? 0), s: i.status, to: "/app/purchases" }))),
   ].slice(0, 50);
 

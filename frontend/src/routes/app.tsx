@@ -91,10 +91,10 @@ function AppLayout() {
       "/app/sales-workbench", "/app/procurement-workbench", "/app/finance-workbench",
       "/app/warehouse-workbench", "/app/warehouse",
     ];
-    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/inventory", "/app/products", "/app/forecasting", "/app/purchase-orders", "/app/goods-receipts", "/app/sales-orders", "/app/dispatches", "/app/quotations", "/app/suppliers", "/app/admin", ...wb.filter((p) => p !== "/app/finance-workbench")];
-    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/tasks", "/app/inventory", "/app/products", "/app/forecasting", "/app/purchase-orders", "/app/goods-receipts", "/app/sales-orders", "/app/dispatches", "/app/quotations", "/app/advances", "/app/debtors", "/app/suppliers", "/app/admin", "/app/finance-workbench", "/app/procurement-workbench", "/app/warehouse-workbench"];
-    const viewerBlocked = ["/app/admin", "/app/queue", "/app/tasks", "/app/checker", ...wb];
-    const clientBlocked = ["/app/admin", "/app/checker", "/app/queue", "/app/finance-workbench", "/app/procurement-workbench", "/app/warehouse-workbench"];
+    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/customers", "/app/inventory", "/app/products", "/app/forecasting", "/app/purchase-orders", "/app/goods-receipts", "/app/sales-orders", "/app/dispatches", "/app/quotations", "/app/suppliers", "/app/admin", ...wb.filter((p) => p !== "/app/finance-workbench")];
+    const checkerBlocked = ["/app/expenses", "/app/queue", "/app/tasks", "/app/inventory", "/app/products", "/app/forecasting", "/app/purchase-orders", "/app/goods-receipts", "/app/sales-orders", "/app/dispatches", "/app/quotations", "/app/advances", "/app/customers", "/app/suppliers", "/app/admin", "/app/cash", "/app/finance-workbench", "/app/procurement-workbench", "/app/warehouse-workbench"];
+    const viewerBlocked = ["/app/admin", "/app/queue", "/app/tasks", "/app/checker", "/app/cash", ...wb];
+    const clientBlocked = ["/app/admin", "/app/checker", "/app/queue", "/app/cash", "/app/finance-workbench", "/app/procurement-workbench", "/app/warehouse-workbench"];
     if (isViewer && viewerBlocked.some((p) => pathname.startsWith(p))) {
       navigate({ to: "/app/dashboard" });
     } else if (isTreasury && !isChecker && treasuryBlocked.some((p) => pathname.startsWith(p))) {
@@ -123,6 +123,7 @@ function AppLayout() {
     { id: "/app/sales-workbench", label: "Sales Workbench", to: "/app/sales-workbench", group: "SALES & CUSTOMERS", icon: Building2 },
     { id: "/app/procurement-workbench", label: "Procurement Workbench", to: "/app/procurement-workbench", group: "PROCUREMENT & SUPPLIERS", icon: Building2 },
     { id: "/app/finance-workbench", label: "Finance Workbench", to: "/app/finance-workbench", group: "FINANCE", icon: Building2 },
+    { id: "/app/finance-workbench-cash", label: "Cash Command", to: "/app/finance-workbench", search: { section: "cash" }, keywords: "cash treasury liquidity forecast", group: "FINANCE", icon: Building2 },
     { id: "/app/warehouse-workbench", label: "Warehouse Control", to: "/app/warehouse-workbench", group: "PRODUCTS & INVENTORY", icon: Building2 },
   ];
 

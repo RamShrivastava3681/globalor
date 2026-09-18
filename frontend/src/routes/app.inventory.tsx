@@ -95,7 +95,7 @@ const STATUS_STYLES: Record<Movement["status"], string> = {
 
 // ── Page ──
 
-function InventoryPage() {
+export function InventoryPage() {
   const { canWrite } = useAuth();
   const canEdit = canWrite("stock-movements");
   // The mass import creates catalogue products too, so anyone who can write

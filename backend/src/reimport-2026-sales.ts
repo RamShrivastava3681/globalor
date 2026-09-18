@@ -3,7 +3,7 @@
  *
  * 1. Deletes all 2026 sales invoices from DynamoDB.
  * 2. Reads sales2026-final.xlsx (project root) — simple format:
- *    Date | Debtor Name | Invoice Number | Amount
+ *    Date | Customer Name | Invoice Number | Amount
  * 3. Imports all rows with 0% fee and advance.
  * 4. Verifies the total matches 14,069,201.18.
  *
@@ -17,7 +17,7 @@ import {
   TABLES,
 } from "./db/client.js";
 import { generateId, generateNoaToken, nowISO } from "./utils/helpers.js";
-import type { Invoice, Debtor } from "./types/index.js";
+import type { Invoice, Customer } from "./types/index.js";
 
 const CLIENT_ID = "1781861412998-c880305f";
 const COMPANY_ID = "1784619121925-2c0baeaf";
@@ -48,7 +48,7 @@ function normalize(name: string): string {
     .trim();
 }
 
-function cleanDebtorField(raw: string): string {
+function cleanCustomerField(raw: string): string {
   let s = raw.trim();
   const patterns = [
     / - As per the [Ii]nvoice.*$/,
@@ -70,28 +70,28 @@ function cleanDebtorField(raw: string): string {
   return s.trim();
 }
 
-function buildDebtorLookup(debtors: Debtor[]): Map<string, Debtor> {
-  const map = new Map<string, Debtor>();
-  for (const d of debtors) {
+function buildCustomerLookup(customers: Customer[]): Map<string, Customer> {
+  const map = new Map<string, Customer>();
+  for (const d of customers) {
     map.set(normalize(d.name), d);
   }
   return map;
 }
 
-function matchDebtor(raw: string, lookup: Map<string, Debtor>): Debtor | null {
-  const cleaned = cleanDebtorField(raw);
+function matchCustomer(raw: string, lookup: Map<string, Customer>): Customer | null {
+  const cleaned = cleanCustomerField(raw);
   const norm = normalize(cleaned);
   if (lookup.has(norm)) return lookup.get(norm)!;
-  for (const [key, debtor] of lookup) {
-    if (norm.startsWith(key) || key.startsWith(norm)) return debtor;
+  for (const [key, customer] of lookup) {
+    if (norm.startsWith(key) || key.startsWith(norm)) return customer;
   }
-  for (const [key, debtor] of lookup) {
-    if (norm.includes(key) || key.includes(norm)) return debtor;
+  for (const [key, customer] of lookup) {
+    if (norm.includes(key) || key.includes(norm)) return customer;
   }
   return null;
 }
 
-function extractInvoiceNumber(invNum: string, rawDebtor: string): string {
+function extractInvoiceNumber(invNum: string, rawCustomer: string): string {
   if (
     invNum.match(/^\d/) ||
     invNum.startsWith("INV-") ||
@@ -103,7 +103,7 @@ function extractInvoiceNumber(invNum: string, rawDebtor: string): string {
   }
   const dashIdx = invNum.indexOf(" - ");
   if (dashIdx > 0) return invNum.substring(0, dashIdx).trim();
-  const m = rawDebtor.match(/Invoice\s*#?-?(\d[\d-]*)/i);
+  const m = rawCustomer.match(/Invoice\s*#?-?(\d[\d-]*)/i);
   if (m) return m[1];
   return invNum;
 }
@@ -112,7 +112,7 @@ function extractInvoiceNumber(invNum: string, rawDebtor: string): string {
 
 interface ParsedRow {
   date: string;
-  rawDebtor: string;
+  rawCustomer: string;
   invoiceNumber: string;
   amount: number;
 }
@@ -122,8 +122,8 @@ function parseSimpleFormat(data: any[][]): ParsedRow[] {
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     if (!row || !row[1] || !row[3]) continue;
-    const debtor = String(row[1]).trim();
-    if (debtor.startsWith("Total")) continue;
+    const customer = String(row[1]).trim();
+    if (customer.startsWith("Total")) continue;
     const amount = Number(row[3]) || 0;
     if (amount === 0) continue;
     const dateVal = row[0];
@@ -135,8 +135,8 @@ function parseSimpleFormat(data: any[][]): ParsedRow[] {
       .replace(/^INV-/i, "");
     rows.push({
       date: dateStr,
-      rawDebtor: debtor,
-      invoiceNumber: extractInvoiceNumber(rawInv, debtor),
+      rawCustomer: customer,
+      invoiceNumber: extractInvoiceNumber(rawInv, customer),
       amount,
     });
   }
@@ -173,14 +173,14 @@ async function main() {
     console.log("   Nothing to delete.\n");
   }
 
-  // ── Step 2: Load debtors for matching ──
-  console.log("🔍 Loading existing debtors...");
-  const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS, {
+  // ── Step 2: Load customers for matching ──
+  console.log("🔍 Loading existing customers...");
+  const existingCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, {
     filterExpression: "company_id = :cid",
     expressionAttributeValues: { ":cid": COMPANY_ID },
   });
-  console.log(`   Found ${existingDebtors.length} debtors`);
-  const debtorLookup = buildDebtorLookup(existingDebtors);
+  console.log(`   Found ${existingCustomers.length} customers`);
+  const customerLookup = buildCustomerLookup(existingCustomers);
 
   // ── Step 3: Read and parse sales2026-final.xlsx ──
   console.log("\n📄 Reading sales2026-final.xlsx...");
@@ -191,17 +191,17 @@ async function main() {
   const rows = parseSimpleFormat(data);
   console.log(`   Parsed ${rows.length} invoice rows\n`);
 
-  // ── Step 4: Match debtors and build invoices ──
+  // ── Step 4: Match customers and build invoices ──
   const invoices: Invoice[] = [];
-  const unmatchedDebtors = new Set<string>();
+  const unmatchedCustomers = new Set<string>();
   let matchedCount = 0;
   let unmatchedCount = 0;
 
   for (const row of rows) {
-    const debtor = matchDebtor(row.rawDebtor, debtorLookup);
-    if (!debtor) {
+    const customer = matchCustomer(row.rawCustomer, customerLookup);
+    if (!customer) {
       unmatchedCount++;
-      unmatchedDebtors.add(row.rawDebtor);
+      unmatchedCustomers.add(row.rawCustomer);
       continue;
     }
     matchedCount++;
@@ -212,7 +212,7 @@ async function main() {
       id: generateId(),
       client_id: CLIENT_ID,
       company_id: COMPANY_ID,
-      debtor_id: debtor.id,
+      customer_id: customer.id,
       supplier_id: null,
       invoice_number: row.invoiceNumber,
       amount,
@@ -252,9 +252,9 @@ async function main() {
 
   console.log(`   Matched: ${matchedCount} | Unmatched: ${unmatchedCount}`);
 
-  if (unmatchedDebtors.size > 0) {
-    console.log(`\n   ⚠️  Unmatched debtor names (${unmatchedDebtors.size}):`);
-    for (const d of Array.from(unmatchedDebtors).sort()) {
+  if (unmatchedCustomers.size > 0) {
+    console.log(`\n   ⚠️  Unmatched customer names (${unmatchedCustomers.size}):`);
+    for (const d of Array.from(unmatchedCustomers).sort()) {
       console.log(`     - "${d}"`);
     }
   }
@@ -307,8 +307,8 @@ async function main() {
   console.log(`═══════════════════════════════════════════════════════`);
   console.log(`   Invoices deleted:   ${inv2026.length}`);
   console.log(`   Invoices imported:  ${invoices.length}`);
-  console.log(`   Matched debtors:    ${matchedCount}`);
-  console.log(`   Unmatched debtors:  ${unmatchedCount}`);
+  console.log(`   Matched customers:    ${matchedCount}`);
+  console.log(`   Unmatched customers:  ${unmatchedCount}`);
   console.log(`   Fee rate:           0%`);
   console.log(`   Advance rate:       0%`);
   console.log(

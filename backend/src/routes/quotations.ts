@@ -15,20 +15,20 @@ import { generateId, generateDocNumber, generateNoaToken, nowISO } from "../util
 import { createActivityAlert } from "../utils/alerts.js";
 import { effectiveUnitPrice, computeQuotationTotals, isQuotationExpired, withExpiry } from "../utils/quotations.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
-import { sendQuotationEmail, sendQuotationDebtorEmail } from "../utils/email.js";
+import { sendQuotationEmail, sendQuotationCustomerEmail } from "../utils/email.js";
 import type {
   Quotation, QuotationLine,
   GoodsSalesOrder, GoodsSalesOrderLine,
-  Product, Debtor,
+  Product, Customer,
 } from "../types/index.js";
 
 const router = Router();
 
 // ── Helpers ──
 
-async function buildDebtorMap(companyId: string | null): Promise<Map<string, Debtor>> {
-  const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter({ company_id: companyId }));
-  return new Map(debtors.map((d) => [d.id, d]));
+async function buildCustomerMap(companyId: string | null): Promise<Map<string, Customer>> {
+  const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter({ company_id: companyId }));
+  return new Map(customers.map((d) => [d.id, d]));
 }
 
 function isAdmin(roles: string[]): boolean {
@@ -79,14 +79,14 @@ const createSchema = z.object({
 // ── GET /api/quotations ──
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const [quotes, debtorMap] = await Promise.all([
+    const [quotes, customerMap] = await Promise.all([
       scanTable<Quotation>(TABLES.QUOTATIONS, getCompanyFilter(req.user!)),
-      buildDebtorMap(req.user!.company_id),
+      buildCustomerMap(req.user!.company_id),
     ]);
     const enriched = quotes
       .sort((a, b) => (b.quotation_date || "").localeCompare(a.quotation_date || "") || (b.created_at || "").localeCompare(a.created_at || ""))
       .map((q) => {
-        const customer = q.customer_id ? debtorMap.get(q.customer_id) : undefined;
+        const customer = q.customer_id ? customerMap.get(q.customer_id) : undefined;
         return withExpiry({
           ...q,
           customer_name: q.customer_name ?? q.prospect_name ?? customer?.name ?? null,
@@ -153,7 +153,7 @@ router.post("/", requireAuth, requireWriteAccess("quotations"), async (req: Auth
     const { subtotal, total_discount, gst_total, grand_total } = computeQuotationTotals(lines, parsed.freight ?? 0);
     const hasRevisedPrices = lines.some((l) => l.updated_unit_price != null);
 
-    const debtor = parsed.customer_id ? (await buildDebtorMap(req.user!.company_id)).get(parsed.customer_id) : undefined;
+    const customer = parsed.customer_id ? (await buildCustomerMap(req.user!.company_id)).get(parsed.customer_id) : undefined;
 
     const quote: Quotation = {
       id: generateId(),
@@ -164,12 +164,12 @@ router.post("/", requireAuth, requireWriteAccess("quotations"), async (req: Auth
       valid_until: parsed.valid_until || null,
       customer_id: parsed.customer_id || null,
       prospect_name: parsed.prospect_name || null,
-      customer_name: debtor?.name ?? null,
-      contact_person: parsed.contact_person ?? debtor?.contact_name ?? null,
-      billing_address: parsed.billing_address ?? debtor?.registered_address ?? null,
-      delivery_address: parsed.delivery_address ?? debtor?.registered_address ?? null,
+      customer_name: customer?.name ?? null,
+      contact_person: parsed.contact_person ?? customer?.contact_name ?? null,
+      billing_address: parsed.billing_address ?? customer?.registered_address ?? null,
+      delivery_address: parsed.delivery_address ?? customer?.registered_address ?? null,
       salesperson_name: parsed.salesperson_name ?? req.user!.email,
-      payment_terms: parsed.payment_terms ?? (debtor?.payment_terms_days ? `Net ${debtor.payment_terms_days}` : null),
+      payment_terms: parsed.payment_terms ?? (customer?.payment_terms_days ? `Net ${customer.payment_terms_days}` : null),
       expected_delivery_date: parsed.expected_delivery_date || null,
       notes: parsed.notes || null,
       lines,
@@ -184,11 +184,11 @@ router.post("/", requireAuth, requireWriteAccess("quotations"), async (req: Auth
       approval_comments: null,
       approved_by: null,
       approved_at: null,
-      debtor_status: "pending",
-      debtor_comments: null,
-      debtor_token: null,
-      debtor_sent_at: null,
-      debtor_responded_at: null,
+      customer_status: "pending",
+      customer_comments: null,
+      customer_token: null,
+      customer_sent_at: null,
+      customer_responded_at: null,
       converted_to_so_id: null,
       converted_to_so_number: null,
       converted_at: null,
@@ -406,8 +406,8 @@ router.post("/:id/send", requireAuth, requireWriteAccess("quotations"), async (r
     });
 
     // Fire-and-forget email — a failure must never roll back the status.
-    const debtor = q.customer_id ? (await buildDebtorMap(q.company_id)).get(q.customer_id) : undefined;
-    const to = debtor?.contact_email;
+    const customer = q.customer_id ? (await buildCustomerMap(q.company_id)).get(q.customer_id) : undefined;
+    const to = customer?.contact_email;
     if (to) {
       sendQuotationEmail({
         to,
@@ -428,8 +428,8 @@ router.post("/:id/send", requireAuth, requireWriteAccess("quotations"), async (r
   }
 });
 
-// ── POST /api/quotations/:id/send-to-debtor ── (one-time secure-token approval email)
-router.post("/:id/send-to-debtor", requireAuth, requireWriteAccess("quotations"), async (req: AuthRequest, res: Response) => {
+// ── POST /api/quotations/:id/send-to-customer ── (one-time secure-token approval email)
+router.post("/:id/send-to-customer", requireAuth, requireWriteAccess("quotations"), async (req: AuthRequest, res: Response) => {
   try {
     const q = await getItem(TABLES.QUOTATIONS, { id: req.params.id }) as Quotation | undefined;
     if (!q) { res.status(404).json({ error: "Quotation not found" }); return; }
@@ -445,28 +445,28 @@ router.post("/:id/send-to-debtor", requireAuth, requireWriteAccess("quotations")
       res.status(400).json({ error: "This quotation has expired" });
       return;
     }
-    if (q.debtor_status === "approved") {
-      res.status(400).json({ error: "The debtor already approved this quotation" });
+    if (q.customer_status === "approved") {
+      res.status(400).json({ error: "The customer already approved this quotation" });
       return;
     }
 
-    const debtor = q.customer_id ? (await buildDebtorMap(q.company_id)).get(q.customer_id) : undefined;
-    const to = debtor?.contact_email;
+    const customer = q.customer_id ? (await buildCustomerMap(q.company_id)).get(q.customer_id) : undefined;
+    const to = customer?.contact_email;
     if (!to) {
-      res.status(400).json({ error: "This debtor has no contact email — add one to enable secure approval" });
+      res.status(400).json({ error: "This customer has no contact email — add one to enable secure approval" });
       return;
     }
 
     const token = generateNoaToken();
     const updated = await updateItem(TABLES.QUOTATIONS, { id: req.params.id }, {
-      debtor_token: token,
-      debtor_status: "pending",
-      debtor_comments: null,
-      debtor_sent_at: nowISO(),
+      customer_token: token,
+      customer_status: "pending",
+      customer_comments: null,
+      customer_sent_at: nowISO(),
       updated_at: nowISO(),
     });
 
-    sendQuotationDebtorEmail({
+    sendQuotationCustomerEmail({
       to,
       customerName: q.customer_name ?? q.prospect_name ?? "Customer",
       contactName: q.contact_person,
@@ -478,7 +478,7 @@ router.post("/:id/send-to-debtor", requireAuth, requireWriteAccess("quotations")
 
     res.json(withExpiry(updated as unknown as Quotation));
   } catch (err) {
-    console.error("Send quotation to debtor error:", err);
+    console.error("Send quotation to customer error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

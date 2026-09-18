@@ -51,9 +51,9 @@ function ReportViewPage() {
   const [filterBulkPay, setFilterBulkPay] = useState(false);
   const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
 
-  const { data: debtors = [] } = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const { data: customers = [] } = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
@@ -699,7 +699,7 @@ function ReportViewPage() {
                   className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 >
                   <option value="">All buyers</option>
-                  {debtors.map((d: any) => (
+                  {customers.map((d: any) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>

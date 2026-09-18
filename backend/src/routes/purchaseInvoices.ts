@@ -14,7 +14,7 @@ import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilte
 import { generateId, nowISO } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
-import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Debtor, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
+import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 
@@ -27,15 +27,15 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
 
-    // Preload all vendors, profiles, debtors, and invoices into lookup maps
+    // Preload all vendors, profiles, customers, and invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
     const allSalesInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const salesInvMap = new Map(allSalesInvoices.map((si) => [si.id, si]));
 
     // Fast synchronous enrichment
@@ -49,7 +49,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           .map((sId) => {
             const si = salesInvMap.get(sId);
             if (si) {
-              return { ...si, debtor: debtorMap.get(si.debtor_id) };
+              return { ...si, customer: customerMap.get(si.customer_id) };
             }
             return null;
           })
@@ -162,8 +162,8 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       const results = await Promise.all(
         invoice.linked_sales_invoice_ids.map(async (sId) => {
           const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-          if (si?.debtor_id) {
-            si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+          if (si?.customer_id) {
+            si.customer = await getItem(TABLES.CUSTOMERS, { id: si.customer_id }) as Customer | undefined;
           }
           return si;
         }),

@@ -8,9 +8,9 @@ export const Route = createFileRoute("/app/my-reports")({
 });
 
 const LINKS = [
-  { to: "/app/reports", label: "Portfolio", hint: "Exposure and limits" },
-  { to: "/app/reports", label: "Aging", hint: "Overdue buckets" },
-  { to: "/app/reports", label: "Profit & Loss", hint: "Income vs expense" },
+  { tab: "portfolio", label: "Portfolio", hint: "Exposure and limits" },
+  { tab: "aging", label: "Aging", hint: "Overdue buckets" },
+  { tab: "profit-loss", label: "Profit & Loss", hint: "Income vs expense" },
 ];
 
 function MyReportsPage() {
@@ -22,7 +22,7 @@ function MyReportsPage() {
           {LINKS.map((l) => (
             <li key={l.label} className="flex items-center justify-between gap-2 py-2.5">
               <span><span className="block text-sm font-semibold">{l.label}</span><span className="block text-xs text-muted-foreground">{l.hint}</span></span>
-              <Link to={l.to} className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-3 text-xs font-semibold hover:bg-accent">Open <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+              <Link to="/app/reports/$tab" params={{ tab: l.tab }} className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-3 text-xs font-semibold hover:bg-accent">Open <ArrowUpRight className="h-3.5 w-3.5" /></Link>
             </li>
           ))}
         </ul>

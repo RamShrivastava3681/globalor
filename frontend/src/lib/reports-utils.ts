@@ -2,7 +2,7 @@ import { fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 
 // ── Types ──
 
-export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
+export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "customers" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
 
 export interface ReportMeta {
   id: ReportTab;
@@ -43,7 +43,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     name: "Customer Reports",
     reports: [
       { id: "aging" as ReportTab, label: "Aging Report", icon: Clock, description: "Receivables aging analysis by buyer", color: "from-warning to-warning", bgLight: "bg-warning/10", iconBg: "bg-warning/10", iconColor: "text-warning" },
-      { id: "debtors" as ReportTab, label: "Debtors", icon: Users, description: "Detailed debtor information and history", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
+      { id: "customers" as ReportTab, label: "Customers", icon: Users, description: "Detailed customer information and history", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
       { id: "suppliers" as ReportTab, label: "Suppliers", icon: Building2, description: "Supplier details and payment terms", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
     ],
   },
@@ -69,7 +69,7 @@ export const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "sales-invoices": ["all", "open", "closed"],
   "purchase-invoices": ["all", "open", "closed"],
   "aging": ["all", "overdue", "pending"],
-  "debtors": ["all"],
+  "customers": ["all"],
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
@@ -115,7 +115,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
       return [
         ...common,
         { key: "invoice_number", label: "Invoice #", render: (r: any) => r.invoice_number ?? "" },
-        { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor?.name ?? "" },
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer?.name ?? "" },
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "outstanding_amount", label: "Outstanding", render: (r: any) => r.outstanding != null ? fmtMoney(r.outstanding) : "—" },
@@ -171,7 +171,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "" },
         { key: "proforma_number", label: "Proforma #", render: (r: any) => r.proforma_number ?? "—" },
         { key: "side", label: "Side", render: (r: any) => r.side ?? "" },
-        { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor?.name ?? "—" },
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer?.name ?? "—" },
         { key: "vendor_name", label: "Vendor", render: (r: any) => r.vendor?.name ?? "—" },
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
@@ -198,10 +198,10 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "bucket_over_120", label: "Over 120 Days", render: (r: any) => r.bucket_over_120 ? fmtMoney(r.bucket_over_120) : "—" },
         { key: "total_outstanding", label: "Total Outstanding", render: (r: any) => fmtMoney(r.total_outstanding ?? 0) },
       ];
-    case "debtors":
+    case "customers":
       return [
         { key: "uid", label: "UID", render: (r: any) => r.id ? `#${r.id.slice(-8).toUpperCase()}` : "" },
-        { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "" },
+        { key: "name", label: "Customer Name", render: (r: any) => r.name ?? "" },
         { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—" },
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "total_invoices", label: "Total Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString() },
@@ -244,7 +244,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         ...common,
         { key: "side", label: "Side", render: (r: any) => r.side ?? "" },
         { key: "invoice_ref", label: "Invoice", render: (r: any) => r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? r.order?.po_number ?? "—" },
-        { key: "debtor_vendor", label: "Debtor/Vendor", render: (r: any) => r.invoice?.debtor?.name ?? r.purchase?.vendor?.name ?? r.order?.debtor?.name ?? r.order?.vendor?.name ?? "—" },
+        { key: "customer_vendor", label: "Customer/Vendor", render: (r: any) => r.invoice?.customer?.name ?? r.purchase?.vendor?.name ?? r.order?.customer?.name ?? r.order?.vendor?.name ?? "—" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "advance_date", label: "Date", render: (r: any) => fmtDate(r.advance_date) },
         { key: "reference", label: "Reference", render: (r: any) => r.reference ?? "—" },

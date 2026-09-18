@@ -21,7 +21,7 @@ const tableDefs = [
     BillingMode: "PAY_PER_REQUEST",
   },
   {
-    TableName: TABLES.DEBTORS,
+    TableName: TABLES.CUSTOMERS,
     KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
     AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
     BillingMode: "PAY_PER_REQUEST",

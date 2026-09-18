@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
@@ -33,7 +33,7 @@ type PF = {
   id: string;
   client_id: string;
   side: "sales" | "purchase";
-  debtor_id: string | null;
+  customer_id: string | null;
   vendor_id: string | null;
   po_number: string;
   proforma_number: string | null;
@@ -48,8 +48,10 @@ type PF = {
   notes: string | null;
 };
 
-function ProformasPage() {
-  const { view } = Route.useSearch();
+export function ProformasPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { view?: string } });
+  const view = embedded ? undefined : ((routerSearch as any)?.view as string | undefined);
   const navigate = useNavigate();
   const { user, isAdmin, isClient, isChecker, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-orders");
@@ -86,7 +88,9 @@ function ProformasPage() {
       if (found) {
         setViewing(found);
         setInitialViewDone(true);
-        navigate({ to: "/app/proformas", search: { view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/proformas", search: { view: undefined }, replace: true });
+        }
       }
     }
   }, [view, listQ.data, initialViewDone, navigate]);
@@ -111,7 +115,7 @@ function ProformasPage() {
     .filter((p: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+      const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
       return (
         p.proforma_number?.toLowerCase().includes(q) ||
         p.po_number?.toLowerCase().includes(q) ||
@@ -258,7 +262,7 @@ function ProformasPage() {
                 </thead>
                 <tbody>
                   {rows.map((p: any) => {
-                    const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+                    const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
@@ -459,7 +463,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/customers")) ?? [];
       return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
@@ -468,12 +472,12 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
     mutationFn: async () => {
       if (!form.po_number.trim()) throw new Error("PO number is required");
       if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
-      if (!form.party_id) throw new Error(side === "sales" ? "Pick a debtor" : "Pick a supplier");
+      if (!form.party_id) throw new Error(side === "sales" ? "Pick a customer" : "Pick a supplier");
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
       await api.post("/purchase-orders", {
         side,
-        debtor_id: side === "sales" ? form.party_id : null,
+        customer_id: side === "sales" ? form.party_id : null,
         vendor_id: side === "purchase" ? form.party_id : null,
         po_number: form.po_number.trim(),
         proforma_number: form.proforma_number.trim(),
@@ -494,7 +498,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
       <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
         <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
-        <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
+        <L label={side === "sales" ? "Customer *" : "Supplier *"}>
           <select required className="inp" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
             <option value="">Select…</option>
             {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -556,7 +560,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+  const cp = proforma.side === "sales" ? proforma.customer : proforma.vendor;
 
   const deletePf = useMutation({
     mutationFn: async () => {
@@ -617,7 +621,7 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
           {cp && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Debtor" : "Supplier"}
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Customer" : "Supplier"}
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                 <Detail label="Name" value={cp.name} />
@@ -783,7 +787,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
   const partiesQ = useQuery({
     queryKey: ["import-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/customers")) ?? [];
       return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
@@ -792,7 +796,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!partyId) {
-      toast.error(`Please select a ${side === "sales" ? "debtor" : "supplier"} first`);
+      toast.error(`Please select a ${side === "sales" ? "customer" : "supplier"} first`);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -845,7 +849,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
     mutationFn: async () => {
       const payload = {
         side,
-        [side === "sales" ? "debtor_id" : "vendor_id"]: partyId,
+        [side === "sales" ? "customer_id" : "vendor_id"]: partyId,
         items: rows.map((r) => ({
           proforma_number: r.invoice_number,
           proforma_date: r.proforma_date,
@@ -897,14 +901,14 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
                   <button key={s} onClick={() => { setSide(s); setPartyId(""); }}
                     className={`rounded-md border px-4 py-2 text-sm transition ${
                       side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                    }`}>{s === "sales" ? "Sales (Debtor)" : "Purchase (Supplier)"}</button>
+                    }`}>{s === "sales" ? "Sales (Customer)" : "Purchase (Supplier)"}</button>
                 ))}
               </div>
             </L>
 
-            <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
+            <L label={side === "sales" ? "Customer *" : "Supplier *"}>
               <select required value={partyId} onChange={(e) => setPartyId(e.target.value)} className="inp">
-                <option value="">Select {side === "sales" ? "debtor" : "supplier"}…</option>
+                <option value="">Select {side === "sales" ? "customer" : "supplier"}…</option>
                 {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </L>
@@ -940,7 +944,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
 
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Side</span><span className="capitalize">{side}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">{side === "sales" ? "Debtor" : "Supplier"}</span><span>{(partiesQ.data ?? []).find((p: any) => p.id === partyId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">{side === "sales" ? "Customer" : "Supplier"}</span><span>{(partiesQ.data ?? []).find((p: any) => p.id === partyId)?.name ?? "—"}</span></div>
             </div>
 
             <div className="-mx-5 overflow-x-auto">

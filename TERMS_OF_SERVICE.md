@@ -15,7 +15,7 @@ Welcome to Whizunik. These Terms of Service ("Terms") govern your access to and 
 Whizunik provides a robust, cloud-based platform for B2B financial management. Features include, but are not limited to:
 - Ledger and Accounting management
 - Invoice and document uploads with Optical Character Recognition (OCR) processing
-- Inventory, vendor, supplier, and debtor tracking
+- Inventory, vendor, supplier, and customer tracking
 - Bulk payments and expense management
 - Reporting and data export (PDF/Excel)
 

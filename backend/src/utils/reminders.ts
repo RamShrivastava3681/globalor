@@ -2,14 +2,14 @@ import { TABLES, scanTable, updateItemConditional, getItem } from "../db/client.
 import { nowISO } from "./helpers.js";
 import { sendReminderEmail } from "./email.js";
 import { config } from "../config.js";
-import type { Invoice, Debtor, Profile, ReminderEntry } from "../types/index.js";
+import type { Invoice, Customer, Profile, ReminderEntry } from "../types/index.js";
 
 /** Statuses that are still owed money and can be reminded. */
 const OPEN_STATUSES = new Set(["approved", "advanced", "funded", "overdue"]);
 
 /**
  * One overdue-reminder sweep: for every open invoice past its due date whose
- * debtor has an email, send a reminder and stamp `last_overdue_reminder_date`
+ * customer has an email, send a reminder and stamp `last_overdue_reminder_date`
  * so it only ever goes out once per day. Fire-and-forget emails — a send
  * failure never blocks the sweep or rolls back the stamp.
  */
@@ -29,15 +29,15 @@ export async function runOverdueReminderSweep(): Promise<{
       inv.due_date < today &&
       inv.noa_status !== "not_sent" &&
       inv.last_overdue_reminder_date !== today &&
-      inv.debtor_id,
+      inv.customer_id,
   );
 
   for (const inv of candidates) {
     try {
-      const debtor = inv.debtor_id
-        ? await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined
+      const customer = inv.customer_id
+        ? await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined
         : undefined;
-      if (!debtor?.contact_email) {
+      if (!customer?.contact_email) {
         skipped += 1;
         continue;
       }
@@ -54,7 +54,7 @@ export async function runOverdueReminderSweep(): Promise<{
       const entry: ReminderEntry = {
         sent_at: nowISO(),
         type: "overdue",
-        to: debtor.contact_email,
+        to: customer.contact_email,
         note: `Overdue by ${daysOverdue} day${daysOverdue === 1 ? "" : "s"}`,
       };
       const log = [...(inv.reminder_log ?? []), entry];
@@ -81,11 +81,11 @@ export async function runOverdueReminderSweep(): Promise<{
       }
 
       // Fire-and-forget (guide invariant 6): a failed email never rolls back
-      // the stamp — the debtor is reminded at most once per day regardless.
+      // the stamp — the customer is reminded at most once per day regardless.
       await sendReminderEmail({
-        to: debtor.contact_email,
-        debtorName: debtor.name,
-        debtorContactName: debtor.contact_name ?? null,
+        to: customer.contact_email,
+        customerName: customer.name,
+        customerContactName: customer.contact_name ?? null,
         invoiceNumber: inv.invoice_number,
         amount: inv.amount,
         dueDate: inv.due_date,

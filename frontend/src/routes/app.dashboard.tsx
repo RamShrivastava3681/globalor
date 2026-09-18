@@ -291,9 +291,9 @@ function Dashboard() {
     refetchInterval: DASHBOARD_REFETCH,
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
     staleTime: DASHBOARD_STALE,
     refetchInterval: DASHBOARD_REFETCH,
   });
@@ -352,7 +352,7 @@ function Dashboard() {
   const creditDebitNotes = creditDebitNotesQ.data ?? [];
 
   /* ── Initial loading skeleton ── */
-  const initialLoading = [invoicesQ, purchasesQ, expensesQ, proformasQ, advancesQ, alertsQ, debtorsQ, creditNotesQ].some((q) => q.isPending);
+  const initialLoading = [invoicesQ, purchasesQ, expensesQ, proformasQ, advancesQ, alertsQ, customersQ, creditNotesQ].some((q) => q.isPending);
 
   /* ═══════════════════════════════════════════════════════════════
      ALL COMPUTED METRICS — transparent formulas
@@ -420,19 +420,19 @@ function Dashboard() {
     const overdueTotal = aging.b1 + aging.b2 + aging.b3 + aging.b4;
     const highRiskAmount = aging.b4;
 
-    // Customer concentration (top debtors by outstanding)
-    const debtorExposure = new Map<string, { name: string; outstanding: number; count: number; id: string }>();
+    // Customer concentration (top customers by outstanding)
+    const customerExposure = new Map<string, { name: string; outstanding: number; count: number; id: string }>();
     invoices.filter((i: any) => i.status !== "paid" && i.status !== "rejected").forEach((i: any) => {
-      const did = i.debtor_id;
-      const name = i.debtor?.name ?? "Unknown";
-      const existing = debtorExposure.get(did) ?? { name, outstanding: 0, count: 0, id: did };
+      const did = i.customer_id;
+      const name = i.customer?.name ?? "Unknown";
+      const existing = customerExposure.get(did) ?? { name, outstanding: 0, count: 0, id: did };
       existing.outstanding += Number(i.amount);
       existing.count += 1;
-      debtorExposure.set(did, existing);
+      customerExposure.set(did, existing);
     });
-    const topDebtors = [...debtorExposure.values()].sort((a, b) => b.outstanding - a.outstanding);
+    const topCustomers = [...customerExposure.values()].sort((a, b) => b.outstanding - a.outstanding);
     const top5Concentration = totalOutstanding > 0
-      ? topDebtors.slice(0, 5).reduce((s, d) => s + d.outstanding, 0) / totalOutstanding * 100
+      ? topCustomers.slice(0, 5).reduce((s, d) => s + d.outstanding, 0) / totalOutstanding * 100
       : 0;
 
     // Supplier exposure
@@ -467,15 +467,15 @@ function Dashboard() {
       .map(([category, amount]) => ({ category, amount }));
 
     // Short payments by customer
-    const shortPayByDebtor = new Map<string, { name: string; amount: number; count: number }>();
+    const shortPayByCustomerMap = new Map<string, { name: string; amount: number; count: number }>();
     shortPaidInvoices.forEach((i: any) => {
-      const name = i.debtor?.name ?? "Unknown";
-      const existing = shortPayByDebtor.get(i.debtor_id) ?? { name, amount: 0, count: 0 };
+      const name = i.customer?.name ?? "Unknown";
+      const existing = shortPayByCustomerMap.get(i.customer_id) ?? { name, amount: 0, count: 0 };
       existing.amount += Number(i.short_payment);
       existing.count += 1;
-      shortPayByDebtor.set(i.debtor_id, existing);
+      shortPayByCustomerMap.set(i.customer_id, existing);
     });
-    const shortPayByCustomer = [...shortPayByDebtor.values()].sort((a, b) => b.amount - a.amount);
+    const shortPayByCustomer = [...shortPayByCustomerMap.values()].sort((a, b) => b.amount - a.amount);
 
     // Monthly revenue for chart (group by month)
     const monthlyRevenue = new Map<string, number>();
@@ -625,7 +625,7 @@ function Dashboard() {
       // Aging
       aging, overdueTotal, highRiskAmount, agingCount,
       // Customers
-      topDebtors, top5Concentration,
+      topCustomers, top5Concentration,
       // Suppliers
       topVendors, totalPayable,
       // Invoice ops
@@ -651,7 +651,7 @@ function Dashboard() {
       // Recent
       recentAlerts,
     };
-  }, [invoices, purchases, expenses, proformas, advances, suppliers, vendors, creditDebitNotes, creditNotesQ.data, alertsQ.data, debtorsQ.data]);
+  }, [invoices, purchases, expenses, proformas, advances, suppliers, vendors, creditDebitNotes, creditNotesQ.data, alertsQ.data, customersQ.data]);
 
   const isTreasuryView = isTreasury;
 
@@ -1174,7 +1174,7 @@ function Dashboard() {
           {/* ═══════════════════════════════════════════════════════════════
              § 12. CUSTOMER CONCENTRATION
              ═══════════════════════════════════════════════════════════════ */}
-          {!isTreasuryView && m.topDebtors.length > 0 && (
+          {!isTreasuryView && m.topCustomers.length > 0 && (
             <section>
               <SectionLabel>Customer Exposure</SectionLabel>
               <div className="rounded-xl border border-border bg-card p-5">
@@ -1188,7 +1188,7 @@ function Dashboard() {
                 </div>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={m.topDebtors.slice(0, 8).map((d) => ({
+                    <BarChart data={m.topCustomers.slice(0, 8).map((d) => ({
       name: d.name.length > 16 ? d.name.slice(0, 14) + "…" : d.name,
       outstanding: d.outstanding,
       count: d.count,
@@ -1550,7 +1550,7 @@ function Dashboard() {
                     <thead>
                       <tr>
                         <th className="px-5 py-2.5 text-left">Invoice</th>
-                        <th className="px-5 py-2.5 text-left">Debtor</th>
+                        <th className="px-5 py-2.5 text-left">Customer</th>
                         <th className="px-5 py-2.5 text-right">Amount</th>
                         <th className="px-5 py-2.5 text-right">Short pay</th>
                         <th className="px-5 py-2.5 text-left">Status</th>
@@ -1560,7 +1560,7 @@ function Dashboard() {
                       {invoices.slice(0, 5).map((i: any) => (
                         <tr key={i.id} className="border-b border-border/60 hover:bg-muted/50 transition-colors">
                           <td className="px-5 py-3 font-mono text-xs text-foreground">{i.invoice_number}</td>
-                          <td className="px-5 py-3 text-muted-foreground truncate max-w-[120px]">{i.debtor?.name ?? "—"}</td>
+                          <td className="px-5 py-3 text-muted-foreground truncate max-w-[120px]">{i.customer?.name ?? "—"}</td>
                           <td className="px-5 py-3 text-right num font-medium">{fmtMoney(i.amount)}</td>
                           <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {i.short_payment != null && Number(i.short_payment) > 0 ? fmtMoney(Number(i.short_payment)) : "—"}
@@ -1609,8 +1609,8 @@ function Dashboard() {
                     <tbody>
                       {advances.filter((a: any) => a.side === advanceTab).slice(0, 5).map((a: any) => {
                         const cp = a.order
-                          ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-                          : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                          ? (a.side === "sales" ? a.order.customer?.name : a.order.vendor?.name)
+                          : (a.side === "sales" ? a.invoice?.customer?.name : a.purchase?.vendor?.name);
                         return (
                           <tr key={a.id} className="border-b border-border/60 hover:bg-muted/50 transition-colors">
                             <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
@@ -1684,8 +1684,8 @@ function Dashboard() {
             if (m.monthEndPending > 0) {
               actions.push({ rank: actions.length + 1, title: `Process ${m.monthEndPending} pending invoices`, impact: "Month-end readiness", to: "/app/invoices", severity: "warning" });
             }
-            if (m.topDebtors.length > 5) {
-              actions.push({ rank: actions.length + 1, title: "Review customer concentration risk", impact: `Top 5 = ${m.top5Concentration.toFixed(1)}%`, to: "/app/debtors", severity: "info" });
+            if (m.topCustomers.length > 5) {
+              actions.push({ rank: actions.length + 1, title: "Review customer concentration risk", impact: `Top 5 = ${m.top5Concentration.toFixed(1)}%`, to: "/app/customers", severity: "info" });
             }
 
             if (actions.length === 0) return null;
@@ -1741,7 +1741,7 @@ function Dashboard() {
                     {proformas.slice(0, 5).map((p: any) => (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/50 transition-colors">
                         <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? p.po_number}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—"}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground">{p.side}</td>
                         <td className="px-5 py-3 text-right num font-medium">{fmtMoney(p.amount)}</td>
                         <td className="px-5 py-3"><StatusPill status={p.proforma_status || p.status} /></td>
@@ -1888,7 +1888,7 @@ function ShortPaymentsDialog({
               <thead>
                 <tr className="sticky top-0 z-10">
                   <th className="px-6 py-3 text-left">Invoice</th>
-                  <th className="px-6 py-3 text-left">Debtor</th>
+                  <th className="px-6 py-3 text-left">Customer</th>
                   <th className="px-6 py-3 text-right">Amount</th>
                   <th className="px-6 py-3 text-right">Short payment</th>
                   <th className="px-6 py-3 text-left">Paid</th>
@@ -1899,7 +1899,7 @@ function ShortPaymentsDialog({
                 {shortPaidInvoices.map((i: any) => (
                   <tr key={i.id} className="border-b border-border/60 hover:bg-muted/50 transition-colors">
                     <td className="px-6 py-3.5 font-mono text-xs font-medium text-foreground">{i.invoice_number}</td>
-                    <td className="px-6 py-3.5 text-muted-foreground">{i.debtor?.name ?? "—"}</td>
+                    <td className="px-6 py-3.5 text-muted-foreground">{i.customer?.name ?? "—"}</td>
                     <td className="px-6 py-3.5 text-right num font-medium">{fmtMoney(i.amount)}</td>
                     <td className="px-6 py-3.5 text-right num text-destructive font-semibold">{fmtMoney(i.short_payment)}</td>
                     <td className="px-6 py-3.5 text-muted-foreground">{fmtDate(i.paid_date)}</td>

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -97,8 +97,10 @@ const DSP_STATUS: Record<DSP["status"], string> = {
   cancelled: "border-border bg-muted text-muted-foreground line-through",
 };
 
-function DispatchesPage() {
-  const { so: preselectedSo } = Route.useSearch();
+export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoProp }: { embedded?: boolean; preselectedSo?: string } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string } });
+  const preselectedSo = preselectedSoProp ?? (embedded ? undefined : ((routerSearch as any)?.so as string | undefined));
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-sales-orders");
   const canOverride = isAdmin || isChecker;

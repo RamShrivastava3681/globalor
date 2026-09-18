@@ -211,7 +211,7 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
         client_id: req.user!.id,
         company_id: req.user!.company_id,
         side: "purchase",
-        debtor_id: null,
+        customer_id: null,
         vendor_id: parsed.supplier_id || null,
         po_number: poNumber,
         proforma_number: proformaNumber,

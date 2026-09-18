@@ -1,7 +1,7 @@
 // ── Enums ──
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created";
+export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "customer_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created";
 export type InvoiceStatus = "draft" | "submitted" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 
 /** One entry in an invoice's reminder log — NOA sends and overdue reminders. */
@@ -84,8 +84,8 @@ export interface UserRole {
   role: AppRole;
 }
 
-// ── Debtors ──
-export interface Debtor {
+// ── Customers ──
+export interface Customer {
   id: string;
   company_id: string | null;
   name: string;
@@ -161,7 +161,7 @@ export interface Invoice {
   id: string;
   client_id: string;
   company_id: string | null;
-  debtor_id: string;
+  customer_id: string;
   supplier_id: string | null;
   invoice_number: string;
   amount: number;
@@ -288,7 +288,7 @@ export interface PurchaseOrder {
   client_id: string;
   company_id: string | null;
   side: AdvanceSide;
-  debtor_id: string | null;
+  customer_id: string | null;
   vendor_id: string | null;
   po_number: string;
   proforma_number: string | null;
@@ -459,7 +459,7 @@ export interface GoodsSalesOrder {
   company_id: string | null;
   so_number: string;
   order_date: string;
-  /** Debtor id (merged customer master). */
+  /** Customer id (merged customer master). */
   customer_id: string | null;
   customer_name: string | null;
   contact_person: string | null;
@@ -559,7 +559,7 @@ export interface GoodsDispatch {
 export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" | "expired" | "converted_to_so";
 /** Maker–checker price approval. "none" = no revised prices, review not needed. */
 export type QuotationApprovalStatus = "none" | "pending_review" | "approved" | "rejected";
-export type QuotationDebtorStatus = "pending" | "approved" | "rejected";
+export type QuotationCustomerStatus = "pending" | "approved" | "rejected";
 
 export interface QuotationLine {
   product_id: string | null;
@@ -581,7 +581,7 @@ export interface QuotationLine {
  * The offer. Three parallel status dimensions (rendered as separate pills):
  * - `status` lifecycle: draft → sent → accepted | rejected | expired → converted_to_so
  * - `approval_status` maker–checker price review: none → pending_review → approved | rejected
- * - `debtor_status` emailed secure-token approval: pending → approved | rejected
+ * - `customer_status` emailed secure-token approval: pending → approved | rejected
  */
 export interface Quotation {
   id: string;
@@ -590,7 +590,7 @@ export interface Quotation {
   quotation_number: string;
   quotation_date: string;
   valid_until: string | null;
-  /** Debtor id, or null for a free-text prospect. */
+  /** Customer id, or null for a free-text prospect. */
   customer_id: string | null;
   prospect_name: string | null;
   customer_name: string | null;
@@ -612,11 +612,11 @@ export interface Quotation {
   approval_comments: string | null;
   approved_by: string | null;
   approved_at: string | null;
-  debtor_status: QuotationDebtorStatus;
-  debtor_comments: string | null;
-  debtor_token: string | null;
-  debtor_sent_at: string | null;
-  debtor_responded_at: string | null;
+  customer_status: QuotationCustomerStatus;
+  customer_comments: string | null;
+  customer_token: string | null;
+  customer_sent_at: string | null;
+  customer_responded_at: string | null;
   converted_to_so_id: string | null;
   converted_to_so_number: string | null;
   converted_at: string | null;
@@ -804,7 +804,7 @@ export interface Alert {
   id: string;
   client_id: string | null;
   company_id: string | null;
-  debtor_id: string | null;
+  customer_id: string | null;
   invoice_id: string | null;
   type: AlertType;
   severity: AlertSeverity;
@@ -826,7 +826,7 @@ export interface JwtPayload {
 
 // ── Enriched query results (used by frontend) ──
 export interface InvoiceWithRelations extends Invoice {
-  debtor?: Debtor;
+  customer?: Customer;
   client?: Profile;
   purchases?: (PurchaseInvoice & { vendor?: Vendor })[];
 }
@@ -836,14 +836,14 @@ export interface PurchaseInvoiceWithVendor extends PurchaseInvoice {
 }
 
 export interface PurchaseOrderWithParties extends PurchaseOrder {
-  debtor?: Debtor;
+  customer?: Customer;
   vendor?: Vendor;
 }
 
 export interface AdvanceWithRelations extends Advance {
-  invoice?: { invoice_number: string; amount: number; debtor?: { name: string } };
+  invoice?: { invoice_number: string; amount: number; customer?: { name: string } };
   purchase?: { invoice_number: string; amount: number; vendor?: { name: string } };
-  order?: { po_number: string; amount: number; status: string; debtor?: { name: string }; vendor?: { name: string } };
+  order?: { po_number: string; amount: number; status: string; customer?: { name: string }; vendor?: { name: string } };
 }
 
 export interface ExpenseWithRelations extends Expense {
@@ -953,7 +953,7 @@ export interface CreditDebitNote {
   note_number: string;
   date: string;
   amount: number;
-  debtor_supplier_name: string | null;
+  customer_supplier_name: string | null;
   /** Resolved vendor (supplier) id when the note is linked to a supplier. */
   supplier_id: string | null;
   linked_invoice_id: string | null;
@@ -975,7 +975,7 @@ export interface PaymentRecord {
   id: string;
   client_id: string;
   company_id: string | null;
-  debtor_id: string;
+  customer_id: string;
   amount: number;
   payment_date: string;
   remaining: number;
@@ -1001,9 +1001,9 @@ export interface NoaInvoiceResult {
   noa_status: NoaStatus;
   noa_comments: string;
   client_company: string;
-  debtor_name: string;
-  debtor_contact_name: string;
-  debtor_contact_email: string;
+  customer_name: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
 }
 
 // ── Cash Command Centre (Treasury & Liquidity) ──

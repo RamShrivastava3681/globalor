@@ -21,53 +21,53 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CounterpartyDashboard } from "@/components/counterparty-dashboard";
 
-export const Route = createFileRoute("/app/debtors")({
-  component: DebtorsPage,
+export const Route = createFileRoute("/app/customers")({
+  component: CustomersPage,
 });
 
-function DebtorsPage() {
+export function CustomersPage() {
   const { canWrite } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [bulkPayDebtor, setBulkPayDebtor] = useState<any | null>(null);
+  const [bulkPayCustomer, setBulkPayCustomer] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors-full"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers-full"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const invoicesQ = useQuery({
-    queryKey: ["invoices-for-debtors"],
+    queryKey: ["invoices-for-customers"],
     queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.delete(`/debtors/${id}`);
+      await api.delete(`/customers/${id}`);
     },
     onSuccess: () => {
-      toast.success("Debtor removed");
-      qc.invalidateQueries({ queryKey: ["debtors-full"] });
+      toast.success("Customer removed");
+      qc.invalidateQueries({ queryKey: ["customers-full"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const canEdit = canWrite("debtors");
+  const canEdit = canWrite("customers");
   const canPay = canWrite("invoices") || canWrite("funding-queue");
 
   return (
     <div>
       <PageHeader
         eyebrow="Counterparties"
-        title="Debtor book"
+        title="Customer book"
         description="Payment terms, contacts, and invoicing history for every payer."
         actions={
           canEdit && (
             <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              <Plus className="h-4 w-4" /> Add debtor
+              <Plus className="h-4 w-4" /> Add customer
             </button>
           )
         }
@@ -76,8 +76,8 @@ function DebtorsPage() {
       <div className="p-6 md:p-10">
         {/* ── Dashboard ── */}
         <CounterpartyDashboard
-          kind="debtor"
-          parties={(debtorsQ.data ?? []).map((d: any) => ({ id: d.id, name: d.name, industry: d.industry }))}
+          kind="customer"
+          parties={(customersQ.data ?? []).map((d: any) => ({ id: d.id, name: d.name, industry: d.industry }))}
           invoices={(invoicesQ.data ?? []).map((i: any) => ({
             id: i.id,
             amount: i.amount,
@@ -85,43 +85,43 @@ function DebtorsPage() {
             issue_date: i.issue_date,
             due_date: i.due_date,
             paid_date: i.paid_date,
-            debtor_id: i.debtor_id,
+            customer_id: i.customer_id,
           }))}
-          loading={debtorsQ.isLoading || invoicesQ.isLoading}
+          loading={customersQ.isLoading || invoicesQ.isLoading}
         />
 
-        {/* ── Debtor Directory ── */}
+        {/* ── Customer Directory ── */}
         <div className="mt-8">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <Users className="h-3.5 w-3.5 text-muted-foreground/50" />
-              Debtor directory ({(debtorsQ.data ?? []).length})
+              Customer directory ({(customersQ.data ?? []).length})
             </h3>
           </div>
         <Card>
-          {(debtorsQ.data ?? []).length === 0 ? (
+          {(customersQ.data ?? []).length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               <ShieldAlert className="mx-auto mb-3 h-6 w-6" />
-              No debtors yet.
+              No customers yet.
               {canEdit && <div className="mt-3"><button onClick={() => { setEditing(null); setOpen(true); }} className="text-primary">Add one →</button></div>}
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <div className="mb-4 px-5">
-                <input type="text" placeholder="Search debtors by name, industry, address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                <input type="text" placeholder="Search customers by name, industry, address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
               </div>
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">UID</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor Name</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     {canEdit && <th className="px-5 py-2" />}
                   </tr>
                 </thead>
                 <tbody>
-                  {(debtorsQ.data ?? []).filter((d: any) => {
+                  {(customersQ.data ?? []).filter((d: any) => {
                     if (!searchQuery.trim()) return true;
                     const q = searchQuery.toLowerCase();
                     return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.registered_address?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
@@ -136,7 +136,7 @@ function DebtorsPage() {
                             <Eye className="mr-1 inline h-3 w-3" />View
                           </button>
                           {canPay && (
-                            <button onClick={() => setBulkPayDebtor(d)} className="mr-2 rounded-md border border-primary/50 px-2 py-1 text-xs text-primary hover:bg-primary/10">
+                            <button onClick={() => setBulkPayCustomer(d)} className="mr-2 rounded-md border border-primary/50 px-2 py-1 text-xs text-primary hover:bg-primary/10">
                               <DollarSign className="mr-0.5 inline h-3 w-3" />Bulk pay
                             </button>
                           )}
@@ -161,23 +161,23 @@ function DebtorsPage() {
         </div>
       </div>
 
-      {open && <DebtorFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} onDone={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
+      {open && <CustomerFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} onDone={() => qc.invalidateQueries({ queryKey: ["customers-full"] })} />}
 
       {viewing && (
-        <DebtorDetailModal
-          debtor={viewing}
-          invoices={(invoicesQ.data ?? []).filter((i: any) => i.debtor_id === viewing.id)}
+        <CustomerDetailModal
+          customer={viewing}
+          invoices={(invoicesQ.data ?? []).filter((i: any) => i.customer_id === viewing.id)}
           onClose={() => setViewing(null)}
         />
       )}
 
-      {bulkPayDebtor && (
+      {bulkPayCustomer && (
         <BulkPaymentModal
-          debtor={bulkPayDebtor}
-          invoices={(invoicesQ.data ?? []).filter((i: any) => i.debtor_id === bulkPayDebtor.id)}
-          onClose={() => setBulkPayDebtor(null)}
+          customer={bulkPayCustomer}
+          invoices={(invoicesQ.data ?? []).filter((i: any) => i.customer_id === bulkPayCustomer.id)}
+          onClose={() => setBulkPayCustomer(null)}
           onDone={() => {
-            qc.invalidateQueries({ queryKey: ["invoices-for-debtors"] });
+            qc.invalidateQueries({ queryKey: ["invoices-for-customers"] });
             qc.invalidateQueries({ queryKey: ["invoices"] });
           }}
         />
@@ -186,7 +186,7 @@ function DebtorsPage() {
   );
 }
 
-function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; onClose: () => void; onDone: () => void }) {
+function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState(() => ({
     name: editing?.name ?? "",
     legal_entity_name: editing?.legal_entity_name ?? "",
@@ -208,7 +208,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.name.trim()) throw new Error("Debtor name is required");
+      if (!form.name.trim()) throw new Error("Customer name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
 
       const payload = {
@@ -229,13 +229,13 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
       };
 
       if (editing) {
-        await api.patch(`/debtors/${editing.id}`, payload);
+        await api.patch(`/customers/${editing.id}`, payload);
       } else {
-        await api.post("/debtors", payload);
+        await api.post("/customers", payload);
       }
     },
     onSuccess: () => {
-      toast.success(editing ? "Debtor updated" : "Debtor added");
+      toast.success(editing ? "Customer updated" : "Customer added");
       onDone();
       onClose();
     },
@@ -246,13 +246,13 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{editing ? "Edit debtor" : "Add debtor"}</h3>
+          <h3 className="font-display text-lg">{editing ? "Edit customer" : "Add customer"}</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           <Section title="Legal Entity">
             <div className="grid gap-3 md:grid-cols-2">
-              <L label="Debtor Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
+              <L label="Customer Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
               <L label="Legal Entity Name"><input maxLength={200} className="inp" value={form.legal_entity_name} onChange={set("legal_entity_name")} /></L>
               <L label="Registration No."><input maxLength={100} className="inp" value={form.registration_no} onChange={set("registration_no")} /></L>
               <L label="Industry"><input maxLength={100} className="inp" value={form.industry} onChange={set("industry")} /></L>
@@ -292,7 +292,7 @@ function DebtorFormModal({ editing, onClose, onDone }: { editing: any | null; on
   );
 }
 
-function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoices: any[]; onClose: () => void }) {
+function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; invoices: any[]; onClose: () => void }) {
   const qc = useQueryClient();
   const totalAmount = invoices.reduce((s: number, i: any) => s + Number(i.amount), 0);
   const paidInvoices = invoices.filter((i: any) => i.status === "paid");
@@ -359,7 +359,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
       toast.success(`${count} invoice${count !== 1 ? "s" : ""} deleted`);
       setSelectedIds(new Set());
       setConfirmOpen(false);
-      qc.invalidateQueries({ queryKey: ["invoices-for-debtors"] });
+      qc.invalidateQueries({ queryKey: ["invoices-for-customers"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete invoices"),
@@ -400,27 +400,27 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-3">
             <Building2 className="h-5 w-5 text-primary" />
-            <h3 className="font-display text-lg">{debtor.name}</h3>
-            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">{debtor.industry || "—"}</span>
+            <h3 className="font-display text-lg">{customer.name}</h3>
+            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">{customer.industry || "—"}</span>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="space-y-6 p-5">
-          {/* Debtor info summary */}
+          {/* Customer info summary */}
           <div className="rounded-lg border border-border bg-background/40 p-4">
-            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Debtor details</h4>
+            <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Customer details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
-              <Detail label="Debtor Name" value={debtor.name} />
-              {debtor.legal_entity_name && <Detail label="Legal Entity Name" value={debtor.legal_entity_name} />}
-              {debtor.registration_no && <Detail label="Registration No." value={debtor.registration_no} />}
-              <Detail label="Industry" value={debtor.industry || "—"} />
-              {debtor.relationship_since && <Detail label="Relationship Since" value={debtor.relationship_since} />}
+              <Detail label="Customer Name" value={customer.name} />
+              {customer.legal_entity_name && <Detail label="Legal Entity Name" value={customer.legal_entity_name} />}
+              {customer.registration_no && <Detail label="Registration No." value={customer.registration_no} />}
+              <Detail label="Industry" value={customer.industry || "—"} />
+              {customer.relationship_since && <Detail label="Relationship Since" value={customer.relationship_since} />}
 
-              <Detail label="Contact" value={debtor.contact_name || "—"} />
-              <Detail label="Email" value={debtor.contact_email || "—"} />
-              {debtor.registered_address && <Detail label="Registered Address" value={debtor.registered_address} />}
-              <Detail label="Phone" value={debtor.contact_phone || "—"} />
+              <Detail label="Contact" value={customer.contact_name || "—"} />
+              <Detail label="Email" value={customer.contact_email || "—"} />
+              {customer.registered_address && <Detail label="Registered Address" value={customer.registered_address} />}
+              <Detail label="Phone" value={customer.contact_phone || "—"} />
             </div>
           </div>
 
@@ -590,7 +590,7 @@ function DebtorDetailModal({ debtor, invoices, onClose }: { debtor: any; invoice
   );
 }
 
-function BulkPaymentModal({ debtor, invoices, onClose, onDone }: { debtor: any; invoices: any[]; onClose: () => void; onDone: () => void }) {
+function BulkPaymentModal({ customer, invoices, onClose, onDone }: { customer: any; invoices: any[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -694,7 +694,7 @@ function BulkPaymentModal({ debtor, invoices, onClose, onDone }: { debtor: any; 
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div className="flex items-center gap-3">
             <DollarSign className="h-5 w-5 text-primary" />
-            <h3 className="font-display text-lg">Bulk payment — {debtor.name}</h3>
+            <h3 className="font-display text-lg">Bulk payment — {customer.name}</h3>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
@@ -772,7 +772,7 @@ function BulkPaymentModal({ debtor, invoices, onClose, onDone }: { debtor: any; 
             </div>
 
             {sortedInvoices.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No open invoices for this debtor.</div>
+              <div className="text-xs text-muted-foreground">No open invoices for this customer.</div>
             ) : (
               <div className="-mx-4 overflow-x-auto">
                 <table className="w-full text-sm">

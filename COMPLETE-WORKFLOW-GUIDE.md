@@ -6,7 +6,7 @@
 > Purchase Invoice → GRN → Quotation → Sales Order → Dispatch → Sales Invoice → Inventory →
 > Demand Forecasting**.
 >
-> You already have **Suppliers, Debtors, Invoices and Proformas**. This document tells you what to
+> You already have **Suppliers, Customers, Invoices and Proformas**. This document tells you what to
 > build on top of them, and exactly how the existing modules plug into the new ones.
 
 ---
@@ -78,9 +78,9 @@ purchase proforma, purchase invoice): the visible **Supplier** model (`companyNa
 `contactName`, `contactEmail`, `contactPhone`, `addressLine`, `paymentTermsDays`) and the legacy
 **Vendor** model (`name`). All procurement UI queries both and merges.
 
-### 1.3 Debtor = Customer (you have these)
+### 1.3 Customer = Customer (you have these)
 
-Used as the customer master for Quotations, Sales Orders, Sales Invoices. Picking a debtor
+Used as the customer master for Quotations, Sales Orders, Sales Invoices. Picking a customer
 auto-fills contact person, billing/delivery address, and due-date term (paymentTermsDays, default
 30 net).
 
@@ -220,7 +220,7 @@ Quotation ──► Sales Order ──► Dispatch ──► Sales Invoice ─�
 
 ### 3.1 Quotation — the offer (never touches inventory or accounting)
 
-**Header:** `quotationNumber` (`QT-XXXXXXXX`), `quotationDate`, `validUntil`, `customerId` (debtor)
+**Header:** `quotationNumber` (`QT-XXXXXXXX`), `quotationDate`, `validUntil`, `customerId` (customer)
 **or** free-text `prospectName`, `contactPerson` (auto-filled), `billingAddress`, `deliveryAddress`,
 `salespersonName` (auto "You"), `paymentTerms`, `expectedDeliveryDate`, `notes`, attachments.
 
@@ -234,11 +234,11 @@ when set, else `unitPrice`.
 **Two parallel status dimensions:**
 
 1. **Lifecycle:** `draft → sent → accepted | rejected | expired → converted_to_so`
-   - "Send to customer" marks `sent` **and emails the quotation PDF** to the debtor.
+   - "Send to customer" marks `sent` **and emails the quotation PDF** to the customer.
 2. **Maker–checker price approval:** `pending_review → approved | rejected` (shown as a second
    pill). Submit → checker reviews → approve/reject with comments. A rejected quote reopens lines
    for revision and resubmission.
-3. **Debtor approval (optional):** "Send to debtor" emails the PDF with a one-time secure token
+3. **Customer approval (optional):** "Send to customer" emails the PDF with a one-time secure token
    link; the customer clicks **Approve/Reject** on a public page (no login). Status pills:
    `pending → approved | rejected`, with their comments stored back.
 
@@ -265,7 +265,7 @@ draft → confirmed → (partially_dispatched) → fully_dispatched
 ```
 - Same manual-vs-derived pattern as the PO: `partially/fully_dispatched` come from dispatch
   notes; `manualStatus` is the fallback.
-- **Debtor approval:** same emailed-PDF secure-token flow as quotations (`pending → approved |
+- **Customer approval:** same emailed-PDF secure-token flow as quotations (`pending → approved |
   rejected`).
 - Editable only while draft/confirmed. Lines with dispatched qty are protected.
 - `recordDispatch` guards: no dispatch on cancelled, draft ("Confirm the sales order before
@@ -315,11 +315,11 @@ revoked.
 confirmed sales order** — the customer and every line are validated against it (line products must
 be on the SO; qty ≤ ordered qty; customer must match).
 
-**Create-from-SO UX:** pick the SO → auto-fills debtor, addresses, terms, due date, and the lines
+**Create-from-SO UX:** pick the SO → auto-fills customer, addresses, terms, due date, and the lines
 (ordered qty, unit price, discount, GST). Lines remain editable within SO bounds.
 
-**Header:** `invoiceNumber` (auto `INV-XXXXXXXX`), `issueDate`, `dueDate` (auto from debtor's
-`paymentTermsDays`), `debtorId`, `customerContact`, `billingAddress`, `deliveryAddress`,
+**Header:** `invoiceNumber` (auto `INV-XXXXXXXX`), `issueDate`, `dueDate` (auto from customer's
+`paymentTermsDays`), `customerId`, `customerContact`, `billingAddress`, `deliveryAddress`,
 `goodsSalesOrderId` (+ `Number`), `paymentTerms`, `poNumber/poDate/poAmount` (optional reference),
 `notes`, attachments.
 
@@ -443,11 +443,11 @@ breakdown, CSV export, manual "Recompute" button.
 | GET/POST | `/goods-receipts`, `/:id` (PUT/DELETE), `/:id/confirm`, `/:id/cancel` | GRN lifecycle |
 | GET/POST/PUT/DELETE | `/purchase-invoices`, `/:id` | Supplier payables |
 | GET/POST/PUT/DELETE | `/purchase-orders`, `/:id`, `/:id/convert-to-so` | Proformas (both sides) + sales conversion |
-| GET/POST/PUT/DELETE | `/quotations`, `/:id`, `/:id/convert`, `/:id/send-to-debtor` | Quotations + approval |
-| GET/POST/PUT/DELETE | `/goods-sales-orders`, `/:id`, `/:id/send-to-debtor` | Sales orders + approval |
+| GET/POST/PUT/DELETE | `/quotations`, `/:id`, `/:id/convert`, `/:id/send-to-customer` | Quotations + approval |
+| GET/POST/PUT/DELETE | `/goods-sales-orders`, `/:id`, `/:id/send-to-customer` | Sales orders + approval |
 | GET/POST | `/goods-dispatches`, `/:id`, `/:id/confirm`, `/:id/cancel`, `/:id/deliver`, `/:id/return` | Dispatch lifecycle |
-| GET/POST/PUT/DELETE | `/invoices`, `/:id`, `/:id/issue`, `/:id/payment`, `/:id/send-noa`, `/invoices/:id/remind-debtor/:token` | Sales invoices + NOA + reminders |
-| GET | `/approvals/:token`, POST `/approvals/:token/respond` | Public debtor approve/reject pages |
+| GET/POST/PUT/DELETE | `/invoices`, `/:id`, `/:id/issue`, `/:id/payment`, `/:id/send-noa`, `/invoices/:id/remind-customer/:token` | Sales invoices + NOA + reminders |
+| GET | `/approvals/:token`, POST `/approvals/:token/respond` | Public customer approve/reject pages |
 | GET | `/forecast-variables` (list), POST `/forecast-variables/recompute` | Forecast snapshots |
 
 ---
@@ -478,7 +478,7 @@ breakdown, CSV export, manual "Recompute" button.
 1. **Documents are snapshots, not live links** — line items copy SKU/name/unit/price; later
    catalogue edits never alter old documents.
 2. **Statuses are dual-track where two approvals exist** (quotation: lifecycle + price approval +
-   debtor approval; proforma: document lifecycle + funding status) — render as multiple pills.
+   customer approval; proforma: document lifecycle + funding status) — render as multiple pills.
 3. **Derived statuses** (partially/fully received & dispatched, delivered) are recomputed, never
    manually set; manual status kept separately for clean fallback.
 4. **Concurrency:** confirm/cancel use atomic conditional updates (`status = 'draft'` guard) so
@@ -487,7 +487,7 @@ breakdown, CSV export, manual "Recompute" button.
 5. **Cancellation always reverses its own effect:** GRN cancel → stock-out reversals + PO revoke;
    dispatch cancel → stock-in reversals + SO revoke; return → stock-in + SO revoke; cancelled
    movements drop out of the balance.
-6. **IDEMPOTENT emails:** "Send to customer/debtor" marks sent AND emails; failure of the email
+6. **IDEMPOTENT emails:** "Send to customer/customer" marks sent AND emails; failure of the email
    never rolls back the status (warning shown, retry allowed). No duplicate emails from
    double-clicks (busy guards).
 7. **Advance deduction is computed server-side** from recorded advances (never trusted from the
@@ -510,7 +510,7 @@ breakdown, CSV export, manual "Recompute" button.
 3. **Purchase Order + GRN** (learn the "document never touches stock, GRN credits" pattern).
 4. **Purchase Invoice** (link to PO, difference checks, advance deduction, payment lifecycle).
 5. **Sales Order + Dispatch** (mirror of PO+GRN on the sales side; add deliver/return).
-6. **Quotation** (dual approval + debtor email approval) → convert to SO.
+6. **Quotation** (dual approval + customer email approval) → convert to SO.
 7. **Sales Invoice** (link to SO, NOA, payments, reminders) — you already have the funding
    pipeline; just bolt on the SO link and advance deduction.
 8. **Wire proformas both ways** (purchase proforma → PO; sales proforma → SO).

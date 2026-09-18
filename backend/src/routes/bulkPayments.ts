@@ -56,7 +56,7 @@ async function partiallyPayInvoice(inv: Invoice, amount: number, now: string) {
 
 // ── POST /api/bulk-payments/process ──
 const processSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_date: z.string().min(1),
   amount: z.number().min(0),
   use_balance: z.boolean().optional().default(false),
@@ -74,12 +74,12 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     let availableAmount = parsed.amount;
     let consumedOldPayments: PaymentRecord[] = [];
 
-    // If use_balance, scan previous payment records for this debtor with remaining > 0
+    // If use_balance, scan previous payment records for this customer with remaining > 0
     if (parsed.use_balance) {
       const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-        filterExpression: "debtor_id = :did AND #remaining > :zero",
+        filterExpression: "customer_id = :did AND #remaining > :zero",
         expressionAttributeNames: { "#remaining": "remaining" },
-        expressionAttributeValues: { ":did": parsed.debtor_id, ":zero": 0 },
+        expressionAttributeValues: { ":did": parsed.customer_id, ":zero": 0 },
       });
       consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
@@ -91,11 +91,13 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       return;
     }
 
-    // ── 2. Fetch open invoices for this debtor ──
+    // ── 2. Fetch open invoices for this customer ──
     const allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const eligibleStatuses = new Set(["pending", "approved", "funded", "advanced", "overdue"]);
+    // Match the Bulk payments UI list (everything except terminal states) so every
+    // invoice the user sees selected actually gets closed/partially paid.
+    const ineligibleStatuses = new Set(["paid", "rejected"]);
     let openInvoices = allInvoices
-      .filter((i) => i.debtor_id === parsed.debtor_id && eligibleStatuses.has(i.status))
+      .filter((i) => i.customer_id === parsed.customer_id && !ineligibleStatuses.has(i.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
 
     // ── 3. Process by mode ──
@@ -238,7 +240,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       id: generateId(),
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
@@ -268,7 +270,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       createActivityAlert({
         client_id: req.user!.id,
         company_id: req.user!.company_id,
-        debtor_id: parsed.debtor_id,
+        customer_id: parsed.customer_id,
         type: "payment_received",
         severity: "info",
         message: `Bulk payment of ${fmtMoneyShort(parsed.amount)} processed — ${closed.length} closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining balance: ${fmtMoneyShort(remainingAfterProcessing)}`,
@@ -296,14 +298,14 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
   }
 });
 
-// ── GET /api/bulk-payments/balance/:debtorId ──
+// ── GET /api/bulk-payments/balance/:customerId ──
 // Returns the total unapplied remaining balance from previous payment records.
-router.get("/balance/:debtorId", requireAuth, async (req: AuthRequest, res: Response) => {
+router.get("/balance/:customerId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-      filterExpression: "debtor_id = :did AND #remaining > :zero",
+      filterExpression: "customer_id = :did AND #remaining > :zero",
       expressionAttributeNames: { "#remaining": "remaining" },
-      expressionAttributeValues: { ":did": req.params.debtorId, ":zero": 0 },
+      expressionAttributeValues: { ":did": req.params.customerId, ":zero": 0 },
     });
     const totalRemaining = payments.reduce((s, p) => s + Number(p.remaining), 0);
     res.json({ total_remaining: totalRemaining, payment_count: payments.length });
@@ -314,25 +316,25 @@ router.get("/balance/:debtorId", requireAuth, async (req: AuthRequest, res: Resp
 });
 
 // ── GET /api/bulk-payments/history ──
-// Returns payment records enriched with debtor names, optionally filtered by debtor_id.
+// Returns payment records enriched with customer names, optionally filtered by customer_id.
 router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const debtorId = req.query.debtor_id as string | undefined;
+    const customerId = req.query.customer_id as string | undefined;
 
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!));
 
-    // Filter by debtor if specified
+    // Filter by customer if specified
     let filtered = payments;
-    if (debtorId) {
-      filtered = payments.filter((p) => p.debtor_id === debtorId);
+    if (customerId) {
+      filtered = payments.filter((p) => p.customer_id === customerId);
     }
 
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with party names (debtors + vendors)
-    const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d.name]));
+    // Enrich with party names (customers + vendors)
+    const allCustomers = await scanTable<{ id: string; name: string }>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d.name]));
     const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));
     // Keep legacy supplier prefix for backward compatibility with old records
@@ -341,7 +343,7 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const enriched = filtered.map((p) => ({
       ...p,
-      debtor_name: debtorMap.get(p.debtor_id) ?? vendorMap.get(p.debtor_id) ?? supplierMap.get(p.debtor_id) ?? "Unknown",
+      customer_name: customerMap.get(p.customer_id) ?? vendorMap.get(p.customer_id) ?? supplierMap.get(p.customer_id) ?? "Unknown",
     }));
 
     // Calculate totals
@@ -444,7 +446,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       return;
     }
 
-    const isSupplierPayment = payment.debtor_id?.startsWith("supplier_") || payment.debtor_id?.startsWith("vendor_");
+    const isSupplierPayment = payment.customer_id?.startsWith("supplier_") || payment.customer_id?.startsWith("vendor_");
     const reversedInvoices: string[] = [];
     const reversalErrors: Array<{ id: string; error: string }> = [];
     const restoredCreditNotes: string[] = [];
@@ -503,7 +505,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       createActivityAlert({
         client_id: req.user!.id,
         company_id: req.user!.company_id,
-        debtor_id: payment.debtor_id,
+        customer_id: payment.customer_id,
         type: "payment_received",
         severity: "warning",
         message: `Bulk payment of ${fmtMoneyShort(payment.amount)} reversed — ${reversedInvoices.length} invoice(s) reopened, ${restoredCreditNotes.length} credit note(s) restored.`,
@@ -586,9 +588,9 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     let consumedOldPayments: PaymentRecord[] = [];
 
     if (parsed.use_balance) {
-      // Balance tracking uses PAYMENTS table with vendor_id stored in debtor_id field
+      // Balance tracking uses PAYMENTS table with vendor_id stored in customer_id field
       const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-        filterExpression: "debtor_id = :did AND #remaining > :zero",
+        filterExpression: "customer_id = :did AND #remaining > :zero",
         expressionAttributeNames: { "#remaining": "remaining" },
         expressionAttributeValues: { ":did": `vendor_${parsed.vendor_id}`, ":zero": 0 },
       });
@@ -604,9 +606,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
 
     // ── 3. Fetch open purchase invoices for this vendor ──
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const eligiblePiStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
+    // Match the Bulk payments UI list (everything except terminal states) so every
+    // invoice the user sees selected actually gets closed/partially paid.
+    const ineligiblePiStatuses = new Set(["paid", "rejected", "disputed"]);
     let openPurchaseInvoices = allPurchaseInvoices
-      .filter((pi) => pi.vendor_id === vendor.id && eligiblePiStatuses.has(pi.status))
+      .filter((pi) => pi.vendor_id === vendor.id && !ineligiblePiStatuses.has(pi.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
 
     // ── 4. Process by mode ──
@@ -737,7 +741,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       id: generateId(),
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: `vendor_${parsed.vendor_id}`,
+      customer_id: `vendor_${parsed.vendor_id}`,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
@@ -796,7 +800,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
 router.get("/purchase-balance/:vendorId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-      filterExpression: "debtor_id = :did AND #remaining > :zero",
+      filterExpression: "customer_id = :did AND #remaining > :zero",
       expressionAttributeNames: { "#remaining": "remaining" },
       expressionAttributeValues: { ":did": `vendor_${req.params.vendorId}`, ":zero": 0 },
     });

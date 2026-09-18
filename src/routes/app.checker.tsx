@@ -145,7 +145,7 @@ function CheckerPage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: net + adv, // reconstruct gross
         po_number: i.po_number, advance: adv, net,
         issue_date: i.issue_date, due_date: i.due_date,
-        party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
+        party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
         has_contractual_due_date: i.has_contractual_due_date,
       };
@@ -171,7 +171,7 @@ function CheckerPage() {
       net: Number(p.amount),
       issue_date: p.proforma_date ?? p.issue_date,
       due_date: null,
-      party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
+      party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,

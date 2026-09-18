@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Suspense, lazy, useMemo, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { PageHeader } from "@/components/ledger-ui";
@@ -9,11 +9,23 @@ import { WorkItemsTable } from "@/components/work-items-table";
 import { Wallet, BarChart3, Banknote, Send, ClipboardList, FileText, FileSignature, Truck, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/app/finance-workbench")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    section: typeof search?.section === "string" ? (search.section as string) : undefined,
+  }),
   component: FinanceWorkbenchPage,
 });
 
-const DocPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DocListPanel })));
-const DispatchOrdersPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.DispatchOrdersPanel })));
+const CashCommandPanel = lazy(() => import("@/components/cash-command").then((m) => ({ default: m.CashCommand })));
+
+// Sub-tab pages embedded below via lazy loader — no redirect links.
+const QueueEmbedded = lazy(() => import("@/routes/app.queue").then((m) => ({ default: m.QueuePage })));
+const BulkPaymentsEmbedded = lazy(() => import("@/routes/app.bulk-payments").then((m) => ({ default: m.BulkPaymentsPage })));
+const SalesOrdersEmbedded = lazy(() => import("@/routes/app.sales-orders").then((m) => ({ default: m.SalesOrdersPage })));
+const InvoicesEmbedded = lazy(() => import("@/routes/app.invoices").then((m) => ({ default: () => <m.InvoicesPage embedded /> })));
+const ProformasEmbedded = lazy(() => import("@/routes/app.proformas").then((m) => ({ default: () => <m.ProformasPage embedded /> })));
+const AdvancesEmbedded = lazy(() => import("@/routes/app.advances").then((m) => ({ default: m.AdvancesPage })));
+const PurchasesEmbedded = lazy(() => import("@/routes/app.purchases").then((m) => ({ default: () => <m.PurchasesPage embedded /> })));
+const DispatchesEmbedded = lazy(() => import("@/routes/app.dispatches").then((m) => ({ default: () => <m.DispatchesPage embedded /> })));
 const ActivityPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GenericActivityPanel })));
 
 const TABS = [
@@ -31,7 +43,31 @@ const TABS = [
 ];
 
 function FinanceWorkbenchPage() {
-  const [section, setSection] = useState("workbench");
+  const navigate = useNavigate();
+  const { section: sectionParam } = Route.useSearch();
+  const [section, setSection] = useState(sectionParam ?? "workbench");
+  useEffect(() => {
+    if (sectionParam) setSection(sectionParam);
+  }, [sectionParam]);
+  const changeSection = (s: string) => {
+    setSection(s);
+    navigate({ to: "/app/finance-workbench", search: { section: s }, replace: true });
+  };
+  // Row actions open the matching sub-tab page below instead of redirecting away.
+  const SECTION_BY_ROUTE: Record<string, string> = {
+    "/app/queue": "treasury",
+    "/app/bulk-payments": "bulk",
+    "/app/sales-orders": "orders",
+    "/app/invoices": "invoices",
+    "/app/proformas": "proforma",
+    "/app/advances": "advances",
+    "/app/purchases": "pinvoices",
+    "/app/dispatches": "dispatch",
+  };
+  const openItemBelow = (w: WorkItem) => {
+    const s = w.openTo ? SECTION_BY_ROUTE[w.openTo] : undefined;
+    if (s) changeSection(s);
+  };
   const [family, setFamily] = useState<"all" | "sales" | "purchase" | "payments">("all");
   const [query, setQuery] = useState("");
 
@@ -55,7 +91,7 @@ function FinanceWorkbenchPage() {
     const list: (WorkItem & { fam: string })[] = [
       ...sinvs.filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({
         fam: "sales", id: `si-${i.id}`, docNumber: i.invoice_number ?? i.id.slice(0, 8), docKind: "Sales invoice",
-        counterparty: i.party ?? i.debtor_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
+        counterparty: i.party ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
         nextStep: "Approve and fund", owner: "Treasury", dueDate: i.due_date ?? i.created_at,
         overdue: i.status === "overdue", priority: (i.status === "overdue" ? "high" : "normal") as WorkItem["priority"],
         actionLabel: "Open", openTo: "/app/invoices",
@@ -69,7 +105,7 @@ function FinanceWorkbenchPage() {
       })),
       ...advs.filter((a: any) => !["paid", "settled", "closed"].includes(String(a.status ?? ""))).map((a: any) => ({
         fam: "payments", id: `ad-${a.id}`, docNumber: a.advance_number ?? a.id.slice(0, 8), docKind: "Advance",
-        counterparty: a.party ?? a.debtor_name ?? a.supplier_name ?? "—", value: Number(a.amount ?? 0), status: a.status ?? "pending",
+        counterparty: a.party ?? a.customer_name ?? a.supplier_name ?? "—", value: Number(a.amount ?? 0), status: a.status ?? "pending",
         nextStep: "Release advance", owner: "Treasury", dueDate: a.due_date ?? a.created_at,
         overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/advances",
       })),
@@ -78,19 +114,6 @@ function FinanceWorkbenchPage() {
       .filter((w) => family === "all" || w.fam === family)
       .filter((w) => match([w.docNumber, w.counterparty, w.nextStep, w.status].join(" ")));
   }, [sinvs, pinvs, advs, family, query]);
-
-  const cashPanel = (title: string, rows: any[], to: string) => (
-    <SectionCard title={title} subtitle={`${rows.length} open`} action={<a href={to} className="text-xs font-semibold text-primary hover:underline">Open</a>}>
-      {rows.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">Nothing open</p> : (
-        <ul className="divide-y divide-border/60">{rows.slice(0, 8).map((r: any) => (
-          <li key={r.id} className="flex items-center justify-between gap-2 py-2 text-[13px]">
-            <span className="min-w-0 truncate font-mono">{r.invoice_number ?? r.advance_number ?? r.id.slice(0, 8)} <span className="text-muted-foreground">· {r.party ?? r.debtor_name ?? r.supplier_name ?? ""}</span></span>
-            <span className="num shrink-0">{Number(r.amount ?? 0).toLocaleString()}</span>
-          </li>))}
-        </ul>
-      )}
-    </SectionCard>
-  );
 
   return (
     <div>
@@ -101,7 +124,7 @@ function FinanceWorkbenchPage() {
       />
       <div className="mt-4 space-y-5">
         <div className="overflow-x-auto">
-          <WorkbenchTabs tabs={TABS} active={section} onChange={setSection} />
+          <WorkbenchTabs tabs={TABS} active={section} onChange={changeSection} />
         </div>
         {section === "workbench" && (
           <div className="space-y-5">
@@ -125,9 +148,9 @@ function FinanceWorkbenchPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="lg:col-span-3">
-                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Finance work items" subtitle="Invoices and payments needing treasury action." />}
+                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Finance work items" subtitle="Invoices and payments needing treasury action." onAction={openItemBelow} />}
               </div>
-              <SectionCard title="Overdue now" action={<button onClick={() => setSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
+              <SectionCard title="Overdue now" action={<button onClick={() => changeSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
                 {overdue === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">Nothing overdue</p> : (
                   <ul className="space-y-3">{items.filter((w) => w.overdue).slice(0, 5).map((w) => (
                     <li key={w.id} className="text-[13px]"><span className="block truncate font-medium">{w.counterparty}</span>
@@ -139,37 +162,36 @@ function FinanceWorkbenchPage() {
           </div>
         )}
         {section === "cash" && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {cashPanel("Advances in flight", advs, "/app/advances")}
-            {cashPanel("Overdue invoices", [...sinvs, ...pinvs].filter((i: any) => i.status === "overdue"), "/app/queue")}
-          </div>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}>
+            <CashCommandPanel />
+          </Suspense>
         )}
         {section === "treasury" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Funding queue" url="/invoices" to="/app/queue" label="Queue" /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><QueueEmbedded /></Suspense>
         )}
         {section === "bulk" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Bulk payments" url="/invoices" to="/app/bulk-payments" label="Bulk payments" /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><BulkPaymentsEmbedded /></Suspense>
         )}
         {section === "orders" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Sales orders" url="/goods-sales-orders" to="/app/sales-orders" label="Orders" numKey="so_number" partyKeys={["customer_name"]} amountKeys={["grand_total"]} /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><SalesOrdersEmbedded /></Suspense>
         )}
         {section === "invoices" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Sales invoices" url="/invoices" to="/app/invoices" label="Invoices" /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><InvoicesEmbedded /></Suspense>
         )}
         {section === "proforma" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Proforma invoices" url="/proformas" to="/app/proformas" label="Proformas" numKey="proforma_number" /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformasEmbedded /></Suspense>
         )}
         {section === "advances" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Advances" url="/advances" to="/app/advances" label="Advances" numKey="advance_number" partyKeys={["party", "debtor_name", "supplier_name"]} /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><AdvancesEmbedded /></Suspense>
         )}
         {section === "pinvoices" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DocPanel title="Purchase invoices" url="/purchase-invoices" to="/app/purchases" label="Invoices" partyKeys={["party", "supplier_name"]} /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><PurchasesEmbedded /></Suspense>
         )}
         {section === "dispatch" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DispatchOrdersPanel /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DispatchesEmbedded /></Suspense>
         )}
         {section === "activity" && (
-          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Finance activity" /></Suspense>
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Finance activity" onAction={openItemBelow} /></Suspense>
         )}
       </div>
     </div>

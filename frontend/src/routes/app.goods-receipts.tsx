@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -75,8 +75,10 @@ const GRN_STATUS: Record<GRN["status"], string> = {
   cancelled: "border-border bg-muted text-muted-foreground line-through",
 };
 
-function GoodsReceiptsPage() {
-  const { po: preselectedPo } = Route.useSearch();
+export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselectedPoProp }: { embedded?: boolean; preselectedPo?: string } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string } });
+  const preselectedPo = preselectedPoProp ?? (embedded ? undefined : ((routerSearch as any)?.po as string | undefined));
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-purchase-orders");
   const canOverride = isAdmin || isChecker;

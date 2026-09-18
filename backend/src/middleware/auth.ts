@@ -105,7 +105,7 @@ export function requireRole(...roles: AppRole[]) {
 // ── Permission-based access control ──
 //
 // Resource names used with requireWriteAccess():
-//   "suppliers", "debtors", "invoices", "purchase-invoices",
+//   "suppliers", "customers", "invoices", "purchase-invoices",
 //   "purchase-orders", "stock-movements", "advances", "expenses",
 //   "vendors", "products", "goods-purchase-orders", "goods-sales-orders",
 //   "quotations", "checker-desk", "funding-queue", "upload", "admin", "cash"
@@ -124,7 +124,7 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
     read: ["*"],
     write: [
       "suppliers",
-      "debtors",
+      "customers",
       "invoices",
       "purchase-invoices",
       "purchase-orders",

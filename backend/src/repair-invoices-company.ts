@@ -9,7 +9,7 @@
  * 1. Scans all invoices with null/missing company_id
  * 2. For each, tries to infer company_id from:
  *    a. The invoice's client_id → look up the user → get their company_id
- *    b. The invoice's debtor_id → look up the debtor → get their company_id
+ *    b. The invoice's customer_id → look up the customer → get their company_id
  *    c. The invoice's linked purchase orders (via po_number)
  * 3. Updates each invoice with the inferred company_id
  * 4. Reports any invoices that couldn't be repaired
@@ -18,7 +18,7 @@
  */
 
 import { scanTable, getItem, updateItem, TABLES } from "./db/client.js";
-import type { Invoice, User, Debtor, PurchaseOrder } from "./types/index.js";
+import type { Invoice, User, Customer, PurchaseOrder } from "./types/index.js";
 
 // ── Helpers
 
@@ -49,21 +49,21 @@ async function findInvoicesNeedingRepair(): Promise<Invoice[]> {
 // ── Step 2: Build lookup maps
 
 async function buildLookupMaps() {
-  heading("Step 2: Building lookup maps (users, debtors, purchase orders)");
+  heading("Step 2: Building lookup maps (users, customers, purchase orders)");
 
   const users = await scanTable<User>(TABLES.USERS);
   const userMap = new Map(users.map((u) => [u.id, u]));
   log(`  Loaded ${users.length} users.`);
 
-  const debtors = await scanTable<Debtor>(TABLES.DEBTORS);
-  const debtorMap = new Map(debtors.map((d) => [d.id, d]));
-  log(`  Loaded ${debtors.length} debtors.`);
+  const customers = await scanTable<Customer>(TABLES.CUSTOMERS);
+  const customerMap = new Map(customers.map((d) => [d.id, d]));
+  log(`  Loaded ${customers.length} customers.`);
 
   const purchaseOrders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS);
   const poByNumber = new Map(purchaseOrders.map((po) => [po.po_number, po]));
   log(`  Loaded ${purchaseOrders.length} purchase orders.`);
 
-  return { userMap, debtorMap, poByNumber };
+  return { userMap, customerMap, poByNumber };
 }
 
 // ── Step 3: Infer company_id for an invoice
@@ -71,7 +71,7 @@ async function buildLookupMaps() {
 function inferCompanyId(
   invoice: Invoice,
   userMap: Map<string, User>,
-  debtorMap: Map<string, Debtor>,
+  customerMap: Map<string, Customer>,
   poByNumber: Map<string, PurchaseOrder>,
 ): string | null {
   // Priority 1: Look up the client (user) who created the invoice
@@ -82,11 +82,11 @@ function inferCompanyId(
     }
   }
 
-  // Priority 2: Look up the debtor linked to this invoice
-  if (invoice.debtor_id) {
-    const debtor = debtorMap.get(invoice.debtor_id);
-    if (debtor?.company_id) {
-      return debtor.company_id;
+  // Priority 2: Look up the customer linked to this invoice
+  if (invoice.customer_id) {
+    const customer = customerMap.get(invoice.customer_id);
+    if (customer?.company_id) {
+      return customer.company_id;
     }
   }
 
@@ -106,7 +106,7 @@ function inferCompanyId(
 async function repairInvoices(
   invoices: Invoice[],
   userMap: Map<string, User>,
-  debtorMap: Map<string, Debtor>,
+  customerMap: Map<string, Customer>,
   poByNumber: Map<string, PurchaseOrder>,
 ) {
   heading("Step 3: Repairing invoices with missing company_id");
@@ -120,7 +120,7 @@ async function repairInvoices(
   let skipped = 0;
 
   for (const invoice of invoices) {
-    const companyId = inferCompanyId(invoice, userMap, debtorMap, poByNumber);
+    const companyId = inferCompanyId(invoice, userMap, customerMap, poByNumber);
 
     if (companyId) {
       try {
@@ -136,7 +136,7 @@ async function repairInvoices(
       }
     } else {
       skipped++;
-      log(`  ⚠️  Invoice ${invoice.invoice_number} (${invoice.id.slice(-8)}) — no user/debtor/PO found, skipping.`);
+      log(`  ⚠️  Invoice ${invoice.invoice_number} (${invoice.id.slice(-8)}) — no user/customer/PO found, skipping.`);
     }
   }
 
@@ -157,8 +157,8 @@ export async function runInvoiceCompanyRepair() {
 
   try {
     const invoices = await findInvoicesNeedingRepair();
-    const { userMap, debtorMap, poByNumber } = await buildLookupMaps();
-    await repairInvoices(invoices, userMap, debtorMap, poByNumber);
+    const { userMap, customerMap, poByNumber } = await buildLookupMaps();
+    await repairInvoices(invoices, userMap, customerMap, poByNumber);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n━━━ Repair complete (${elapsed}s) ━━━\n`);

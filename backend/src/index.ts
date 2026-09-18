@@ -22,7 +22,7 @@ import { recomputeAll } from "./utils/forecast.js";
 // Route imports
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profiles.js";
-import debtorRoutes from "./routes/debtors.js";
+import customerRoutes from "./routes/customers.js";
 import vendorRoutes from "./routes/vendors.js";
 import supplierRoutes from "./routes/suppliers.js";
 import invoiceRoutes from "./routes/invoices.js";
@@ -75,7 +75,7 @@ app.use("/api/auth", authRoutes);
 
 // Standard API routes
 app.use("/api/profiles", profileRoutes);
-app.use("/api/debtors", debtorRoutes);
+app.use("/api/customers", customerRoutes);
 app.use("/api/vendors", vendorRoutes);
 app.use("/api/suppliers", supplierRoutes);
 app.use("/api/invoices", invoiceRoutes);

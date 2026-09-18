@@ -19,9 +19,9 @@ type NoaInvoice = {
   noa_status: string;
   noa_comments: string;
   client_company: string;
-  debtor_name: string;
-  debtor_contact_name: string;
-  debtor_contact_email: string;
+  customer_name: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
 };
 
 function NoaPage() {
@@ -73,8 +73,8 @@ function NoaPage() {
         </p>
 
         <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
-          <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Debtor</dt><dd>{inv.debtor_name}</dd></div>
-          <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Contact</dt><dd>{inv.debtor_contact_name || "—"}</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Customer</dt><dd>{inv.customer_name}</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Contact</dt><dd>{inv.customer_contact_name || "—"}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Invoice #</dt><dd className="font-mono">{inv.invoice_number}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Amount</dt><dd className="num">{fmtMoney(Number(inv.amount))}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-muted-foreground">Issue date</dt><dd>{fmtDate(inv.issue_date)}</dd></div>

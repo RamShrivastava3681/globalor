@@ -29,7 +29,7 @@ function NaughtyListPage() {
                 <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Invoice</th><th className="px-3 py-2">Customer</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th></tr></thead>
                 <tbody className="divide-y divide-border/60">
                   {rows.slice(0, 30).map((i: any) => (
-                    <tr key={i.id}><td className="px-3 py-2 font-mono text-[13px]">{i.invoice_number}</td><td className="px-3 py-2">{i.party ?? i.debtor_name ?? "—"}</td><td className="px-3 py-2 text-right num">{fmtMoney(Number(i.amount ?? 0))}</td><td className="px-3 py-2"><StatusPill status={i.status} /></td></tr>
+                    <tr key={i.id}><td className="px-3 py-2 font-mono text-[13px]">{i.invoice_number}</td><td className="px-3 py-2">{i.party ?? i.customer_name ?? "—"}</td><td className="px-3 py-2 text-right num">{fmtMoney(Number(i.amount ?? 0))}</td><td className="px-3 py-2"><StatusPill status={i.status} /></td></tr>
                   ))}
                 </tbody>
               </table>

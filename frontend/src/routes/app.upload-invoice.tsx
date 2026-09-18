@@ -17,7 +17,7 @@ export const Route = createFileRoute("/app/upload-invoice")({
 });
 
 type ParsedData = {
-  debtor: {
+  customer: {
     name: string;
     registered_address: string;
     contact_email: string;
@@ -56,11 +56,11 @@ function UploadInvoicePage() {
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [matchedDebtor, setMatchedDebtor] = useState<any | null>(null);
-  const [matchedDebtors, setMatchedDebtors] = useState<any[]>([]);
+  const [matchedCustomer, setMatchedCustomer] = useState<any | null>(null);
+  const [matchedCustomers, setMatchedCustomers] = useState<any[]>([]);
 
   // Editable fields for review step
-  const [debtorForm, setDebtorForm] = useState({
+  const [customerForm, setCustomerForm] = useState({
     name: "",
     registered_address: "",
     contact_email: "",
@@ -78,10 +78,10 @@ function UploadInvoicePage() {
     payment_terms_days: 30,
   });
 
-  // Fetch existing debtors for matching
-  const debtorsQ = useQuery({
-    queryKey: ["debtors-for-upload"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  // Fetch existing customers for matching
+  const customersQ = useQuery({
+    queryKey: ["customers-for-upload"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   // ── File upload mutation ──
@@ -112,12 +112,12 @@ function UploadInvoicePage() {
       setParsedData(data);
 
       // Fill forms
-      setDebtorForm({
-        name: data.debtor.name || "",
-        registered_address: data.debtor.registered_address || "",
-        contact_email: data.debtor.contact_email || "",
-        contact_phone: data.debtor.contact_phone || "",
-        registration_no: data.debtor.registration_no || "",
+      setCustomerForm({
+        name: data.customer.name || "",
+        registered_address: data.customer.registered_address || "",
+        contact_email: data.customer.contact_email || "",
+        contact_phone: data.customer.contact_phone || "",
+        registration_no: data.customer.registration_no || "",
       });
 
       const issueDate = data.invoice.issue_date
@@ -139,16 +139,16 @@ function UploadInvoicePage() {
         payment_terms_days: termsDays,
       });
 
-      // Try to find matching debtor
-      if (data.debtor.name) {
-        const existing = debtorsQ.data ?? [];
-        const nameLower = data.debtor.name.toLowerCase().trim();
+      // Try to find matching customer
+      if (data.customer.name) {
+        const existing = customersQ.data ?? [];
+        const nameLower = data.customer.name.toLowerCase().trim();
         const matches = existing.filter((d: any) =>
           d.name.toLowerCase().includes(nameLower) || nameLower.includes(d.name.toLowerCase())
         );
-        setMatchedDebtors(matches);
+        setMatchedCustomers(matches);
         if (matches.length === 1) {
-          setMatchedDebtor(matches[0]);
+          setMatchedCustomer(matches[0]);
         }
       }
 
@@ -160,26 +160,26 @@ function UploadInvoicePage() {
     },
   });
 
-  // ── Create debtor (if new) mutation ──
-  const createDebtorMutation = useMutation({
+  // ── Create customer (if new) mutation ──
+  const createCustomerMutation = useMutation({
     mutationFn: async () => {
-      if (matchedDebtor) return matchedDebtor;
-      if (!debtorForm.name.trim()) throw new Error("Debtor name is required");
-      return await api.post("/debtors", {
-        name: debtorForm.name.trim(),
-        registered_address: debtorForm.registered_address || null,
-        contact_email: debtorForm.contact_email || null,
-        contact_phone: debtorForm.contact_phone || null,
-        registration_no: debtorForm.registration_no || null,
+      if (matchedCustomer) return matchedCustomer;
+      if (!customerForm.name.trim()) throw new Error("Customer name is required");
+      return await api.post("/customers", {
+        name: customerForm.name.trim(),
+        registered_address: customerForm.registered_address || null,
+        contact_email: customerForm.contact_email || null,
+        contact_phone: customerForm.contact_phone || null,
+        registration_no: customerForm.registration_no || null,
       });
     },
   });
 
   // ── Create invoice mutation ──
   const createInvoiceMutation = useMutation({
-    mutationFn: async (debtorId: string) => {
+    mutationFn: async (customerId: string) => {
       return await api.post("/invoices", {
-        debtor_id: debtorId,
+        customer_id: customerId,
         invoice_number: invoiceForm.invoice_number.trim(),
         amount: invoiceForm.amount,
         issue_date: invoiceForm.issue_date,
@@ -193,7 +193,7 @@ function UploadInvoicePage() {
     },
     onSuccess: (invoice: any) => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["debtors"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
       setStep("confirm");
       toast.success("Invoice created successfully!");
     },
@@ -203,26 +203,26 @@ function UploadInvoicePage() {
   // ── Final creation handler ──
   const [isCreating, setIsCreating] = useState(false);
   const [createdInvoice, setCreatedInvoice] = useState<any>(null);
-  const [wasDebtorCreated, setWasDebtorCreated] = useState(false);
+  const [wasCustomerCreated, setWasCustomerCreated] = useState(false);
 
   const handleCreate = async () => {
     if (isCreating) return;
     setIsCreating(true);
     try {
-      // Step 1: Get or create debtor
-      let debtorId: string;
-      if (matchedDebtor) {
-        debtorId = matchedDebtor.id;
-        setWasDebtorCreated(false);
+      // Step 1: Get or create customer
+      let customerId: string;
+      if (matchedCustomer) {
+        customerId = matchedCustomer.id;
+        setWasCustomerCreated(false);
       } else {
-        const newDebtor = await createDebtorMutation.mutateAsync();
-        debtorId = newDebtor.id;
-        setMatchedDebtor(newDebtor);
-        setWasDebtorCreated(true);
+        const newCustomer = await createCustomerMutation.mutateAsync();
+        customerId = newCustomer.id;
+        setMatchedCustomer(newCustomer);
+        setWasCustomerCreated(true);
       }
 
       // Step 2: Create invoice
-      const invoice = await createInvoiceMutation.mutateAsync(debtorId);
+      const invoice = await createInvoiceMutation.mutateAsync(customerId);
       setCreatedInvoice(invoice);
     } catch (e) {
       // Error handled in individual mutations
@@ -235,8 +235,8 @@ function UploadInvoicePage() {
     setStep("upload");
     setUploadedFile(null);
     setParsedData(null);
-    setMatchedDebtor(null);
-    setMatchedDebtors([]);
+    setMatchedCustomer(null);
+    setMatchedCustomers([]);
     setCreatedInvoice(null);
   };
 
@@ -356,15 +356,15 @@ function UploadInvoicePage() {
 
         {step === "review" && (
           <ReviewStep
-            debtorForm={debtorForm}
-            setDebtorForm={setDebtorForm}
+            customerForm={customerForm}
+            setCustomerForm={setCustomerForm}
             invoiceForm={invoiceForm}
             setInvoiceForm={setInvoiceForm}
-            matchedDebtor={matchedDebtor}
-            matchedDebtors={matchedDebtors}
+            matchedCustomer={matchedCustomer}
+            matchedCustomers={matchedCustomers}
             onSelectExisting={(d: any) => {
-              setMatchedDebtor(d);
-              setDebtorForm(prev => ({
+              setMatchedCustomer(d);
+              setCustomerForm(prev => ({
                 ...prev,
                 name: d.name,
                 registered_address: d.registered_address || prev.registered_address,
@@ -373,7 +373,7 @@ function UploadInvoicePage() {
                 registration_no: d.registration_no || prev.registration_no,
               }));
             }}
-            onUseNew={() => setMatchedDebtor(null)}
+            onUseNew={() => setMatchedCustomer(null)}
             onBack={() => setStep("upload")}
             onCreate={handleCreate}
             isCreating={isCreating}
@@ -385,8 +385,8 @@ function UploadInvoicePage() {
         {step === "confirm" && (
           <ConfirmStep
             createdInvoice={createdInvoice}
-            matchedDebtor={matchedDebtor}
-            wasDebtorCreated={wasDebtorCreated}
+            matchedCustomer={matchedCustomer}
+            wasCustomerCreated={wasCustomerCreated}
             uploadedFile={uploadedFile}
             onNew={handleRetry}
             onViewInvoice={() => {
@@ -394,9 +394,9 @@ function UploadInvoicePage() {
                 navigate({ to: "/app/invoices", search: { tab: "list", view: createdInvoice.id } });
               }
             }}
-            onViewDebtor={() => {
-              if (matchedDebtor) {
-                navigate({ to: "/app/debtors" });
+            onViewCustomer={() => {
+              if (matchedCustomer) {
+                navigate({ to: "/app/customers" });
               }
             }}
           />
@@ -496,7 +496,7 @@ function UploadStep({
         <div className="rounded-lg border border-border bg-card p-4 text-center">
           <Database className="mx-auto mb-2 h-5 w-5 text-primary" />
           <p className="text-xs font-medium text-foreground">One-click Create</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">Debtor + invoice created together</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">Customer + invoice created together</p>
         </div>
       </div>
     </div>
@@ -550,19 +550,19 @@ function AnalyzingStep({ uploadedFile }: { uploadedFile: UploadedFile | null }) 
 // ── Step 3: Review ──
 
 function ReviewStep({
-  debtorForm, setDebtorForm, invoiceForm, setInvoiceForm,
-  matchedDebtor, matchedDebtors, onSelectExisting, onUseNew,
+  customerForm, setCustomerForm, invoiceForm, setInvoiceForm,
+  matchedCustomer, matchedCustomers, onSelectExisting, onUseNew,
   onBack, onCreate, isCreating, uploadedFile, parsedData,
 }: {
-  debtorForm: any; setDebtorForm: (f: any) => void;
+  customerForm: any; setCustomerForm: (f: any) => void;
   invoiceForm: any; setInvoiceForm: (f: any) => void;
-  matchedDebtor: any; matchedDebtors: any[];
+  matchedCustomer: any; matchedCustomers: any[];
   onSelectExisting: (d: any) => void; onUseNew: () => void;
   onBack: () => void; onCreate: () => void; isCreating: boolean;
   uploadedFile: UploadedFile | null; parsedData: ParsedData | null;
 }) {
-  const updateDebtor = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setDebtorForm({ ...debtorForm, [k]: e.target.value });
+  const updateCustomer = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setCustomerForm({ ...customerForm, [k]: e.target.value });
 
   const updateInvoice = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setInvoiceForm({ ...invoiceForm, [k]: e.target.value });
@@ -583,34 +583,34 @@ function ReviewStep({
         </div>
       </div>
 
-      {/* ── Debtor Section ── */}
-      <Card title="Debtor Information">
-        {/* Existing debtor match */}
-        {matchedDebtors.length > 0 && (
+      {/* ── Customer Section ── */}
+      <Card title="Customer Information">
+        {/* Existing customer match */}
+        {matchedCustomers.length > 0 && (
           <div className="mb-4 rounded-lg border border-success/30 bg-success/5 p-3">
             <div className="flex items-center gap-2 text-xs font-medium text-success mb-2">
               <UserCheck className="h-3.5 w-3.5" />
-              {matchedDebtor
-                ? `Matched existing debtor: ${matchedDebtor.name}`
-                : `${matchedDebtors.length} similar debtor${matchedDebtors.length > 1 ? "s" : ""} found in system`}
+              {matchedCustomer
+                ? `Matched existing customer: ${matchedCustomer.name}`
+                : `${matchedCustomers.length} similar customer${matchedCustomers.length > 1 ? "s" : ""} found in system`}
             </div>
             <div className="flex flex-wrap gap-2">
-              {matchedDebtors.map((d: any) => (
+              {matchedCustomers.map((d: any) => (
                 <button
                   key={d.id}
                   onClick={() => onSelectExisting(d)}
                   className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition ${
-                    matchedDebtor?.id === d.id
+                    matchedCustomer?.id === d.id
                       ? "border-success bg-success/10 text-success"
                       : "border-border text-muted-foreground hover:border-primary hover:text-primary"
                   }`}
                 >
                   <Building2 className="h-3 w-3" />
                   {d.name}
-                  <CheckCircle className={`h-3 w-3 ${matchedDebtor?.id === d.id ? "opacity-100" : "opacity-0"}`} />
+                  <CheckCircle className={`h-3 w-3 ${matchedCustomer?.id === d.id ? "opacity-100" : "opacity-0"}`} />
                 </button>
               ))}
-              {matchedDebtor && (
+              {matchedCustomer && (
                 <button
                   onClick={onUseNew}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] text-muted-foreground hover:border-warning hover:text-warning transition"
@@ -624,19 +624,19 @@ function ReviewStep({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <L label="Company Name *">
-            <input className="inp" value={debtorForm.name} onChange={updateDebtor("name")} placeholder="Acme Corp" />
+            <input className="inp" value={customerForm.name} onChange={updateCustomer("name")} placeholder="Acme Corp" />
           </L>
           <L label="Registration / Tax ID">
-            <input className="inp" value={debtorForm.registration_no} onChange={updateDebtor("registration_no")} placeholder="e.g. CR-2024-001" />
+            <input className="inp" value={customerForm.registration_no} onChange={updateCustomer("registration_no")} placeholder="e.g. CR-2024-001" />
           </L>
           <L label="Email">
-            <input className="inp" type="email" value={debtorForm.contact_email} onChange={updateDebtor("contact_email")} placeholder="billing@acme.com" />
+            <input className="inp" type="email" value={customerForm.contact_email} onChange={updateCustomer("contact_email")} placeholder="billing@acme.com" />
           </L>
           <L label="Phone">
-            <input className="inp" value={debtorForm.contact_phone} onChange={updateDebtor("contact_phone")} placeholder="+1 555-0000" />
+            <input className="inp" value={customerForm.contact_phone} onChange={updateCustomer("contact_phone")} placeholder="+1 555-0000" />
           </L>
           <L label="Address" full>
-            <input className="inp" value={debtorForm.registered_address} onChange={updateDebtor("registered_address")} placeholder="123 Business Ave, City" />
+            <input className="inp" value={customerForm.registered_address} onChange={updateCustomer("registered_address")} placeholder="123 Business Ave, City" />
           </L>
         </div>
       </Card>
@@ -741,7 +741,7 @@ function ReviewStep({
         </button>
         <button
           onClick={onCreate}
-          disabled={isCreating || !debtorForm.name.trim() || !invoiceForm.invoice_number.trim() || !invoiceForm.amount}
+          disabled={isCreating || !customerForm.name.trim() || !invoiceForm.invoice_number.trim() || !invoiceForm.amount}
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-all shadow-sm"
         >
           {isCreating ? (
@@ -752,7 +752,7 @@ function ReviewStep({
           ) : (
             <>
               <CheckCircle className="h-4 w-4" />
-              {matchedDebtor ? "Create Invoice" : "Create Debtor & Invoice"}
+              {matchedCustomer ? "Create Invoice" : "Create Customer & Invoice"}
             </>
           )}
         </button>
@@ -765,11 +765,11 @@ function ReviewStep({
 // ── Step 4: Confirm ──
 
 function ConfirmStep({
-  createdInvoice, matchedDebtor, wasDebtorCreated, uploadedFile,
-  onNew, onViewInvoice, onViewDebtor,
+  createdInvoice, matchedCustomer, wasCustomerCreated, uploadedFile,
+  onNew, onViewInvoice, onViewCustomer,
 }: {
-  createdInvoice: any; matchedDebtor: any; wasDebtorCreated: boolean; uploadedFile: UploadedFile | null;
-  onNew: () => void; onViewInvoice: () => void; onViewDebtor: () => void;
+  createdInvoice: any; matchedCustomer: any; wasCustomerCreated: boolean; uploadedFile: UploadedFile | null;
+  onNew: () => void; onViewInvoice: () => void; onViewCustomer: () => void;
 }) {
   return (
     <div className="max-w-2xl mx-auto">
@@ -779,7 +779,7 @@ function ConfirmStep({
         </div>
         <h2 className="text-2xl font-bold text-foreground">Invoice Created Successfully!</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The invoice and debtor have been added to the system.
+          The invoice and customer have been added to the system.
         </p>
 
         {/* Summary */}
@@ -814,17 +814,17 @@ function ConfirmStep({
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center gap-2 mb-3">
               <Building2 className="h-4 w-4 text-primary" />
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Debtor</span>
+              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Customer</span>
             </div>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Name</span>
-                <span className="font-medium">{matchedDebtor?.name}</span>
+                <span className="font-medium">{matchedCustomer?.name}</span>
               </div>
-              {matchedDebtor?.contact_email && (
+              {matchedCustomer?.contact_email && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Email</span>
-                  <span>{matchedDebtor.contact_email}</span>
+                  <span>{matchedCustomer.contact_email}</span>
                 </div>
               )}
             </div>
@@ -849,12 +849,12 @@ function ConfirmStep({
           >
             <Eye className="h-4 w-4" /> View Invoice
           </button>
-          {wasDebtorCreated && (
+          {wasCustomerCreated && (
             <button
-              onClick={onViewDebtor}
+              onClick={onViewCustomer}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm hover:bg-muted transition-colors"
             >
-              <Building2 className="h-4 w-4" /> View Debtor
+              <Building2 className="h-4 w-4" /> View Customer
             </button>
           )}
           <button

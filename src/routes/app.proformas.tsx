@@ -29,7 +29,7 @@ type PF = {
   id: string;
   client_id: string;
   side: "sales" | "purchase";
-  debtor_id: string | null;
+  customer_id: string | null;
   vendor_id: string | null;
   po_number: string;
   proforma_number: string | null;
@@ -42,7 +42,7 @@ type PF = {
   proforma_review_comments: string | null;
   proforma_funded_amount: number | null;
   notes: string | null;
-  debtor?: { name: string; [key: string]: any };
+  customer?: { name: string; [key: string]: any };
   vendor?: { name: string; [key: string]: any };
   client?: { company_name: string; contact_name: string; email: string; [key: string]: any };
   created_at?: string;
@@ -102,7 +102,7 @@ function ProformasPage() {
     .filter((p: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+      const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
       return (
         p.proforma_number?.toLowerCase().includes(q) ||
         p.po_number?.toLowerCase().includes(q) ||
@@ -210,7 +210,7 @@ function ProformasPage() {
                 </thead>
                 <tbody>
                   {rows.map((p: any) => {
-                    const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+                    const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
@@ -401,7 +401,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/customers")) ?? [];
       return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
@@ -417,12 +417,12 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
     mutationFn: async () => {
       if (!form.po_number.trim()) throw new Error("PO number is required");
       if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
-      if (!form.party_id) throw new Error(side === "sales" ? "Pick a debtor" : "Pick a supplier");
+      if (!form.party_id) throw new Error(side === "sales" ? "Pick a customer" : "Pick a supplier");
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
       await api.post("/purchase-orders", {
         side,
-        debtor_id: side === "sales" ? form.party_id : null,
+        customer_id: side === "sales" ? form.party_id : null,
         vendor_id: side === "purchase" ? form.party_id : null,
         po_number: form.po_number.trim(),
         proforma_number: form.proforma_number.trim(),
@@ -443,7 +443,7 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
       <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
         <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
-        <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
+        <L label={side === "sales" ? "Customer *" : "Supplier *"}>
           <div className="relative" ref={partyRef}>
             {form.party_id ? (
               <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
@@ -454,13 +454,13 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
               </div>
             ) : (
               <>
-                <input className="inp" placeholder={side === "sales" ? "Search debtors…" : "Search suppliers…"} value={partySearch}
+                <input className="inp" placeholder={side === "sales" ? "Search customers…" : "Search suppliers…"} value={partySearch}
                   onChange={(e) => { setPartySearch(e.target.value); setPartyOpen(true); }}
                   onFocus={() => setPartyOpen(true)} />
                 {partyOpen && partySearch.trim() && (
                   <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-card shadow-lg">
                     {(partiesQ.data ?? []).filter((p: any) => p.name?.toLowerCase().includes(partySearch.toLowerCase())).length === 0 ? (
-                      <div className="p-3 text-xs text-muted-foreground">No matching {side === "sales" ? "debtors" : "suppliers"}.</div>
+                      <div className="p-3 text-xs text-muted-foreground">No matching {side === "sales" ? "customers" : "suppliers"}.</div>
                     ) : (
                       (partiesQ.data ?? []).filter((p: any) => p.name?.toLowerCase().includes(partySearch.toLowerCase())).slice(0, 20).map((p: any) => (
                         <button key={p.id} type="button" onClick={() => { setForm({ ...form, party_id: p.id }); setPartySearch(""); setPartyOpen(false); }}
@@ -531,7 +531,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+  const cp = proforma.side === "sales" ? proforma.customer : proforma.vendor;
 
   const deletePf = useMutation({
     mutationFn: async () => {
@@ -592,7 +592,7 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
           {cp && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Debtor" : "Supplier"}
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Customer" : "Supplier"}
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                 <Detail label="Name" value={cp.name} />

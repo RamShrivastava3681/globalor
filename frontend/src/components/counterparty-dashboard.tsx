@@ -104,7 +104,7 @@ function ProgressBar({ value, max, color = "var(--color-primary)" }: { value: nu
 }
 
 // ── Types ──
-export type CounterpartyKind = "supplier" | "debtor";
+export type CounterpartyKind = "supplier" | "customer";
 
 export interface DashboardInvoice {
   id: string;
@@ -116,7 +116,7 @@ export interface DashboardInvoice {
   short_payment?: number;
   late_days?: number;
   vendor_id?: string;
-  debtor_id?: string;
+  customer_id?: string;
 }
 
 export interface DashboardParty {
@@ -143,7 +143,7 @@ export function CounterpartyDashboard({
   // ── Computed analytics ──
   const analytics = useMemo(() => {
     const nameKey = kind === "supplier" ? "company_name" : "name";
-    const idKey = kind === "supplier" ? "vendor_id" : "debtor_id";
+    const idKey = kind === "supplier" ? "vendor_id" : "customer_id";
 
     // Party name map
     const partyMap = new Map<string, string>();
@@ -268,7 +268,7 @@ export function CounterpartyDashboard({
   }, [kind, parties, invoices]);
 
   const isSupplier = kind === "supplier";
-  const label = isSupplier ? "supplier" : "debtor";
+  const label = isSupplier ? "supplier" : "customer";
   const metricLabel = isSupplier ? "Spent" : "Invoiced";
 
   if (loading) {
@@ -431,7 +431,7 @@ export function CounterpartyDashboard({
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                 <BarChart3 className="h-3.5 w-3.5 text-muted-foreground/50" />
-                Top {isSupplier ? "suppliers" : "debtors"} by {metricLabel.toLowerCase()}
+                Top {isSupplier ? "suppliers" : "customers"} by {metricLabel.toLowerCase()}
               </h3>
               <span className="text-[10px] text-muted-foreground/60">All time</span>
             </div>
@@ -471,7 +471,7 @@ export function CounterpartyDashboard({
             {analytics.topOutstanding.length === 0 ? (
               <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
                 <ShieldCheck className="mr-2 h-4 w-4" />
-                {isSupplier ? "All suppliers settled" : "All debtors settled"}
+                {isSupplier ? "All suppliers settled" : "All customers settled"}
               </div>
             ) : (
               <div className="space-y-3">

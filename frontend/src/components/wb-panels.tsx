@@ -1,19 +1,10 @@
-import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { SectionCard, TableSkeleton, EmptyState, FooterBanner } from "@/components/workbench";
 import { WorkItemsTable } from "@/components/work-items-table";
 import type { WorkItem } from "@/components/workbench";
-import { ArrowUpRight, Boxes, FileText, PackageCheck, Truck, Users, CalendarClock, FlaskConical } from "lucide-react";
-
-function OpenFull({ to, label }: { to: string; label: string }) {
-  return (
-    <Link to={to} className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-primary-hover">
-      Open {label} <ArrowUpRight className="h-3.5 w-3.5" />
-    </Link>
-  );
-}
+import { Boxes, FileText, PackageCheck, Truck, Users, CalendarClock, FlaskConical } from "lucide-react";
 
 function useQ<T>(key: string[], url: string) {
   return useQuery({ queryKey: key, queryFn: async () => (await api.get<T>(url)) ?? ([] as unknown as T), retry: false });
@@ -25,7 +16,7 @@ export function ForecastPanel() {
   const rows = (fvQ.data ?? []) as any[];
   if (fvQ.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Demand forecast" subtitle="Forecast variables and expected demand" action={<OpenFull to="/app/forecasting" label="Forecasting" />}>
+    <SectionCard title="Demand forecast" subtitle="Forecast variables and expected demand">
       {rows.length === 0 ? <EmptyState icon={CalendarClock} title="No forecast data" hint="Configure forecast variables to project demand." /> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -52,7 +43,7 @@ export function GrnPanel() {
   const rows = q.data ?? [];
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Goods receipts queue" subtitle={`${rows.length} receipts`} action={<OpenFull to="/app/goods-receipts" label="GRNs" />}>
+    <SectionCard title="Goods receipts queue" subtitle={`${rows.length} receipts`}>
       {rows.length === 0 ? <EmptyState icon={PackageCheck} title="No goods receipts" /> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
@@ -79,7 +70,7 @@ export function DispatchPanel() {
   const rows = q.data ?? [];
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Dispatch notes workspace" subtitle={`${rows.length} dispatches`} action={<OpenFull to="/app/dispatches" label="Dispatches" />}>
+    <SectionCard title="Dispatch notes workspace" subtitle={`${rows.length} dispatches`}>
       {rows.length === 0 ? <EmptyState icon={Truck} title="No dispatch notes" /> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
@@ -109,7 +100,7 @@ export function StockAllocationPanel() {
   for (const r of (stQ.data as any)?.rows ?? []) stock.set(r.sku, (stock.get(r.sku) ?? 0) + r.quantity);
   const lines = (soQ.data ?? []).filter((s: any) => ["draft", "confirmed"].includes(s.status)).flatMap((s: any) => (s.lines ?? []).map((l: any) => ({ so: s.so_number, ...l }))).slice(0, 20);
   return (
-    <SectionCard title="Allocation board" subtitle="Open order lines vs on-hand stock" action={<OpenFull to="/app/inventory" label="Inventory" />}>
+    <SectionCard title="Allocation board" subtitle="Open order lines vs on-hand stock">
       {lines.length === 0 ? <EmptyState icon={Boxes} title="Nothing to allocate" /> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -134,24 +125,24 @@ export function StockAllocationPanel() {
 
 export function SamplesPanel() {
   return (
-    <SectionCard title="Sample queue" subtitle="Samples awaiting dispatch" action={<OpenFull to="/app/dispatches" label="Dispatches" />}>
+    <SectionCard title="Sample queue" subtitle="Samples awaiting dispatch">
       <EmptyState icon={FlaskConical} title="No samples queued" hint="Sample distributions will appear here once recorded." />
       <FooterBanner>Sample queue is UI-only in this release — distributions are recorded as dispatch notes.</FooterBanner>
     </SectionCard>
   );
 }
 
-export function WarehouseActivityPanel({ items }: { items: WorkItem[] }) {
-  return <WorkItemsTable items={items} title="Warehouse activity" subtitle="Warehouse-filtered queue history." />;
+export function WarehouseActivityPanel({ items, onAction }: { items: WorkItem[]; onAction?: (item: WorkItem) => void }) {
+  return <WorkItemsTable items={items} title="Warehouse activity" subtitle="Warehouse-filtered queue history." onAction={onAction} />;
 }
 
 /* ── Sales family ── */
 export function CustomersPanel() {
-  const q = useQ<any[]>(["debtors"], "/debtors");
+  const q = useQ<any[]>(["customers"], "/customers");
   const rows = q.data ?? [];
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Customers" subtitle={`${rows.length} customers`} action={<OpenFull to="/app/debtors" label="Customers" />}>
+    <SectionCard title="Customers" subtitle={`${rows.length} customers`}>
       {rows.length === 0 ? <EmptyState icon={Users} title="No customers" /> : (
         <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Customer</th><th className="px-3 py-2">Contact</th><th className="px-3 py-2">Terms</th></tr></thead>
@@ -168,7 +159,7 @@ export function SalesOrdersPanel() {
   const rows = q.data ?? [];
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Sales orders" subtitle={`${rows.length} orders`} action={<OpenFull to="/app/sales-orders" label="Sales orders" />}>
+    <SectionCard title="Sales orders" subtitle={`${rows.length} orders`}>
       {rows.length === 0 ? <EmptyState icon={FileText} title="No sales orders" /> : (
         <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Order</th><th className="px-3 py-2">Customer</th><th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2">Status</th></tr></thead>
@@ -180,8 +171,8 @@ export function SalesOrdersPanel() {
   );
 }
 
-export function DocListPanel({ title, url, to, label, numKey = "invoice_number", partyKeys = ["party", "debtor_name", "customer_name"], amountKeys = ["amount", "grand_total"] }: {
-  title: string; url: string; to: string; label: string; numKey?: string; partyKeys?: string[]; amountKeys?: string[];
+export function DocListPanel({ title, url, numKey = "invoice_number", partyKeys = ["party", "customer_name", "customer_name"], amountKeys = ["amount", "grand_total"] }: {
+  title: string; url: string; to?: string; label?: string; numKey?: string; partyKeys?: string[]; amountKeys?: string[];
 }) {
   const q = useQ<any[]>([url], url);
   const rows = q.data ?? [];
@@ -189,7 +180,7 @@ export function DocListPanel({ title, url, to, label, numKey = "invoice_number",
   const party = (r: any) => partyKeys.map((k) => r[k]).find((v) => v) ?? "—";
   const amount = (r: any) => Number(amountKeys.map((k) => r[k]).find((v) => v != null) ?? 0);
   return (
-    <SectionCard title={title} subtitle={`${rows.length} documents`} action={<OpenFull to={to} label={label} />}>
+    <SectionCard title={title} subtitle={`${rows.length} documents`}>
       {rows.length === 0 ? <EmptyState icon={FileText} title={`No ${title.toLowerCase()}`} /> : (
         <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Document</th><th className="px-3 py-2">Counterparty</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Status</th></tr></thead>
@@ -207,7 +198,7 @@ export function SuppliersPanel() {
   const rows = q.data ?? [];
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Suppliers" subtitle={`${rows.length} suppliers`} action={<OpenFull to="/app/suppliers" label="Suppliers" />}>
+    <SectionCard title="Suppliers" subtitle={`${rows.length} suppliers`}>
       {rows.length === 0 ? <EmptyState icon={Users} title="No suppliers" /> : (
         <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Supplier</th><th className="px-3 py-2">Contact</th><th className="px-3 py-2">Status</th></tr></thead>
@@ -224,7 +215,7 @@ export function DispatchOrdersPanel() {
   const rows = (q.data ?? []).filter((d: any) => d.transporter_name || d.tracking_number);
   if (q.isLoading) return <TableSkeleton rows={6} cols={8} />;
   return (
-    <SectionCard title="Dispatch orders — Finance handoff" subtitle="Transporter details handed off from Warehouse Awaiting Pickup" action={<OpenFull to="/app/dispatches" label="Dispatches" />}>
+    <SectionCard title="Dispatch orders — Finance handoff" subtitle="Transporter details handed off from Warehouse Awaiting Pickup">
       {rows.length === 0 ? <EmptyState icon={Truck} title="No handoffs yet" hint="Transporter details appear here once Warehouse moves a dispatch to Awaiting Pickup." /> : (
         <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
           <thead><tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-3 py-2">Dispatch</th><th className="px-3 py-2">Carrier</th><th className="px-3 py-2">Tracking</th><th className="px-3 py-2">Customer</th></tr></thead>
@@ -236,6 +227,6 @@ export function DispatchOrdersPanel() {
   );
 }
 
-export function GenericActivityPanel({ items, title }: { items: WorkItem[]; title: string }) {
-  return <WorkItemsTable items={items} title={title} subtitle="Unified queue filtered to this family." />;
+export function GenericActivityPanel({ items, title, onAction }: { items: WorkItem[]; title: string; onAction?: (item: WorkItem) => void }) {
+  return <WorkItemsTable items={items} title={title} subtitle="Unified queue filtered to this family." onAction={onAction} />;
 }

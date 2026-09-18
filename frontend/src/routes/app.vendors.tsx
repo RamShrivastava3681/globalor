@@ -13,7 +13,7 @@ export const Route = createFileRoute("/app/vendors")({
   component: VendorsPage,
 });
 
-function VendorsPage() {
+export function VendorsPage() {
   const { user, canWrite } = useAuth();
   const canEdit = canWrite("vendors");
   const qc = useQueryClient();

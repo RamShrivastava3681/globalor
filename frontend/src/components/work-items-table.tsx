@@ -16,11 +16,16 @@ export function WorkItemsTable({
   viewAllTo,
   title = "Work items",
   subtitle,
+  onAction,
+  actionLabel,
 }: {
   items: WorkItem[];
   viewAllTo?: string;
   title?: string;
   subtitle?: string;
+  /** When provided, row actions stay on the page (switch sub-tab below) instead of redirecting via Link. */
+  onAction?: (item: WorkItem) => void;
+  actionLabel?: string;
 }) {
   const [page, setPage] = useState(1);
   const perPage = 15;
@@ -78,10 +83,14 @@ export function WorkItemsTable({
                   <tr key={w.id} className="hover:bg-muted/40">
                     <td className="px-4 py-2.5">
                       <span className="flex items-center gap-1.5">
-                        {w.openTo ? (
+                        {w.openTo && !onAction ? (
                           <Link to={w.openTo} className="font-mono text-[13px] font-semibold text-primary hover:underline">
                             {w.docNumber}
                           </Link>
+                        ) : onAction ? (
+                          <button onClick={() => onAction(w)} className="font-mono text-[13px] font-semibold text-primary hover:underline">
+                            {w.docNumber}
+                          </button>
                         ) : (
                           <span className="font-mono text-[13px] font-semibold">{w.docNumber}</span>
                         )}
@@ -96,7 +105,11 @@ export function WorkItemsTable({
                     <td className="px-4 py-2.5 text-muted-foreground">{w.owner}</td>
                     <td className="px-4 py-2.5">
                       <span className="flex items-center justify-end gap-1">
-                        {w.openTo ? (
+                        {onAction ? (
+                          <button onClick={() => onAction(w)} className={cn("inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-primary-hover")}>
+                            {actionLabel ?? w.actionLabel ?? "Open"}
+                          </button>
+                        ) : w.openTo ? (
                           <Link to={w.openTo} className={cn("inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-primary-hover")}>
                             {w.actionLabel ?? "Open"}
                           </Link>
@@ -110,10 +123,16 @@ export function WorkItemsTable({
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {w.openTo && (
-                              <DropdownMenuItem asChild>
-                                <Link to={w.openTo}>Open document</Link>
+                            {onAction ? (
+                              <DropdownMenuItem onSelect={() => onAction(w)}>
+                                Open below
                               </DropdownMenuItem>
+                            ) : (
+                              w.openTo && (
+                                <DropdownMenuItem asChild>
+                                  <Link to={w.openTo}>Open document</Link>
+                                </DropdownMenuItem>
+                              )
                             )}
                             <DropdownMenuItem asChild>
                               <Link to="/app/tasks">View in My Queue</Link>

@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
@@ -96,7 +96,7 @@ const datePresets = [
 
 const statusFilters = ["all", "draft", "submitted", "approved", "advanced", "paid", "overdue", "rejected"];
 
-// â”€â”€ Main Page Component â”€â”€
+// ── Main Page Component ──
 
 function InvoicesPage() {
   const { tab, view } = Route.useSearch();
@@ -210,30 +210,30 @@ function InvoicesPage() {
   );
 }
 
-// â”€â”€ Page 1: Sales Dashboard â”€â”€
+// ── Page 1: Sales Dashboard ──
 
 function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const { isAdmin } = useAuth();
 
-  // Buyer/debtor filter state
-  const [selectedDebtorId, setSelectedDebtorId] = useState<string>("");
+  // Buyer/customer filter state
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
 
-  // Get unique debtors from invoices for the filter dropdown
-  const debtors = useMemo(() => {
+  // Get unique customers from invoices for the filter dropdown
+  const customers = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.debtor_id && inv.debtor?.name) {
-        map.set(inv.debtor_id, { id: inv.debtor_id, name: inv.debtor.name });
+      if (inv.customer_id && inv.customer?.name) {
+        map.set(inv.customer_id, { id: inv.customer_id, name: inv.customer.name });
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredInvoices]);
 
-  // Filter invoices by selected debtor
+  // Filter invoices by selected customer
   const filteredInvoices = useMemo(() => {
-    if (!selectedDebtorId) return invoices;
-    return invoices.filter((i: any) => i.debtor_id === selectedDebtorId);
-  }, [invoices, selectedDebtorId]);
+    if (!selectedCustomerId) return invoices;
+    return invoices.filter((i: any) => i.customer_id === selectedCustomerId);
+  }, [invoices, selectedCustomerId]);
 
   // Recompute stats locally based on filtered invoices
   const localStats = useMemo(() => {
@@ -268,8 +268,8 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     };
   }, [filteredInvoices]);
 
-  // Use filtered stats when a debtor is selected, otherwise use parent stats
-  const displayStats = selectedDebtorId ? localStats : stats;
+  // Use filtered stats when a customer is selected, otherwise use parent stats
+  const displayStats = selectedCustomerId ? localStats : stats;
 
   // Chart data: monthly aggregation of invoices (respects buyer filter)
   const chartData = useMemo(() => {
@@ -300,10 +300,10 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     return { counts, amounts };
   }, [filteredInvoices]);
 
-  const topDebtors = useMemo(() => {
+  const topCustomers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.debtor?.name || "Unknown";
+      const name = inv.customer?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);
@@ -331,7 +331,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
         <h3 className="text-lg font-medium text-foreground">No invoices yet</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{selectedDebtorId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{selectedCustomerId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
       </div>
     );
   }
@@ -343,26 +343,26 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
           <select
-            value={selectedDebtorId}
-            onChange={(e) => setSelectedDebtorId(e.target.value)}
+            value={selectedCustomerId}
+            onChange={(e) => setSelectedCustomerId(e.target.value)}
             className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             <option value="">All Buyers</option>
-            {debtors.map((d) => (
+            {customers.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
         </div>
-        {selectedDebtorId && (
+        {selectedCustomerId && (
           <button
-            onClick={() => setSelectedDebtorId("")}
+            onClick={() => setSelectedCustomerId("")}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
             Clear filter
           </button>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {selectedDebtorId ? (
+          {selectedCustomerId ? (
             <>{filteredInvoices.length} invoices &middot; {fmtMoney(displayStats.totalAmount)}</>
           ) : (
             <>{invoices.length} invoices total</>
@@ -525,12 +525,12 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
           </div>
         </Card>
 
-        <Card title="Top Debtors by Volume">
+        <Card title="Top Customers by Volume">
           <div className="space-y-3">
-            {topDebtors.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No debtor data yet.</div>
+            {topCustomers.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No customer data yet.</div>
             ) : (
-              topDebtors.map((d) => (
+              topCustomers.map((d) => (
                 <div key={d.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -569,7 +569,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                    <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                    <th className="px-6 py-3 text-left font-normal">Customer</th>
                     <th className="px-6 py-3 text-right font-normal">Amount</th>
                     <th className="px-6 py-3 text-right font-normal">Days Overdue</th>
                     <th className="px-6 py-3 text-left font-normal">Due Date</th>
@@ -580,7 +580,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.debtor?.name ?? "â€”"}</td>
+                      <td className="px-6 py-3">{i.customer?.name ?? "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -617,7 +617,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
             <thead className="text-xs uppercase tracking-widest text-muted-foreground">
               <tr className="border-b border-border">
                 <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                <th className="px-6 py-3 text-left font-normal">Customer</th>
                 <th className="px-6 py-3 text-right font-normal">Amount</th>
                 <th className="px-6 py-3 text-left font-normal">Status</th>
                 <th className="px-6 py-3 text-left font-normal">Created</th>
@@ -627,7 +627,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.debtor?.name ?? "â€”"}</td>
+                  <td className="px-6 py-3">{i.customer?.name ?? "—"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
@@ -641,7 +641,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   );
 }
 
-// â”€â”€ Page 2: Create Invoice â”€â”€
+// ── Page 2: Create Invoice ──
 
 function CreateInvoiceView() {
   const navigate = useNavigate();
@@ -651,7 +651,7 @@ function CreateInvoiceView() {
 
   const [form, setForm] = useState({
     invoice_number: "",
-    debtor_id: "",
+    customer_id: "",
     amount: "",
     issue_date: new Date().toISOString().slice(0, 10),
     due_date: "",
@@ -674,9 +674,9 @@ function CreateInvoiceView() {
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
@@ -727,8 +727,8 @@ function CreateInvoiceView() {
   useEffect(() => {
     if (poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
-      if (salesPf?.debtor_id && !form.debtor_id) {
-        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      if (salesPf?.customer_id && !form.customer_id) {
+        setForm((prev: any) => ({ ...prev, customer_id: salesPf.customer_id }));
       }
     }
   }, [poLookupQ.data]);
@@ -745,9 +745,9 @@ function CreateInvoiceView() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please select a debtor first.");
+      if (!form.customer_id) throw new Error("Please select a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
@@ -783,7 +783,7 @@ function CreateInvoiceView() {
       toast.success("Invoice created as draft. Review it in All Invoices before sending to checker.");
       // Reset form
       setForm({
-        invoice_number: "", debtor_id: "", amount: "",
+        invoice_number: "", customer_id: "", amount: "",
         issue_date: new Date().toISOString().slice(0, 10),
         due_date: "", payment_terms_days: "30",
         bl_date: "", due_date_source: "invoice",
@@ -818,9 +818,9 @@ function CreateInvoiceView() {
         </button>
       </div>
 
-      {debtorsQ.data?.length === 0 && (
+      {customersQ.data?.length === 0 && (
         <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-          No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+          No customers exist yet. Ask your factor admin to add one in the Customers tab.
         </div>
       )}
 
@@ -841,7 +841,7 @@ function CreateInvoiceView() {
               if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
               return (
                 <div className="space-y-1">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "â€”"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
                 </div>
@@ -851,10 +851,10 @@ function CreateInvoiceView() {
         )}
 
         <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-        <Field label="Debtor">
-          <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-            <option value="">Select debtor</option>
-            {debtorsQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        <Field label="Customer">
+          <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+            <option value="">Select customer</option>
+            {customersQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </Field>
         <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -888,9 +888,9 @@ function CreateInvoiceView() {
           </Field>
           <Field label="Link to purchase invoice (optional)">
             <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-              <option value="">â€” No link â€”</option>
+              <option value="">— No link —</option>
               {purchasesQ.data?.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.invoice_number} Â· {fmtMoney(p.amount)}</option>
+                <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
               ))}
             </select>
           </Field>
@@ -921,7 +921,7 @@ function CreateInvoiceView() {
                             <span className="font-mono text-primary">{avail.sku || avail.item_name}</span>
                             <span className="text-muted-foreground">{avail.item_name}</span>
                           </div>
-                          <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand Â· {fmtMoney(avail.qty > 0 ? avail.value / avail.qty : 0)}/unit</span>
+                          <span className="text-muted-foreground">{avail.qty} {avail.unit} on hand · {fmtMoney(avail.qty > 0 ? avail.value / avail.qty : 0)}/unit</span>
                         </button>
                       ))}
                     </div>
@@ -939,7 +939,7 @@ function CreateInvoiceView() {
                   </button>
                   <div className="mb-2 flex items-center gap-2">
                     <span className="font-mono text-xs text-primary">{item.sku}</span>
-                    <span className="text-xs text-muted-foreground">{item.item_name} Â· {item.unit}</span>
+                    <span className="text-xs text-muted-foreground">{item.item_name} · {item.unit}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Qty to sell *">
@@ -964,7 +964,7 @@ function CreateInvoiceView() {
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={() => {
             setForm({
-              invoice_number: "", debtor_id: "", amount: "",
+              invoice_number: "", customer_id: "", amount: "",
               issue_date: new Date().toISOString().slice(0, 10),
               due_date: "", payment_terms_days: "30",
               bl_date: "", due_date_source: "invoice",
@@ -984,12 +984,12 @@ function CreateInvoiceView() {
 
       <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
 
-      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
     </div>
   );
 }
 
-// â”€â”€ Page 3: All Invoices â”€â”€
+// ── Page 3: All Invoices ──
 
 function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { isAdmin: boolean; canEdit: boolean; canCreate: boolean; qc: any; viewParam?: string; navigate: any }) {
   const { canWrite } = useAuth();
@@ -1021,9 +1021,9 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
@@ -1102,7 +1102,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
     const q = searchQuery.toLowerCase();
     return (
       i.invoice_number?.toLowerCase().includes(q) ||
-      i.debtor?.name?.toLowerCase().includes(q) ||
+      i.customer?.name?.toLowerCase().includes(q) ||
       i.po_number?.toLowerCase().includes(q) ||
       i.status?.toLowerCase().includes(q) ||
       i.client?.company_name?.toLowerCase().includes(q) ||
@@ -1175,7 +1175,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
         )}
       </div>
       <div className="relative">
-        <input type="text" placeholder="Search invoices by number, debtor, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+        <input type="text" placeholder="Search invoices by number, customer, PO..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
           className="mb-4 h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all" />
       </div>
 
@@ -1203,7 +1203,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               <ArrowUpDown className="h-3 w-3" />
               {field === "created" ? "Created date" : field === "issue" ? "Issue date" : "ERP Due date"}
               {sortField === field && (
-                <span className="text-[10px]">{sortOrder === "asc" ? "â†‘" : "â†“"}</span>
+                <span className="text-[10px]">{sortOrder === "asc" ? "↑" : "↓"}</span>
               )}
             </button>
           ))}
@@ -1212,7 +1212,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
 
       <Card>
         {invoicesQ.isLoading ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">Loadingâ€¦</div>
+          <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
         ) : filtered.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
         ) : (
@@ -1223,7 +1223,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
                   <th className="px-5 py-2 text-left font-normal">UID</th>
                   <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
                   {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                  <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                  <th className="px-5 py-2 text-left font-normal">Customer</th>
                   <th className="px-5 py-2 text-left font-normal">Issue date</th>
                   <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
                   <th className="px-5 py-2 text-right font-normal">Received</th>
@@ -1249,21 +1249,21 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
                       <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={i.id}>#{i.id.slice(-8).toUpperCase()}</td>
                       <td className="px-5 py-3">
                         <div className="font-mono text-xs">{i.invoice_number}</div>
-                        {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` Â· ${fmtDate(i.po_date)}` : ""}</div>}
+                        {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
                         {i.purchase && (
                           <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
-                            <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} Â· {i.purchase.vendor?.name ?? ""}
+                            <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
                           </Link>
                         )}
                       </td>
-                      {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "â€”"}</td>}
-                      <td className="px-5 py-3">{i.debtor?.name ?? "â€”"}</td>
+                      {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name || i.client?.contact_name || "—"}</td>}
+                      <td className="px-5 py-3">{i.customer?.name ?? "—"}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
-                      <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "â€”"}</td>
-                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "â€”"}</td>
+                      <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
+                      <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "—"}</td>
                       <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
-                      <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">â€”</span>}</td>
+                      <td className="px-5 py-3 text-sm">{i.status === "paid" ? fmtDate(i.paid_date) : <span className="text-muted-foreground">—</span>}</td>
                       <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
                       <td className="px-5 py-3"><StatusPill status={i.status} /></td>
                       <td className="px-5 py-3">
@@ -1324,7 +1324,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
                           {/* Admin checker actions */}
                           {isAdmin && isSubmitted && (isAdmin || canWrite("checker-desk")) && (
                             <Link to="/app/checker" className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
-                              <CheckCircle className="h-3 w-3" /> Review â†’
+                              <CheckCircle className="h-3 w-3" /> Review →
                             </Link>
                           )}
 
@@ -1350,7 +1350,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-4">
           <div className="text-xs text-muted-foreground">
-            {totalInvoices.toLocaleString()} total invoices Â· Page {page} of {totalPages}
+            {totalInvoices.toLocaleString()} total invoices · Page {page} of {totalPages}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1358,7 +1358,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               disabled={page <= 1}
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              â† Previous
+              ← Previous
             </button>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
@@ -1392,19 +1392,19 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
               disabled={page >= totalPages}
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Next â†’
+              Next →
             </button>
           </div>
         </div>
       )}
 
       {/* Modals */}
-      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
       {open && (
         <InvoiceFormModal
           editing={editing}
           onClose={() => { setOpen(false); setEditing(null); }}
-          debtors={debtorsQ.data ?? []}
+          customers={customersQ.data ?? []}
           purchases={purchasesQ.data ?? []}
           availableInventory={[]}
           isEditMode
@@ -1421,7 +1421,7 @@ function ListView({ isAdmin, canEdit, canCreate, qc, viewParam, navigate }: { is
   );
 }
 
-// â”€â”€ Shared Components â”€â”€
+// ── Shared Components ──
 
 function NoaBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -1435,10 +1435,10 @@ function NoaBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
 }
 
-function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory, isEditMode }: {
+function InvoiceFormModal({ editing, onClose, customers, purchases, availableInventory, isEditMode }: {
   editing: any | null;
   onClose: () => void;
-  debtors: any[];
+  customers: any[];
   purchases: any[];
   availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }>;
   isEditMode?: boolean;
@@ -1446,7 +1446,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
-    debtor_id: editing?.debtor_id ?? "",
+    customer_id: editing?.customer_id ?? "",
     amount: String(editing?.amount ?? ""),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
@@ -1486,9 +1486,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please select a debtor first.");
+      if (!form.customer_id) throw new Error("Please select a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
@@ -1527,9 +1527,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
-          {debtors.length === 0 && (
+          {customers.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-              No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+              No customers exist yet. Ask your factor admin to add one in the Customers tab.
             </div>
           )}
           <div>
@@ -1548,7 +1548,7 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
                 if (!salesPf) return <div className="text-muted-foreground">No sales proforma found for this PO.</div>;
                 return (
                   <div className="space-y-1">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "â€”"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{salesPf.proforma_number || "—"}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(salesPf.amount)}</span></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="text-warning">{salesPf.proforma_status?.replace("_", " ")}</span></div>
                   </div>
@@ -1558,10 +1558,10 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           )}
 
           <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-          <Field label="Debtor">
-            <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-              <option value="">Select debtor</option>
-              {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          <Field label="Customer">
+            <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+              <option value="">Select customer</option>
+              {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -1595,9 +1595,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
             </Field>
             <Field label="Link to purchase invoice (optional)">
               <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-                <option value="">â€” No link â€”</option>
+                <option value="">— No link —</option>
                 {purchases.map((p: any) => (
-                  <option key={p.id} value={p.id}>{p.invoice_number} Â· {fmtMoney(p.amount)}</option>
+                  <option key={p.id} value={p.id}>{p.invoice_number} · {fmtMoney(p.amount)}</option>
                 ))}
               </select>
             </Field>
@@ -1629,7 +1629,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
-  const debtor = invoice.debtor;
+  const customer = invoice.customer;
   const purchase = invoice.purchase;
   const openDoc = async (d: DocMeta) => {
     try {
@@ -1668,13 +1668,13 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Invoice details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
-              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "â€”"} />
+              <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="ERP Due date" value={fmtDate(invoice.due_date)} />
-              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "â€”"} />
+              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
-              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "â€”"} />
-              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "â€”"} />
+              <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
+              <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "—"} />
               <Detail label="Created" value={fmtDate(invoice.created_at)} />
               <Detail label="Last updated" value={fmtDate(invoice.updated_at)} />
               {invoice.po_number && <Detail label="PO number" value={invoice.po_number} />}
@@ -1691,25 +1691,25 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             )}
           </div>
 
-          {/* Debtor details */}
-          {debtor && (
+          {/* Customer details */}
+          {customer && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Customer
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
-                <Detail label="Name" value={debtor.name} />
-                <Detail label="Contact" value={debtor.contact_name || "â€”"} />
-                <Detail label="Email" value={debtor.contact_email || "â€”"} />
-                <Detail label="Phone" value={debtor.contact_phone || "â€”"} />
-                <Detail label="Industry" value={debtor.industry || "â€”"} />
-                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
-                {debtor.website && <Detail label="Website" value={debtor.website} />}
+                <Detail label="Name" value={customer.name} />
+                <Detail label="Contact" value={customer.contact_name || "—"} />
+                <Detail label="Email" value={customer.contact_email || "—"} />
+                <Detail label="Phone" value={customer.contact_phone || "—"} />
+                <Detail label="Industry" value={customer.industry || "—"} />
+                {customer.address_line && <Detail label="Address" value={[customer.address_line, customer.city, customer.country].filter(Boolean).join(", ")} />}
+                {customer.website && <Detail label="Website" value={customer.website} />}
               </div>
-              {debtor.notes && (
+              {customer.notes && (
                 <div className="mt-3">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{customer.notes}</p>
                 </div>
               )}
             </div>
@@ -1728,8 +1728,8 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                 {purchase.vendor && (
                   <>
                     <Detail label="Supplier" value={purchase.vendor.name} />
-                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "â€”"} />
-                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "â€”"} />
+                    <Detail label="Supplier contact" value={purchase.vendor.contact_name || "—"} />
+                    <Detail label="Supplier email" value={purchase.vendor.contact_email || "—"} />
                   </>
                 )}
                 {purchase.due_date && <Detail label="ERP Due date" value={fmtDate(purchase.due_date)} />}
@@ -1745,9 +1745,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                 <User className="mr-1 inline h-3.5 w-3.5" />Client
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
-                <Detail label="Company" value={invoice.client.company_name || "â€”"} />
-                <Detail label="Contact" value={invoice.client.contact_name || "â€”"} />
-                <Detail label="Email" value={invoice.client.email || "â€”"} />
+                <Detail label="Company" value={invoice.client.company_name || "—"} />
+                <Detail label="Contact" value={invoice.client.contact_name || "—"} />
+                <Detail label="Email" value={invoice.client.email || "—"} />
               </div>
             </div>
           )}
@@ -1802,10 +1802,10 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
                     {inventory.map((m: any) => (
                       <tr key={m.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5">{m.item_name}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "â€”"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{m.sku || "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{Number(m.quantity).toLocaleString()}</td>
                         <td className="px-4 py-2.5 text-muted-foreground">{m.unit}</td>
-                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "â€”"}</td>
+                        <td className="px-4 py-2.5 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
                         <td className="px-4 py-2.5">{fmtDate(m.movement_date)}</td>
                       </tr>
                     ))}
@@ -1828,7 +1828,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
 }
 
-// â”€â”€ Mass Import Modal â”€â”€
+// ── Mass Import Modal ──
 
 interface ImportRow {
   invoice_number: string;
@@ -1836,10 +1836,10 @@ interface ImportRow {
   issue_date: string;
 }
 
-function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: any[] }) {
+function MassImportModal({ onClose, customers }: { onClose: () => void; customers: any[] }) {
   const qc = useQueryClient();
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
-  const [debtorId, setDebtorId] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("30");
   const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
   const [blDate, setBlDate] = useState("");
@@ -1853,8 +1853,8 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!debtorId) {
-      toast.error("Please select a debtor first");
+    if (!customerId) {
+      toast.error("Please select a customer first");
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -1902,7 +1902,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        debtor_id: debtorId,
+        customer_id: customerId,
         payment_terms_days: Number(paymentTermsDays) || 30,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
@@ -1962,10 +1962,10 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
               <code className="font-mono text-primary">issue_date</code>.
               Each row becomes a separate invoice. Due dates are auto-calculated from payment terms.
             </div>
-            <Field label="Debtor *">
-              <select required value={debtorId} onChange={(e) => setDebtorId(e.target.value)} className="inp">
-                <option value="">Select debtor</option>
-                {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <Field label="Customer *">
+              <select required value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="inp">
+                <option value="">Select customer</option>
+                {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -1998,14 +1998,14 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
           <div className="space-y-4 p-5">
             <div className="flex items-center justify-between">
               <div className="text-xs text-muted-foreground">
-                File: <span className="font-mono text-foreground">{fileName}</span> Â· Found <strong className="text-foreground">{rows.length}</strong> invoices Â· Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
+                File: <span className="font-mono text-foreground">{fileName}</span> · Found <strong className="text-foreground">{rows.length}</strong> invoices · Total <strong className="text-foreground">{fmtMoney(totalAmount)}</strong>
               </div>
               <button onClick={() => setStep("form")} className="text-xs text-primary hover:underline">Change file</button>
             </div>
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "â€”"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span>{customers.find((d: any) => d.id === customerId)?.name ?? "—"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "â€”"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
               {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
             </div>
             <div className="-mx-5 overflow-x-auto">

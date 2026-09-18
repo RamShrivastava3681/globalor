@@ -88,7 +88,7 @@ export type Database = {
         Row: {
           client_id: string | null
           created_at: string
-          debtor_id: string | null
+          customer_id: string | null
           id: string
           invoice_id: string | null
           is_read: boolean
@@ -99,7 +99,7 @@ export type Database = {
         Insert: {
           client_id?: string | null
           created_at?: string
-          debtor_id?: string | null
+          customer_id?: string | null
           id?: string
           invoice_id?: string | null
           is_read?: boolean
@@ -110,7 +110,7 @@ export type Database = {
         Update: {
           client_id?: string | null
           created_at?: string
-          debtor_id?: string | null
+          customer_id?: string | null
           id?: string
           invoice_id?: string | null
           is_read?: boolean
@@ -127,10 +127,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "alerts_debtor_id_fkey"
-            columns: ["debtor_id"]
+            foreignKeyName: "alerts_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: "debtors"
+            referencedRelation: "customers"
             referencedColumns: ["id"]
           },
           {
@@ -142,7 +142,7 @@ export type Database = {
           },
         ]
       }
-      debtors: {
+      customers: {
         Row: {
           address_line: string | null
           city: string | null
@@ -267,7 +267,7 @@ export type Database = {
           amount_received: number | null
           client_id: string
           created_at: string
-          debtor_id: string
+          customer_id: string
           documents: Json
           due_date: string
           fee_rate: number
@@ -299,7 +299,7 @@ export type Database = {
           amount_received?: number | null
           client_id: string
           created_at?: string
-          debtor_id: string
+          customer_id: string
           documents?: Json
           due_date: string
           fee_rate?: number
@@ -331,7 +331,7 @@ export type Database = {
           amount_received?: number | null
           client_id?: string
           created_at?: string
-          debtor_id?: string
+          customer_id?: string
           documents?: Json
           due_date?: string
           fee_rate?: number
@@ -365,10 +365,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "invoices_debtor_id_fkey"
-            columns: ["debtor_id"]
+            foreignKeyName: "invoices_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: "debtors"
+            referencedRelation: "customers"
             referencedColumns: ["id"]
           },
           {
@@ -511,7 +511,7 @@ export type Database = {
           client_id: string
           created_at: string
           currency: string
-          debtor_id: string | null
+          customer_id: string | null
           expected_date: string | null
           id: string
           issue_date: string
@@ -537,7 +537,7 @@ export type Database = {
           client_id: string
           created_at?: string
           currency?: string
-          debtor_id?: string | null
+          customer_id?: string | null
           expected_date?: string | null
           id?: string
           issue_date?: string
@@ -563,7 +563,7 @@ export type Database = {
           client_id?: string
           created_at?: string
           currency?: string
-          debtor_id?: string | null
+          customer_id?: string | null
           expected_date?: string | null
           id?: string
           issue_date?: string
@@ -586,10 +586,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "purchase_orders_debtor_id_fkey"
-            columns: ["debtor_id"]
+            foreignKeyName: "purchase_orders_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: "debtors"
+            referencedRelation: "customers"
             referencedColumns: ["id"]
           },
           {
@@ -836,9 +836,9 @@ export type Database = {
         Returns: {
           amount: number
           client_company: string
-          debtor_contact_email: string
-          debtor_contact_name: string
-          debtor_name: string
+          customer_contact_email: string
+          customer_contact_name: string
+          customer_name: string
           due_date: string
           id: string
           invoice_number: string

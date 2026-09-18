@@ -45,8 +45,8 @@ import { Route as AppForecastingRouteImport } from './routes/app.forecasting'
 import { Route as AppFinanceWorkbenchRouteImport } from './routes/app.finance-workbench'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
 import { Route as AppDispatchesRouteImport } from './routes/app.dispatches'
-import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
+import { Route as AppCustomersRouteImport } from './routes/app.customers'
 import { Route as AppCrmRouteImport } from './routes/app.crm'
 import { Route as AppCreditDebitNotesRouteImport } from './routes/app.credit-debit-notes'
 import { Route as AppCheckerRouteImport } from './routes/app.checker'
@@ -239,14 +239,14 @@ const AppDispatchesRoute = AppDispatchesRouteImport.update({
   path: '/dispatches',
   getParentRoute: () => AppRoute,
 } as any)
-const AppDebtorsRoute = AppDebtorsRouteImport.update({
-  id: '/debtors',
-  path: '/debtors',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCustomersRoute = AppCustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCrmRoute = AppCrmRouteImport.update({
@@ -318,8 +318,8 @@ export interface FileRoutesByFullPath {
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/crm': typeof AppCrmRoute
+  '/app/customers': typeof AppCustomersRoute
   '/app/dashboard': typeof AppDashboardRoute
-  '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
@@ -369,8 +369,8 @@ export interface FileRoutesByTo {
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/crm': typeof AppCrmRoute
+  '/app/customers': typeof AppCustomersRoute
   '/app/dashboard': typeof AppDashboardRoute
-  '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
@@ -420,8 +420,8 @@ export interface FileRoutesById {
   '/app/checker': typeof AppCheckerRoute
   '/app/credit-debit-notes': typeof AppCreditDebitNotesRoute
   '/app/crm': typeof AppCrmRoute
+  '/app/customers': typeof AppCustomersRoute
   '/app/dashboard': typeof AppDashboardRoute
-  '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
@@ -473,8 +473,8 @@ export interface FileRouteTypes {
     | '/app/checker'
     | '/app/credit-debit-notes'
     | '/app/crm'
+    | '/app/customers'
     | '/app/dashboard'
-    | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
     | '/app/finance-workbench'
@@ -524,8 +524,8 @@ export interface FileRouteTypes {
     | '/app/checker'
     | '/app/credit-debit-notes'
     | '/app/crm'
+    | '/app/customers'
     | '/app/dashboard'
-    | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
     | '/app/finance-workbench'
@@ -574,8 +574,8 @@ export interface FileRouteTypes {
     | '/app/checker'
     | '/app/credit-debit-notes'
     | '/app/crm'
+    | '/app/customers'
     | '/app/dashboard'
-    | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
     | '/app/finance-workbench'
@@ -875,18 +875,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDispatchesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/debtors': {
-      id: '/app/debtors'
-      path: '/debtors'
-      fullPath: '/app/debtors'
-      preLoaderRoute: typeof AppDebtorsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/dashboard': {
       id: '/app/dashboard'
       path: '/dashboard'
       fullPath: '/app/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/customers': {
+      id: '/app/customers'
+      path: '/customers'
+      fullPath: '/app/customers'
+      preLoaderRoute: typeof AppCustomersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/crm': {
@@ -993,8 +993,8 @@ interface AppRouteChildren {
   AppCheckerRoute: typeof AppCheckerRoute
   AppCreditDebitNotesRoute: typeof AppCreditDebitNotesRoute
   AppCrmRoute: typeof AppCrmRoute
+  AppCustomersRoute: typeof AppCustomersRoute
   AppDashboardRoute: typeof AppDashboardRoute
-  AppDebtorsRoute: typeof AppDebtorsRoute
   AppDispatchesRoute: typeof AppDispatchesRoute
   AppExpensesRoute: typeof AppExpensesRoute
   AppFinanceWorkbenchRoute: typeof AppFinanceWorkbenchRoute
@@ -1038,8 +1038,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppCheckerRoute: AppCheckerRoute,
   AppCreditDebitNotesRoute: AppCreditDebitNotesRoute,
   AppCrmRoute: AppCrmRoute,
+  AppCustomersRoute: AppCustomersRoute,
   AppDashboardRoute: AppDashboardRoute,
-  AppDebtorsRoute: AppDebtorsRoute,
   AppDispatchesRoute: AppDispatchesRoute,
   AppExpensesRoute: AppExpensesRoute,
   AppFinanceWorkbenchRoute: AppFinanceWorkbenchRoute,

@@ -17,6 +17,7 @@ export type CommandPaletteItem = {
   label: string;
   icon: LucideIcon;
   to?: string;
+  search?: Record<string, unknown>;
   keywords?: string;
   group: string;
 };
@@ -74,7 +75,7 @@ export function CommandPalette({ items }: { items: CommandPaletteItem[] }) {
   const run = (item: CommandPaletteItem) => {
     setOpen(false);
     if (item.to) {
-      navigate({ to: item.to });
+      navigate(item.search ? { to: item.to, search: item.search as any } : { to: item.to });
       // Record the recents, newest first.
       const next = [item.label, ...recents.filter((r) => r !== item.label)].slice(0, MAX_RECENTS);
       setRecents(next);

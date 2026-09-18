@@ -16,7 +16,7 @@ import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { computeOrderTotals } from "../utils/goodsOrders.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { createActivityAlert } from "../utils/alerts.js";
-import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
+import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Customer, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
 
 const router = Router();
 
@@ -26,10 +26,10 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -37,7 +37,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((po) => ({
         ...po,
-        debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
+        customer: po.customer_id ? customerMap.get(po.customer_id) : undefined,
         vendor: po.vendor_id ? vendorMap.get(po.vendor_id) : undefined,
         client: po.client_id ? profileMap.get(po.client_id) : undefined,
       }));
@@ -81,7 +81,7 @@ router.get("/by-po/:poNumber", requireAuth, async (req: AuthRequest, res: Respon
 // ── POST /api/purchase-orders ──
 const createSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   po_number: z.string().min(1).max(80),
   proforma_number: z.string().min(1).max(80).optional(),
@@ -105,7 +105,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
       client_id: req.user!.id,
       company_id: req.user!.company_id,
       side: parsed.side as AdvanceSide,
-      debtor_id: parsed.debtor_id || null,
+      customer_id: parsed.customer_id || null,
       vendor_id: parsed.vendor_id || null,
       po_number: parsed.po_number,
       proforma_number: parsed.proforma_number || null,
@@ -175,7 +175,7 @@ router.delete("/:id", requireAuth, requireWriteAccess("purchase-orders"), async 
 // ── POST /api/purchase-orders/batch ── (mass import from Excel)
 const batchProformaSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   items: z.array(z.object({
     proforma_number: z.string().min(1).max(80),
@@ -203,7 +203,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
           client_id: req.user!.id,
           company_id: req.user!.company_id,
           side: parsed.side as AdvanceSide,
-          debtor_id: parsed.side === "sales" ? parsed.debtor_id || null : null,
+          customer_id: parsed.side === "sales" ? parsed.customer_id || null : null,
           vendor_id: parsed.side === "purchase" ? parsed.vendor_id || null : null,
           po_number: item.po_number,
           proforma_number: item.proforma_number,
@@ -491,8 +491,8 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       line_total: Math.round(Number(proforma.amount) * 100) / 100,
     };
     const totals = computeSalesTotals([line], 0);
-    const debtor = proforma.debtor_id
-      ? await getItem(TABLES.DEBTORS, { id: proforma.debtor_id }) as Debtor | undefined
+    const customer = proforma.customer_id
+      ? await getItem(TABLES.CUSTOMERS, { id: proforma.customer_id }) as Customer | undefined
       : undefined;
 
     const id = generateId();
@@ -502,15 +502,15 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       company_id: proforma.company_id,
       so_number: generateDocNumber("SO"),
       order_date: now.slice(0, 10),
-      customer_id: proforma.debtor_id ?? null,
-      customer_name: debtor?.name ?? null,
-      contact_person: debtor?.contact_name ?? null,
-      billing_address: debtor?.registered_address ?? null,
+      customer_id: proforma.customer_id ?? null,
+      customer_name: customer?.name ?? null,
+      contact_person: customer?.contact_name ?? null,
+      billing_address: customer?.registered_address ?? null,
       delivery_address: null,
       salesperson_name: null,
       linked_quotation_id: null,
       linked_quotation_number: null,
-      payment_terms: debtor?.payment_terms_days ? `Net ${debtor.payment_terms_days}` : null,
+      payment_terms: customer?.payment_terms_days ? `Net ${customer.payment_terms_days}` : null,
       expected_dispatch_date: null,
       expected_delivery_date: null,
       notes: `Converted from proforma ${ref}`,
@@ -554,7 +554,7 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: proforma.debtor_id ?? undefined,
+      customer_id: proforma.customer_id ?? undefined,
       type: "sales_order_created",
       severity: "info",
       message: `Sales order ${so.so_number} created from proforma ${ref}`,

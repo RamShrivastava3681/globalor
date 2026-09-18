@@ -15,7 +15,7 @@ import { sendWelcomeEmail } from "../utils/email.js";
 import { runOverdueReminderSweep } from "../utils/reminders.js";
 import { config } from "../config.js";
 import type {
-  AppRole, UserRole, Profile, Invoice, Debtor, Alert,
+  AppRole, UserRole, Profile, Invoice, Customer, Alert,
   NoaInvoiceResult, NoaStatus, User, Company
 } from "../types/index.js";
 
@@ -269,7 +269,7 @@ router.delete("/users/:userId", requireAuth, requireRole("factor_admin"), async 
 router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
 
     const alertsToCreate: Alert[] = [];
 
@@ -282,7 +282,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          debtor_id: i.debtor_id,
+          customer_id: i.customer_id,
           type: "overdue",
           severity: dpd > 60 ? "critical" : dpd > 30 ? "warning" : "info",
           message: `Invoice ${i.invoice_number} overdue ${dpd} days — $${i.amount.toLocaleString()}`,
@@ -292,16 +292,16 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
         });
       }
       if (Number(i.amount) >= 100000) {
-        const debtor = debtors.find((d) => d.id === i.debtor_id);
+        const customer = customers.find((d) => d.id === i.customer_id);
         alertsToCreate.push({
           id: generateId(),
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          debtor_id: i.debtor_id,
+          customer_id: i.customer_id,
           type: "large_invoice",
           severity: "info",
-          message: `Large invoice received: $${i.amount.toLocaleString()} from ${debtor?.name ?? "debtor"}`,
+          message: `Large invoice received: $${i.amount.toLocaleString()} from ${customer?.name ?? "customer"}`,
           is_read: false,
           created_at: nowISO(),
           created_by: req.user!.id,

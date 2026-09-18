@@ -25,7 +25,7 @@ async function main() {
   console.log("🧹 Clearing transaction tables…\n");
 
   const tablesToClear = [
-    TABLES.DEBTORS,
+    TABLES.CUSTOMERS,
     TABLES.VENDORS,
     TABLES.SUPPLIERS,
     TABLES.INVOICES,

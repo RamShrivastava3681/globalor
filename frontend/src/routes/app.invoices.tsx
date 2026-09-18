@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,8 +28,14 @@ export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
 });
 
-function InvoicesPage() {
-  const { view, tab } = Route.useSearch();
+export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string } });
+  const routeTab = (routerSearch as any)?.tab as string | undefined;
+  const routeView = (routerSearch as any)?.view as string | undefined;
+  const [localTab, setLocalTab] = useState<string | null>(null);
+  const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
+  const view = embedded ? undefined : routeView;
   const navigate = useNavigate();
   const { isAdmin, isChecker, isClient, isTreasury, isOperations, user, canWrite } = useAuth();
   const canReview = isAdmin || isChecker;
@@ -96,7 +102,13 @@ function InvoicesPage() {
     };
   }, [allInvoices]);
 
-  const setTab = (t: string) => navigate({ to: "/app/invoices", search: { tab: t, view: undefined }, replace: true });
+  const setTab = (t: string) => {
+    if (embedded) {
+      setLocalTab(t);
+      return;
+    }
+    navigate({ to: "/app/invoices", search: { tab: t, view: undefined }, replace: true });
+  };
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -147,9 +159,9 @@ function InvoicesPage() {
     }).filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
   }, [stockMovementsQ.data]);
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
@@ -171,7 +183,7 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const remindDebtor = useMutation({
+  const remindCustomer = useMutation({
     mutationFn: async (id: string) => {
       await api.post(`/invoices/${id}/remind`);
     },
@@ -281,7 +293,9 @@ function InvoicesPage() {
             // silently fail — invoice may have been deleted
           }
         }
-        navigate({ to: "/app/invoices", search: { tab, view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/invoices", search: { tab, view: undefined }, replace: true });
+        }
       })();
     }
   }, [view]);
@@ -353,7 +367,7 @@ function InvoicesPage() {
       {tab === "list" && (
         <div className="p-6 md:p-10 space-y-4">
         <FilterBar
-          searchPlaceholder="Search invoices by number, debtor, PO…"
+          searchPlaceholder="Search invoices by number, customer, PO…"
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           statusOptions={[
@@ -442,7 +456,7 @@ function InvoicesPage() {
                     </th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
                     <th className="px-5 py-2 text-right font-normal">Received</th>
@@ -482,7 +496,7 @@ function InvoicesPage() {
                             </Link>
                           )}
                         </td>
-                        <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{i.customer?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
                         <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
@@ -562,10 +576,10 @@ function InvoicesPage() {
                             )}
                             {(isAdmin || isTreasury || isChecker) && ["approved", "advanced", "funded", "overdue"].includes(i.status) && (
                               <>
-                                <button onClick={() => remindDebtor.mutate(i.id)}
-                                  disabled={remindDebtor.isPending}
+                                <button onClick={() => remindCustomer.mutate(i.id)}
+                                  disabled={remindCustomer.isPending}
                                   className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                  title="Email an overdue reminder to the debtor">
+                                  title="Email an overdue reminder to the customer">
                                   <BellRing className="h-3 w-3" /> Remind
                                 </button>
                                 <button onClick={() => setPaymentTarget(i)}
@@ -662,7 +676,7 @@ function InvoicesPage() {
       </div>
       )}
 
-      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
 
       {soInvoiceOpen && <CreateFromSoModal onClose={() => setSoInvoiceOpen(false)} />}
 
@@ -674,7 +688,7 @@ function InvoicesPage() {
         />
       )}
 
-      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
+      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} customers={customersQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
 
       {viewing && (
         <InvoiceDetailModal
@@ -736,25 +750,25 @@ function InvoicesPage() {
 function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const { isAdmin } = useAuth();
 
-  // Buyer/debtor filter state
-  const [selectedDebtorId, setSelectedDebtorId] = useState<string>("");
+  // Buyer/customer filter state
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
 
-  // Get unique debtors from invoices for the filter dropdown
-  const debtors = useMemo(() => {
+  // Get unique customers from invoices for the filter dropdown
+  const customers = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.debtor_id && inv.debtor?.name) {
-        map.set(inv.debtor_id, { id: inv.debtor_id, name: inv.debtor.name });
+      if (inv.customer_id && inv.customer?.name) {
+        map.set(inv.customer_id, { id: inv.customer_id, name: inv.customer.name });
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [invoices]);
 
-  // Filter invoices by selected debtor
+  // Filter invoices by selected customer
   const filteredInvoices = useMemo(() => {
-    if (!selectedDebtorId) return invoices;
-    return invoices.filter((i: any) => i.debtor_id === selectedDebtorId);
-  }, [invoices, selectedDebtorId]);
+    if (!selectedCustomerId) return invoices;
+    return invoices.filter((i: any) => i.customer_id === selectedCustomerId);
+  }, [invoices, selectedCustomerId]);
 
   // Recompute stats locally based on filtered invoices
   const localStats = useMemo(() => {
@@ -789,7 +803,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     };
   }, [filteredInvoices]);
 
-  const displayStats = selectedDebtorId ? localStats : stats;
+  const displayStats = selectedCustomerId ? localStats : stats;
 
   // Chart data: monthly aggregation of invoices
   const chartData = useMemo(() => {
@@ -819,10 +833,10 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     return { counts, amounts };
   }, [filteredInvoices]);
 
-  const topDebtors = useMemo(() => {
+  const topCustomers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.debtor?.name || "Unknown";
+      const name = inv.customer?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);
@@ -850,7 +864,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
         <h3 className="text-lg font-medium text-foreground">No invoices yet</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{selectedDebtorId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{selectedCustomerId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
       </div>
     );
   }
@@ -862,26 +876,26 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
           <select
-            value={selectedDebtorId}
-            onChange={(e) => setSelectedDebtorId(e.target.value)}
+            value={selectedCustomerId}
+            onChange={(e) => setSelectedCustomerId(e.target.value)}
             className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             <option value="">All Buyers</option>
-            {debtors.map((d) => (
+            {customers.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
         </div>
-        {selectedDebtorId && (
+        {selectedCustomerId && (
           <button
-            onClick={() => setSelectedDebtorId("")}
+            onClick={() => setSelectedCustomerId("")}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
             Clear filter
           </button>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {selectedDebtorId ? (
+          {selectedCustomerId ? (
             <>{filteredInvoices.length} invoices · {fmtMoney(displayStats.totalAmount)}</>
           ) : (
             <>{invoices.length} invoices total</>
@@ -1044,12 +1058,12 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
           </div>
         </Card>
 
-        <Card title="Top Debtors by Volume">
+        <Card title="Top Customers by Volume">
           <div className="space-y-3">
-            {topDebtors.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No debtor data yet.</div>
+            {topCustomers.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No customer data yet.</div>
             ) : (
-              topDebtors.map((d) => (
+              topCustomers.map((d) => (
                 <div key={d.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1088,7 +1102,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                    <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                    <th className="px-6 py-3 text-left font-normal">Customer</th>
                     <th className="px-6 py-3 text-right font-normal">Amount</th>
                     <th className="px-6 py-3 text-right font-normal">Days Overdue</th>
                     <th className="px-6 py-3 text-left font-normal">Due Date</th>
@@ -1099,7 +1113,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                      <td className="px-6 py-3">{i.customer?.name ?? "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -1136,7 +1150,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
             <thead className="text-xs uppercase tracking-widest text-muted-foreground">
               <tr className="border-b border-border">
                 <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                <th className="px-6 py-3 text-left font-normal">Customer</th>
                 <th className="px-6 py-3 text-right font-normal">Amount</th>
                 <th className="px-6 py-3 text-left font-normal">Status</th>
                 <th className="px-6 py-3 text-left font-normal">Created</th>
@@ -1146,7 +1160,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                  <td className="px-6 py-3">{i.customer?.name ?? "—"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
@@ -1170,7 +1184,7 @@ function CreateInvoiceView() {
 
   const [form, setForm] = useState({
     invoice_number: "",
-    debtor_id: "",
+    customer_id: "",
     amount: "",
     issue_date: new Date().toISOString().slice(0, 10),
     due_date: "",
@@ -1192,9 +1206,9 @@ function CreateInvoiceView() {
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
@@ -1245,8 +1259,8 @@ function CreateInvoiceView() {
   useEffect(() => {
     if (poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
-      if (salesPf?.debtor_id && !form.debtor_id) {
-        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      if (salesPf?.customer_id && !form.customer_id) {
+        setForm((prev: any) => ({ ...prev, customer_id: salesPf.customer_id }));
       }
     }
   }, [poLookupQ.data]);
@@ -1263,9 +1277,9 @@ function CreateInvoiceView() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please select a debtor first.");
+      if (!form.customer_id) throw new Error("Please select a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
@@ -1301,7 +1315,7 @@ function CreateInvoiceView() {
       toast.success("Invoice created as draft. Review it in All Invoices before sending to checker.");
       // Reset form
       setForm({
-        invoice_number: "", debtor_id: "", amount: "",
+        invoice_number: "", customer_id: "", amount: "",
         issue_date: new Date().toISOString().slice(0, 10),
         due_date: "", payment_terms_days: "30",
         bl_date: "", due_date_source: "invoice",
@@ -1330,9 +1344,9 @@ function CreateInvoiceView() {
         <h2 className="font-display text-xl font-semibold">New Sales Invoice</h2>
       </div>
 
-      {debtorsQ.data?.length === 0 && (
+      {customersQ.data?.length === 0 && (
         <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-          No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+          No customers exist yet. Ask your factor admin to add one in the Customers tab.
         </div>
       )}
 
@@ -1363,10 +1377,10 @@ function CreateInvoiceView() {
         )}
 
         <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-        <Field label="Debtor">
-          <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-            <option value="">Select debtor</option>
-            {debtorsQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        <Field label="Customer">
+          <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+            <option value="">Select customer</option>
+            {customersQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </Field>
         <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -1476,7 +1490,7 @@ function CreateInvoiceView() {
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={() => {
             setForm({
-              invoice_number: "", debtor_id: "", amount: "",
+              invoice_number: "", customer_id: "", amount: "",
               issue_date: new Date().toISOString().slice(0, 10),
               due_date: "", payment_terms_days: "30",
               bl_date: "", due_date_source: "invoice",
@@ -1527,7 +1541,7 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     const grandTotal = subtotal + vat - discount;
 
     const logo = await logoPromise;
-    const debtor = invoice.debtor;
+    const customer = invoice.customer;
     const client = invoice.client;
 
     // ── Page counter ──
@@ -1580,8 +1594,8 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
 
       const footerLines = [
         client?.company_name || "Company Name",
-        debtor?.registered_address || "",
-        `Phone: ${debtor?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${debtor?.website || "—"}`,
+        customer?.registered_address || "",
+        `Phone: ${customer?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${customer?.website || "—"}`,
       ];
 
       footerLines.forEach((line, i) => {
@@ -1612,8 +1626,8 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(30, 41, 59);
-    const custName = debtor?.name || "—";
-    const custAddr = debtor?.registered_address || "";
+    const custName = customer?.name || "—";
+    const custAddr = customer?.registered_address || "";
     const custLines = [custName, custAddr].filter(Boolean);
     custLines.forEach((line) => {
       doc.text(line, margin, y);
@@ -1917,11 +1931,11 @@ function NoaBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
 }
 
-function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }> }) {
+function InvoiceFormModal({ editing, onClose, customers, purchases, availableInventory }: { editing: any | null; onClose: () => void; customers: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }> }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
-    debtor_id: editing?.debtor_id ?? "",
+    customer_id: editing?.customer_id ?? "",
     amount: String(editing?.amount ?? ""),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
@@ -1999,8 +2013,8 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
   useEffect(() => {
     if (!editing && poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
-      if (salesPf?.debtor_id && !form.debtor_id) {
-        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      if (salesPf?.customer_id && !form.customer_id) {
+        setForm((prev: any) => ({ ...prev, customer_id: salesPf.customer_id }));
       }
     }
   }, [poLookupQ.data]);
@@ -2018,9 +2032,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please add a debtor first.");
+      if (!form.customer_id) throw new Error("Please add a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
@@ -2071,9 +2085,9 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
-          {debtors.length === 0 && (
+          {customers.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-              No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+              No customers exist yet. Ask your factor admin to add one in the Customers tab.
             </div>
           )}
           <div>
@@ -2102,10 +2116,10 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           )}
 
           <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-          <Field label="Debtor">
-            <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-              <option value="">Select debtor</option>
-              {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          <Field label="Customer">
+            <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+              <option value="">Select customer</option>
+              {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Total invoice amount (USD)">
@@ -2349,7 +2363,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                           <tr className="border-b border-border">
                             <th className="px-4 py-2 text-left font-normal">Type</th>
                             <th className="px-4 py-2 text-left font-normal">UID</th>
-                            <th className="px-4 py-2 text-left font-normal">Debtor / Supplier</th>
+                            <th className="px-4 py-2 text-left font-normal">Customer / Supplier</th>
                             <th className="px-4 py-2 text-left font-normal">Issue date</th>
                             <th className="px-4 py-2 text-right font-normal">Amount</th>
                             <th className="px-4 py-2 text-left font-normal">Status</th>
@@ -2368,7 +2382,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                               <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">#{entry.id.slice(-8).toUpperCase()}</td>
                               <td className="px-4 py-2.5">
                                 {entry.type === "sales"
-                                  ? (entry.debtor?.name ?? "—")
+                                  ? (entry.customer?.name ?? "—")
                                   : (entry.vendor?.name ?? "—")
                                 }
                               </td>
@@ -2414,7 +2428,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
-  const debtor = invoice.debtor;
+  const customer = invoice.customer;
   const purchase = invoice.purchase;
   const openDoc = async (d: DocMeta) => {
     try {
@@ -2569,26 +2583,26 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             </div>
           )}
 
-          {/* Debtor details */}
-          {debtor && (
+          {/* Customer details */}
+          {customer && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Customer
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
-                <Detail label="Name" value={debtor.name} />
-                <Detail label="Contact" value={debtor.contact_name || "—"} />
-                <Detail label="Email" value={debtor.contact_email || "—"} />
-                <Detail label="Phone" value={debtor.contact_phone || "—"} />
-                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Name" value={customer.name} />
+                <Detail label="Contact" value={customer.contact_name || "—"} />
+                <Detail label="Email" value={customer.contact_email || "—"} />
+                <Detail label="Phone" value={customer.contact_phone || "—"} />
+                <Detail label="Industry" value={customer.industry || "—"} />
 
-                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
-                {debtor.website && <Detail label="Website" value={debtor.website} />}
+                {customer.address_line && <Detail label="Address" value={[customer.address_line, customer.city, customer.country].filter(Boolean).join(", ")} />}
+                {customer.website && <Detail label="Website" value={customer.website} />}
               </div>
-              {debtor.notes && (
+              {customer.notes && (
                 <div className="mt-3">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{customer.notes}</p>
                 </div>
               )}
             </div>
@@ -2704,10 +2718,10 @@ interface ImportRow {
   issue_date: string;
 }
 
-function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: any[] }) {
+function MassImportModal({ onClose, customers }: { onClose: () => void; customers: any[] }) {
   const qc = useQueryClient();
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
-  const [debtorId, setDebtorId] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("30");
   const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
   const [blDate, setBlDate] = useState("");
@@ -2722,8 +2736,8 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!debtorId) {
-      toast.error("Please select a debtor first");
+    if (!customerId) {
+      toast.error("Please select a customer first");
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -2776,7 +2790,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        debtor_id: debtorId,
+        customer_id: customerId,
         payment_terms_days: Number(paymentTermsDays) || 30,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
@@ -2838,10 +2852,10 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
               Each row becomes a separate invoice. Due dates are auto-calculated from payment terms.
             </div>
 
-            <Field label="Debtor *">
-              <select required value={debtorId} onChange={(e) => setDebtorId(e.target.value)} className="inp">
-                <option value="">Select debtor</option>
-                {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <Field label="Customer *">
+              <select required value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="inp">
+                <option value="">Select customer</option>
+                {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </Field>
 
@@ -2912,7 +2926,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
             </div>
 
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span>{customers.find((d: any) => d.id === customerId)?.name ?? "—"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
               {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}

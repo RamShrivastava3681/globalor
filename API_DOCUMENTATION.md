@@ -120,7 +120,7 @@ const batchCreateSchema = z.object({
 ```typescript
 const createAlertSchema = z.object({
   client_id: z.string().nullable().optional(),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   invoice_id: z.string().nullable().optional(),
   type: z.enum(["overdue", "large_invoice", "payment_received"]),
   severity: z.enum(["info", "warning", "critical"]),
@@ -211,7 +211,7 @@ const signinSchema = z.object({
 - **Request Body Schema:**
 ```typescript
 const processSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_date: z.string().min(1),
   amount: z.number().positive(),
   use_balance: z.boolean().optional().default(false),
@@ -221,7 +221,7 @@ const processSchema = z.object({
 })
 ```
 
-#### `GET /balance/:debtorId`
+#### `GET /balance/:customerId`
 - **Authentication:** Required
 
 #### `GET /history`
@@ -273,7 +273,7 @@ const createSchema = z.object({
   note_number: z.string().min(1).max(80),
   date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   amount: z.number().positive(),
-  debtor_supplier_name: z.string().max(200).nullable().optional(),
+  customer_supplier_name: z.string().max(200).nullable().optional(),
   supplier_name: z.string().max(200).nullable().optional(),
   linked_invoice_id: z.string().nullable().optional(),
   linked_invoice_type: z.enum(["sales", "purchase"]).nullable().optional(),
@@ -297,7 +297,7 @@ const batchCreateSchema = z.object({
     note_number: z.string().min(1).max(80),
     date: z.string().optional(),
     amount: z.number().positive(),
-    debtor_supplier_name: z.string().max(200).nullable().optional(),
+    customer_supplier_name: z.string().max(200).nullable().optional(),
     supplier_name: z.string().max(200).nullable().optional(),
     linked_invoice_number: z.string().max(80).nullable().optional(),
     reason: z.string().max(500).nullable().optional(),
@@ -313,9 +313,9 @@ const batchCreateSchema = z.object({
 - Pending notes (no effect yet) can be deleted freely. Notes auto-settled at creation (`settled_at_creation: true`) can also be deleted — the linked invoice amount is **reversed** automatically (credit → amount added back, debit → amount subtracted back). Notes settled through the legacy review flow cannot be deleted.
 
 
-### debtors
+### customers
 
-**Base Path:** `/api/debtors`
+**Base Path:** `/api/customers`
 
 #### `GET /`
 - **Authentication:** Required
@@ -327,7 +327,7 @@ const batchCreateSchema = z.object({
 - **Authentication:** Required
 - **Request Body Schema:**
 ```typescript
-const createDebtorSchema = z.object({
+const createCustomerSchema = z.object({
   name: z.string().min(1).max(200),
   legal_entity_name: z.string().max(200).nullable().optional(),
   registration_no: z.string().max(100).nullable().optional(),
@@ -426,7 +426,7 @@ const batchCreateSchema = z.object({
 - **Request Body Schema:**
 ```typescript
 const createInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number(),
   advance_rate: z.number().min(0).max(100).optional().default(0),
@@ -477,7 +477,7 @@ const bulkDeleteSchema = z.object({
 - **Request Body Schema:**
 ```typescript
 const batchInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_terms_days: z.number().min(0).optional().default(30),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   bl_date: z.string().nullable().optional(),
@@ -688,7 +688,7 @@ const batchCloseSchema = z.object({
 ```typescript
 const createSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   po_number: z.string().min(1).max(80),
   proforma_number: z.string().min(1).max(80).optional(),
@@ -713,7 +713,7 @@ const createSchema = z.object({
 ```typescript
 const batchProformaSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   items: z.array(z.object({
     proforma_number: z.string().min(1).max(80),
@@ -747,7 +747,7 @@ const batchProformaSchema = z.object({
 #### `GET /aging`
 - **Authentication:** Required
 
-#### `GET /debtors`
+#### `GET /customers`
 - **Authentication:** Required
 
 #### `GET /suppliers`

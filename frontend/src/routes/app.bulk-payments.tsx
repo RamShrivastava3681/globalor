@@ -26,9 +26,9 @@ export const Route = createFileRoute("/app/bulk-payments")({
 
 // ── Types ──
 
-type CounterpartyType = "debtor" | "supplier";
+type CounterpartyType = "customer" | "supplier";
 
-interface DebtorInfo {
+interface CustomerInfo {
   id: string;
   name: string;
   industry?: string | null;
@@ -48,7 +48,7 @@ interface InvoiceInfo {
   issue_date: string;
   due_date: string | null;
   status: string;
-  debtor?: { name: string } | null;
+  customer?: { name: string } | null;
   vendor?: { name: string } | null;
 }
 
@@ -73,8 +73,8 @@ interface CreditNoteInfo {
 
 interface PaymentHistoryRecord {
   id: string;
-  debtor_id: string;
-  debtor_name: string;
+  customer_id: string;
+  customer_name: string;
   amount: number;
   payment_date: string;
   remaining: number;
@@ -225,13 +225,13 @@ function computeManualPreview<T extends { id: string; due_date: string | null }>
 
 // ── Page Component ──
 
-function BulkPaymentsPage() {
+export function BulkPaymentsPage() {
 
   const qc = useQueryClient();
 
   // ── Core state ──
-  const [counterpartyType, setCounterpartyType] = useState<CounterpartyType>("debtor");
-  const [selectedDebtorId, setSelectedDebtorId] = useState<string>("");
+  const [counterpartyType, setCounterpartyType] = useState<CounterpartyType>("customer");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [inputAmount, setInputAmount] = useState("");
@@ -242,16 +242,16 @@ function BulkPaymentsPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<PaymentResult | null>(null);
-  const [historyFilterDebtorId, setHistoryFilterDebtorId] = useState<string>("");
+  const [historyFilterCustomerId, setHistoryFilterCustomerId] = useState<string>("");
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const isSupplier = counterpartyType === "supplier";
 
   // ── Queries ──
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<DebtorInfo[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<CustomerInfo[]>("/customers")) ?? [],
   });
 
   const suppliersQ = useQuery({
@@ -261,20 +261,20 @@ function BulkPaymentsPage() {
 
   // ── Payment history (lazy-loaded when card is opened) ──
   const historyQ = useQuery({
-    queryKey: ["bulk-payment-history", historyFilterDebtorId],
+    queryKey: ["bulk-payment-history", historyFilterCustomerId],
     enabled: historyOpen,
     queryFn: async (): Promise<{ payments: PaymentHistoryRecord[]; totals: { total_payments: number; total_amount: number; total_remaining: number } }> => {
-      const params = historyFilterDebtorId ? `?debtor_id=${historyFilterDebtorId}` : "";
+      const params = historyFilterCustomerId ? `?customer_id=${historyFilterCustomerId}` : "";
       return (await api.get<any>(`/bulk-payments/history${params}`)) ?? { payments: [], totals: { total_payments: 0, total_amount: 0, total_remaining: 0 } };
     },
   });
 
-  // ── Fetch previous remaining balance (debtor) ──
+  // ── Fetch previous remaining balance (customer) ──
   const balanceQ = useQuery({
-    queryKey: ["bulk-payment-balance", selectedDebtorId],
-    enabled: !!selectedDebtorId && !isSupplier,
+    queryKey: ["bulk-payment-balance", selectedCustomerId],
+    enabled: !!selectedCustomerId && !isSupplier,
     queryFn: async (): Promise<number> => {
-      const res = await api.get<{ total_remaining: number }>(`/bulk-payments/balance/${selectedDebtorId}`);
+      const res = await api.get<{ total_remaining: number }>(`/bulk-payments/balance/${selectedCustomerId}`);
       return res?.total_remaining ?? 0;
     },
   });
@@ -293,12 +293,12 @@ function BulkPaymentsPage() {
 
   // ── Fetch invoices (sales) ──
   const invoicesQ = useQuery({
-    queryKey: ["bulk-payment-invoices", selectedDebtorId],
-    enabled: !!selectedDebtorId && !isSupplier,
+    queryKey: ["bulk-payment-invoices", selectedCustomerId],
+    enabled: !!selectedCustomerId && !isSupplier,
     queryFn: async (): Promise<InvoiceInfo[]> => {
       const all = await api.get<any[]>("/invoices") ?? [];
       return all
-        .filter((i: any) => i.debtor_id === selectedDebtorId && i.status !== "paid" && i.status !== "rejected")
+        .filter((i: any) => i.customer_id === selectedCustomerId && i.status !== "paid" && i.status !== "rejected")
         .map((i: any) => ({
           id: i.id,
           invoice_number: i.invoice_number,
@@ -307,7 +307,7 @@ function BulkPaymentsPage() {
           issue_date: i.issue_date,
           due_date: i.due_date,
           status: i.status,
-          debtor: i.debtor ? { name: i.debtor.name } : null,
+          customer: i.customer ? { name: i.customer.name } : null,
         }));
     },
   });
@@ -347,16 +347,16 @@ function BulkPaymentsPage() {
 
   // ── Fetch credit notes ──
   const creditNotesQ = useQuery({
-    queryKey: ["bulk-payment-credits", isSupplier ? selectedSupplierId : selectedDebtorId, isSupplier],
-    enabled: isSupplier ? !!selectedSupplierId : !!selectedDebtorId,
+    queryKey: ["bulk-payment-credits", isSupplier ? selectedSupplierId : selectedCustomerId, isSupplier],
+    enabled: isSupplier ? !!selectedSupplierId : !!selectedCustomerId,
     queryFn: async (): Promise<{ total: number; notes: CreditNoteInfo[] }> => {
       let partyName: string | undefined;
       if (isSupplier) {
         const supplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
         partyName = supplier?.name;
       } else {
-        const debtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
-        partyName = debtor?.name;
+        const customer = (customersQ.data ?? []).find((d) => d.id === selectedCustomerId);
+        partyName = customer?.name;
       }
       if (!partyName) return { total: 0, notes: [] };
 
@@ -365,7 +365,7 @@ function BulkPaymentsPage() {
         .filter((n: any) =>
           n.type === "credit"
           && n.status === "approved"
-          && n.debtor_supplier_name?.toLowerCase() === partyName.toLowerCase()
+          && n.customer_supplier_name?.toLowerCase() === partyName.toLowerCase()
         )
         .map((n: any) => ({ id: n.id, note_number: n.note_number, amount: Number(n.amount), date: n.date, status: n.status }));
       return { total: matching.reduce((s: number, n: CreditNoteInfo) => s + n.amount, 0), notes: matching };
@@ -399,9 +399,9 @@ function BulkPaymentsPage() {
     return computeManualPreview(openInvoices as any[], selectedInvoiceIds, availableAmount, paymentDate, outstandingFn);
   }, [mode, availableAmount, selectedInvoiceIds, openInvoices, paymentDate, outstandingFn]);
 
-  const selectedDebtor = (debtorsQ.data ?? []).find((d) => d.id === selectedDebtorId);
+  const selectedCustomer = (customersQ.data ?? []).find((d) => d.id === selectedCustomerId);
   const selectedSupplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
-  const selectedPartyName = isSupplier ? selectedSupplier?.name : selectedDebtor?.name;
+  const selectedPartyName = isSupplier ? selectedSupplier?.name : selectedCustomer?.name;
 
   // ── Handlers ──
   const resetSelections = () => {
@@ -414,13 +414,13 @@ function BulkPaymentsPage() {
 
   const handleCounterpartyTypeChange = (type: CounterpartyType) => {
     setCounterpartyType(type);
-    setSelectedDebtorId("");
+    setSelectedCustomerId("");
     setSelectedSupplierId("");
     resetSelections();
   };
 
-  const handleDebtorChange = (id: string) => {
-    setSelectedDebtorId(id);
+  const handleCustomerChange = (id: string) => {
+    setSelectedCustomerId(id);
     resetSelections();
   };
 
@@ -446,7 +446,7 @@ function BulkPaymentsPage() {
 
   // ── Submit ──
   const submitPayment = useCallback(async () => {
-    if ((!selectedDebtorId && !selectedSupplierId) || availableAmount <= 0) return;
+    if ((!selectedCustomerId && !selectedSupplierId) || availableAmount <= 0) return;
     if (mode === "manual" && selectedInvoiceIds.size === 0) return;
 
     setSubmitting(true);
@@ -474,6 +474,9 @@ function BulkPaymentsPage() {
         if (res.partially_paid.length > 0) {
           toast.info(`${res.partially_paid.length} purchase invoice${res.partially_paid.length !== 1 ? "s" : ""} partially paid`);
         }
+        if (res.closed.length === 0 && res.partially_paid.length === 0 && mode !== "on_account") {
+          toast.warning("No invoices closed — amount is below the oldest outstanding balance (FIFO strict skips partials). Increase the amount or use manual mode.");
+        }
         if (res.remaining > 0) {
           toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
         }
@@ -484,7 +487,7 @@ function BulkPaymentsPage() {
         qc.invalidateQueries({ queryKey: ["bulk-payment-purchase-balance"] });
       } else {
         const res = await api.post<PaymentResult>("/bulk-payments/process", {
-          debtor_id: selectedDebtorId,
+          customer_id: selectedCustomerId,
           payment_date: paymentDate,
           amount: numericAmount,
           use_balance: useBalance,
@@ -501,11 +504,14 @@ function BulkPaymentsPage() {
         if (res.partially_paid.length > 0) {
           toast.info(`${res.partially_paid.length} invoice${res.partially_paid.length !== 1 ? "s" : ""} partially paid`);
         }
+        if (res.closed.length === 0 && res.partially_paid.length === 0 && mode !== "on_account") {
+          toast.warning("No invoices closed — amount is below the oldest outstanding balance (FIFO strict skips partials). Increase the amount or use manual mode.");
+        }
         if (res.remaining > 0) {
           toast.info(`Remaining balance: ${fmtMoney(res.remaining)} — saved for future use`);
         }
 
-        qc.setQueryData(["bulk-payment-balance", selectedDebtorId], res.remaining);
+        qc.setQueryData(["bulk-payment-balance", selectedCustomerId], res.remaining);
         qc.invalidateQueries({ queryKey: ["invoices"] });
         qc.invalidateQueries({ queryKey: ["bulk-payment-invoices"] });
         qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
@@ -525,10 +531,10 @@ function BulkPaymentsPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedDebtorId, selectedSupplierId, isSupplier, availableAmount, numericAmount, mode, selectedInvoiceIds, applyCredit, creditNotes, paymentDate, useBalance, qc]);
+  }, [selectedCustomerId, selectedSupplierId, isSupplier, availableAmount, numericAmount, mode, selectedInvoiceIds, applyCredit, creditNotes, paymentDate, useBalance, qc]);
 
   // ── Validation ──
-  const hasSelectedParty = isSupplier ? !!selectedSupplierId : !!selectedDebtorId;
+  const hasSelectedParty = isSupplier ? !!selectedSupplierId : !!selectedCustomerId;
   const canSubmit = hasSelectedParty
     && availableAmount > 0
     && (mode === "on_account" || mode !== "manual" || selectedInvoiceIds.size > 0)
@@ -547,21 +553,21 @@ function BulkPaymentsPage() {
         <Card title="Payment type" className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
           <div className="flex gap-3">
             <button
-              onClick={() => handleCounterpartyTypeChange("debtor")}
+              onClick={() => handleCounterpartyTypeChange("customer")}
               className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
-                counterpartyType === "debtor"
+                counterpartyType === "customer"
                   ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                   : "border-border hover:border-primary/30 hover:bg-muted/20"
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`rounded-full p-2 ${
-                  counterpartyType === "debtor" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                  counterpartyType === "customer" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
                 }`}>
                   <Users className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="font-semibold text-sm">Debtor (AR)</div>
+                  <div className="font-semibold text-sm">Customer (AR)</div>
                   <div className="text-xs text-muted-foreground mt-0.5">Receive payments from customers</div>
                 </div>
               </div>
@@ -590,18 +596,18 @@ function BulkPaymentsPage() {
         </Card>
 
         {/* ── Step 1: Party Selection ── */}
-        <Card title={`1. Select ${counterpartyType === "debtor" ? "customer" : "supplier"}`} className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
+        <Card title={`1. Select ${counterpartyType === "customer" ? "customer" : "supplier"}`} className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
           <div className="space-y-4">
             <div className="relative">
               <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              {counterpartyType === "debtor" ? (
+              {counterpartyType === "customer" ? (
                 <select
-                  value={selectedDebtorId}
-                  onChange={(e) => handleDebtorChange(e.target.value)}
+                  value={selectedCustomerId}
+                  onChange={(e) => handleCustomerChange(e.target.value)}
                   className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all appearance-none cursor-pointer"
                 >
                   <option value="" disabled>Select a customer…</option>
-                  {(debtorsQ.data ?? []).map((d) => (
+                  {(customersQ.data ?? []).map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}{d.industry ? ` — ${d.industry}` : ""}
                     </option>
@@ -1048,7 +1054,7 @@ function BulkPaymentsPage() {
               <ArrowRightLeft className="mb-4 h-12 w-12 text-muted-foreground/40" />
               <h3 className="text-lg font-medium">Select a party to begin</h3>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                Choose <strong>Debtor (AR)</strong> to receive payments from customers, or{" "}
+                Choose <strong>Customer (AR)</strong> to receive payments from customers, or{" "}
                 <strong>Supplier (AP)</strong> to pay purchase invoices to suppliers.
                 Then enter the payment amount, optionally apply past balance or credit,
                 then choose FIFO (strict), Two-Pass FIFO (future pre-closing), or manual selection.
@@ -1155,12 +1161,12 @@ function BulkPaymentsPage() {
               {/* Filter by customer */}
               <div className="flex items-center gap-3">
                 <select
-                  value={historyFilterDebtorId}
-                  onChange={(e) => setHistoryFilterDebtorId(e.target.value)}
+                  value={historyFilterCustomerId}
+                  onChange={(e) => setHistoryFilterCustomerId(e.target.value)}
                   className="h-9 rounded-lg border border-border bg-background px-3 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
                 >
                   <option value="">All parties</option>
-                  {(debtorsQ.data ?? []).map((d) => (
+                  {(customersQ.data ?? []).map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                   {(suppliersQ.data ?? []).map((s) => (
@@ -1254,7 +1260,7 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
     }
   };
 
-  const isSupplierPayment = payment.debtor_id?.startsWith("supplier_");
+  const isSupplierPayment = payment.customer_id?.startsWith("supplier_");
 
   return (
     <>
@@ -1267,7 +1273,7 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
             ) : (
               <Users className="h-3 w-3 text-muted-foreground" />
             )}
-            {payment.debtor_name}
+            {payment.customer_name}
           </div>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
@@ -1308,7 +1314,7 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
             <AlertDialogDescription className="space-y-2">
               <p>
                 This will reverse the bulk payment of <strong>{fmtMoney(payment.amount)}</strong> for{" "}
-                <strong>{payment.debtor_name}</strong>.
+                <strong>{payment.customer_name}</strong>.
               </p>
               <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
                 <li>{payment.invoices_closed} invoice{payment.invoices_closed !== 1 ? "s" : ""} will be reopened</li>

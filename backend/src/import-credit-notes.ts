@@ -197,7 +197,7 @@ async function main() {
         note_number: note.noteNumber,
         date: note.date,
         amount: note.amount,
-        debtor_supplier_name: note.supplierName,
+        customer_supplier_name: note.supplierName,
         supplier_id: vendor.id,
         linked_invoice_id: null,
         linked_invoice_type: "purchase",

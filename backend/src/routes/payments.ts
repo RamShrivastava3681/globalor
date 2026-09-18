@@ -4,23 +4,23 @@ import {
   TABLES,
 } from "../db/client.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
-import type { Invoice, PurchaseInvoice, Debtor, Vendor } from "../types/index.js";
+import type { Invoice, PurchaseInvoice, Customer, Vendor } from "../types/index.js";
 
 const router = Router();
 
 // ── GET /api/payments/history ──
 // Returns a unified feed of payment events across both sales and purchase invoices.
-// Optionally filtered by party_type: "debtor" | "supplier" | "all" (default "all")
+// Optionally filtered by party_type: "customer" | "supplier" | "all" (default "all")
 router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const partyType = (req.query.party_type as string) || "all";
 
-    // Preload all debtors and vendors for enrichment
-    const [allDebtors, allVendors] = await Promise.all([
-      scanTable<Debtor>(TABLES.DEBTORS),
+    // Preload all customers and vendors for enrichment
+    const [allCustomers, allVendors] = await Promise.all([
+      scanTable<Customer>(TABLES.CUSTOMERS),
       scanTable<Vendor>(TABLES.VENDORS),
     ]);
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
     // Fetch paid invoices
@@ -30,7 +30,7 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     // Build unified payment events
     type PaymentEvent = {
       id: string;
-      type: "debtor_payment" | "supplier_payment";
+      type: "customer_payment" | "supplier_payment";
       party_id: string;
       party_name: string;
       invoice_number: string;
@@ -46,15 +46,15 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const events: PaymentEvent[] = [];
 
-    // Sales invoices (debtor → money in)
+    // Sales invoices (customer → money in)
     for (const inv of allInvoices) {
       if (inv.status === "paid" && inv.paid_date) {
-        const debtor = inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined;
+        const customer = inv.customer_id ? customerMap.get(inv.customer_id) : undefined;
         events.push({
           id: inv.id,
-          type: "debtor_payment",
-          party_id: inv.debtor_id,
-          party_name: debtor?.name ?? "Unknown debtor",
+          type: "customer_payment",
+          party_id: inv.customer_id,
+          party_name: customer?.name ?? "Unknown customer",
           invoice_number: inv.invoice_number,
           amount: inv.amount,
           amount_received: inv.amount_received ?? null,
@@ -91,8 +91,8 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     }
 
     // Filter by party type
-    const filtered = partyType === "debtor"
-      ? events.filter((e) => e.type === "debtor_payment")
+    const filtered = partyType === "customer"
+      ? events.filter((e) => e.type === "customer_payment")
       : partyType === "supplier"
       ? events.filter((e) => e.type === "supplier_payment")
       : events;
@@ -101,8 +101,8 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     filtered.sort((a, b) => (b.paid_date ?? "").localeCompare(a.paid_date ?? ""));
 
     // Calculate totals
-    const totalDebtorPayments = filtered
-      .filter((e) => e.type === "debtor_payment")
+    const totalCustomerPayments = filtered
+      .filter((e) => e.type === "customer_payment")
       .reduce((s, e) => s + (e.amount_received ?? e.amount), 0);
     const totalSupplierPayments = filtered
       .filter((e) => e.type === "supplier_payment")
@@ -112,7 +112,7 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
       payments: filtered,
       totals: {
         total_events: filtered.length,
-        total_debtor_payments: totalDebtorPayments,
+        total_customer_payments: totalCustomerPayments,
         total_supplier_payments: totalSupplierPayments,
       },
     });

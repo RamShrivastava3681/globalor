@@ -16,7 +16,7 @@ import { generateId, generateNoaToken, generateDocNumber, nowISO, inferCompanyId
 import { generateMovementNumber } from "../utils/stock.js";
 import { config } from "../config.js";
 import { sendNoaEmail, sendReminderEmail } from "../utils/email.js";
-import type { Invoice, InvoiceLine, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
+import type { Invoice, InvoiceLine, Customer, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { getFileStream } from "../s3/client.js";
@@ -60,11 +60,11 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
     const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
 
-    // Preload debtors, vendors, and profiles for enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    // Preload customers, vendors, and profiles for enrichment
+    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -76,7 +76,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
       amount: number;
       status: string;
       client_id: string;
-      debtor_id?: string;
+      customer_id?: string;
       vendor_id?: string;
       issue_date?: string;
       created_at?: string;
@@ -93,7 +93,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
         amount: inv.amount,
         status: inv.status,
         client_id: inv.client_id,
-        debtor_id: inv.debtor_id,
+        customer_id: inv.customer_id,
         issue_date: inv.issue_date,
         created_at: inv.created_at,
       });
@@ -129,7 +129,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
         amount: number;
         status: string;
         client?: { company_name?: string; contact_name?: string };
-        debtor?: { name?: string };
+        customer?: { name?: string };
         vendor?: { name?: string };
         issue_date?: string;
         created_at?: string;
@@ -146,7 +146,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
             client: profileMap.get(e.client_id)
               ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name ?? undefined }
               : undefined,
-            debtor: e.debtor_id ? debtorMap.get(e.debtor_id) : undefined,
+            customer: e.customer_id ? customerMap.get(e.customer_id) : undefined,
             vendor: e.vendor_id ? vendorMap.get(e.vendor_id) : undefined,
           })),
         });
@@ -167,20 +167,20 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
 
-    // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
+    // Preload all customers, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const piMap = new Map(allPurchaseInvoices.map((pi) => [pi.id, pi]));
 
     // Fast synchronous enrichment function
     const enrichInv = (inv: Invoice) => {
-      const debtor = inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined;
+      const customer = inv.customer_id ? customerMap.get(inv.customer_id) : undefined;
       const client = inv.client_id ? profileMap.get(inv.client_id) : undefined;
       let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
       if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
@@ -195,16 +195,16 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           })
           .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
       }
-      return { ...inv, debtor, client, purchases };
+      return { ...inv, customer, client, purchases };
     };
 
-    // Server-side search filtering (including debtor name and visible UID)
+    // Server-side search filtering (including customer name and visible UID)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     let filteredInvoices = invoices;
     if (searchQuery) {
       filteredInvoices = invoices.filter((inv) => {
         const q = searchQuery;
-        const debtorName = (debtorMap.get(inv.debtor_id)?.name ?? "").toLowerCase();
+        const customerName = (customerMap.get(inv.customer_id)?.name ?? "").toLowerCase();
         const visibleUid = inv.id.slice(-8).toLowerCase();
         return (
           inv.invoice_number?.toLowerCase().includes(q) ||
@@ -212,7 +212,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           inv.status?.toLowerCase().includes(q) ||
           inv.id.toLowerCase().includes(q) ||
           visibleUid.includes(q) ||
-          debtorName.includes(q)
+          customerName.includes(q)
         );
       });
     }
@@ -308,13 +308,13 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
       pi.linked_sales_invoice_ids.map(async (invId) => {
         const inv = await getItem(TABLES.INVOICES, { id: invId }) as Invoice | undefined;
         if (!inv) return null;
-        const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
+        const customer = await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined;
         return {
           id: inv.id,
           invoice_number: inv.invoice_number,
           amount: inv.amount,
           status: inv.status,
-          debtor: debtor ? { name: debtor.name } : undefined,
+          customer: customer ? { name: customer.name } : undefined,
         };
       }),
     );
@@ -328,7 +328,7 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
 
 // ── POST /api/invoices ──
 const createInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number(),
   advance_rate: z.number().min(0).max(100).optional().default(0),
@@ -402,7 +402,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       return;
     }
     if (!so.customer_id) {
-      res.status(400).json({ error: "This sales order has no customer — assign a debtor before invoicing" });
+      res.status(400).json({ error: "This sales order has no customer — assign a customer before invoicing" });
       return;
     }
 
@@ -515,7 +515,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       id,
       client_id: req.user!.id,
       company_id: inferCompanyId(req.user!.company_id, so.company_id),
-      debtor_id: so.customer_id,
+      customer_id: so.customer_id,
       supplier_id: null,
       invoice_number: generateDocNumber("INV"),
       amount: netReceivable,
@@ -645,7 +645,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: so.customer_id,
+      customer_id: so.customer_id,
       invoice_id: id,
       type: "invoice_created",
       severity: "info",
@@ -671,8 +671,8 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const now = nowISO();
     const noa_token = generateNoaToken();
 
-    // Look up the debtor to infer company_id for super admins (who have company_id = null)
-    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
+    // Look up the customer to infer company_id for super admins (who have company_id = null)
+    const customer = await getItem(TABLES.CUSTOMERS, { id: parsed.customer_id }) as Customer | undefined;
 
     const termsDays = parsed.payment_terms_days;
     const dueDate = parsed.due_date !== null
@@ -687,8 +687,8 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
-      company_id: inferCompanyId(req.user!.company_id, debtor?.company_id),
-      debtor_id: parsed.debtor_id,
+      company_id: inferCompanyId(req.user!.company_id, customer?.company_id),
+      customer_id: parsed.customer_id,
       supplier_id: null,
       invoice_number: parsed.invoice_number,
       amount: parsed.amount,
@@ -781,11 +781,11 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       invoice_id: id,
       type: "invoice_created",
       severity: "info",
-      message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${debtor ? ` — ${debtor.name}` : ""}`,
+      message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${customer ? ` — ${customer.name}` : ""}`,
       created_by: req.user!.id,
     });
 
@@ -806,7 +806,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
-    const debtor = invoice.debtor_id ? await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined : undefined;
+    const customer = invoice.customer_id ? await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined : undefined;
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
     const salesOrder = invoice.goods_sales_order_id
       ? await getItem(TABLES.GOODS_SALES_ORDERS, { id: invoice.goods_sales_order_id }) as GoodsSalesOrder | undefined
@@ -826,7 +826,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
     }
 
-    res.json({ ...invoice, debtor, client, purchases, sales_order: salesOrder });
+    res.json({ ...invoice, customer, client, purchases, sales_order: salesOrder });
   } catch (err) {
     console.error("Get invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -860,7 +860,7 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (r
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "invoice_created",
       severity: "info",
@@ -936,7 +936,7 @@ router.post("/bulk-delete", requireAuth, requireWriteAccess("invoices"), async (
 
 // ── POST /api/invoices/batch ── (mass import from Excel)
 const batchInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_terms_days: z.number().min(0).optional().default(30),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   bl_date: z.string().nullable().optional(),
@@ -959,9 +959,9 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     const created: Invoice[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
-    // Look up the debtor to infer company_id for super admins
-    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
-    const resolvedCompanyId = inferCompanyId(req.user!.company_id, debtor?.company_id);
+    // Look up the customer to infer company_id for super admins
+    const customer = await getItem(TABLES.CUSTOMERS, { id: parsed.customer_id }) as Customer | undefined;
+    const resolvedCompanyId = inferCompanyId(req.user!.company_id, customer?.company_id);
 
     // Build all invoice objects first
     const invoicesToCreate: Invoice[] = [];
@@ -981,7 +981,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           id,
           client_id: req.user!.id,
           company_id: resolvedCompanyId,
-          debtor_id: parsed.debtor_id,
+          customer_id: parsed.customer_id,
           supplier_id: null,
           invoice_number: item.invoice_number,
           amount: item.amount,
@@ -1049,7 +1049,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       type: "invoice_created",
       severity: "info",
       message: `Batch imported ${created.length} invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
@@ -1153,7 +1153,7 @@ router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), as
   }
 });
 
-// ── POST /api/invoices/bulk-pay ── (mark invoices as paid from debtor bulk payment modal)
+// ── POST /api/invoices/bulk-pay ── (mark invoices as paid from customer bulk payment modal)
 const bulkPaySchema = z.object({
   items: z.array(z.object({
     id: z.string().min(1),
@@ -1354,8 +1354,8 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
       /(?:Order\s*(?:Number|#|No)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,30})/i,
     ]);
 
-    // ── Debtor / Bill-To company name ──
-    let debtorName = findField([
+    // ── Customer / Bill-To company name ──
+    let customerName = findField([
       /(?:Bill\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
       /(?:Ship\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
       /(?:Customer\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
@@ -1363,23 +1363,23 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
       /(?:Sold\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
     ]);
 
-    // ── Debtor address (lines after company name) ──
-    let debtorAddress = null;
-    if (debtorName) {
-      const escName = debtorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // ── Customer address (lines after company name) ──
+    let customerAddress = null;
+    if (customerName) {
+      const escName = customerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const addrPattern = new RegExp(`${escName}\\s*\\n\\s*([A-Za-z0-9\\s,.#'-]{5,100})`, 'i');
       const addrMatch = extractedText.match(addrPattern);
       if (addrMatch) {
-        debtorAddress = addrMatch[1].trim();
+        customerAddress = addrMatch[1].trim();
       }
     }
 
-    // ── Debtor email ──
+    // ── Customer email ──
     const contactEmail = findField([
       /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
     ]);
 
-    // ── Debtor phone ──
+    // ── Customer phone ──
     const contactPhone = findField([
       /(?:Phone|Tel|Telephone|Mobile|Call)\s*[:.]?\s*([+]?[\d\s\-()]{7,20})/i,
       /([+]\d{1,3}[\s-]?\d{1,4}[\s-]?\d{1,4}[\s-]?\d{1,9})/,
@@ -1406,9 +1406,9 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
     };
 
     const result = {
-      debtor: {
-        name: debtorName || "",
-        registered_address: debtorAddress || "",
+      customer: {
+        name: customerName || "",
+        registered_address: customerAddress || "",
         contact_email: contactEmail || "",
         contact_phone: contactPhone || "",
         registration_no: registrationNo || "",
@@ -1444,20 +1444,20 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     // Normalize input invoice numbers for case-insensitive matching
     const searchSet = new Set(invoiceNumbers.map((n) => n.toLowerCase().trim()));
 
-    // Preload all invoices, debtors, and profiles
-    const [allInvoices, allDebtors, allProfiles] = await Promise.all([
+    // Preload all invoices, customers, and profiles
+    const [allInvoices, allCustomers, allProfiles] = await Promise.all([
       scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
-      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
+      scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!)),
       scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
     ]);
 
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     // Separate invoices into found vs not-in-excel
-    const found: Array<Invoice & { debtor?: Debtor; client?: Profile }> = [];
+    const found: Array<Invoice & { customer?: Customer; client?: Profile }> = [];
     const platformInvoiceNumbers = new Set<string>();
-    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_id: string | null }> = [];
+    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; customer_id: string | null }> = [];
 
     for (const inv of allInvoices) {
       const normalized = inv.invoice_number.toLowerCase().trim();
@@ -1467,13 +1467,13 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         invoice_number: inv.invoice_number,
         amount: inv.amount,
         issue_date: inv.issue_date,
-        debtor_id: inv.debtor_id,
+        customer_id: inv.customer_id,
       });
 
       if (searchSet.has(normalized)) {
         found.push({
           ...inv,
-          debtor: inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined,
+          customer: inv.customer_id ? customerMap.get(inv.customer_id) : undefined,
           client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
         });
       }
@@ -1483,7 +1483,7 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     const notFoundInPlatform = invoiceNumbers.filter((n) => !platformInvoiceNumbers.has(n.toLowerCase().trim()));
 
     // Platform invoices NOT in the Excel (limit to 500 for performance)
-    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name: string | null }> = [];
+    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; customer_name: string | null }> = [];
     let notInExcelTotal = 0;
 
     for (const pi of platformInvoices) {
@@ -1492,7 +1492,7 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         if (notInExcel.length < 500) {
           notInExcel.push({
             ...pi,
-            debtor_name: pi.debtor_id ? (debtorMap.get(pi.debtor_id)?.name ?? null) : null,
+            customer_name: pi.customer_id ? (customerMap.get(pi.customer_id)?.name ?? null) : null,
           });
         }
       }
@@ -1527,16 +1527,16 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
-    // Lookup debtor for email
-    const debtor = await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined;
+    // Lookup customer for email
+    const customer = await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined;
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
     const companyName = client?.company_name || "A client";
 
     const noaEntry: ReminderEntry = {
       sent_at: nowISO(),
       type: "noa",
-      to: debtor?.contact_email || "",
-      note: debtor?.contact_email ? "Notice of Assignment sent" : "NOA sent — no debtor email on file",
+      to: customer?.contact_email || "",
+      note: customer?.contact_email ? "Notice of Assignment sent" : "NOA sent — no customer email on file",
     };
     const reminderLog = [...(invoice.reminder_log ?? []), noaEntry];
     await updateItem(TABLES.INVOICES, { id: req.params.id }, {
@@ -1549,19 +1549,19 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     const link = `/noa/${invoice.noa_token}`;
     const fullUrl = `${config.appUrl}${link}`;
 
-    // Send NOA email to debtor (non-blocking)
-    if (debtor?.contact_email) {
+    // Send NOA email to customer (non-blocking)
+    if (customer?.contact_email) {
       sendNoaEmail({
-        to: debtor.contact_email,
-        debtorName: debtor.name,
-        debtorContactName: debtor.contact_name,
+        to: customer.contact_email,
+        customerName: customer.name,
+        customerContactName: customer.contact_name,
         invoiceNumber: invoice.invoice_number,
         amount: invoice.amount,
         companyName,
         noaUrl: fullUrl,
       });
     } else {
-      console.warn(`   ⚠️ No contact email for debtor "${debtor?.name ?? invoice.debtor_id}" — NOA not emailed.`);
+      console.warn(`   ⚠️ No contact email for customer "${customer?.name ?? invoice.customer_id}" — NOA not emailed.`);
     }
 
     res.json({ noa_status: "sent", noa_link: link });
@@ -1655,7 +1655,7 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
     createActivityAlert({
       client_id: invoice.client_id,
       company_id: invoice.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "payment_received",
       severity: "info",
@@ -1691,10 +1691,10 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
       return;
     }
 
-    const debtor = await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined;
+    const customer = await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined;
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
-    if (!debtor?.contact_email) {
-      res.status(400).json({ error: "This debtor has no contact email on file — add one before reminding" });
+    if (!customer?.contact_email) {
+      res.status(400).json({ error: "This customer has no contact email on file — add one before reminding" });
       return;
     }
 
@@ -1703,9 +1703,9 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
       : 0;
     const invoiceUrl = `${config.appUrl}/noa/${invoice.noa_token}`;
     sendReminderEmail({
-      to: debtor.contact_email,
-      debtorName: debtor.name,
-      debtorContactName: debtor.contact_name ?? null,
+      to: customer.contact_email,
+      customerName: customer.name,
+      customerContactName: customer.contact_name ?? null,
       invoiceNumber: invoice.invoice_number,
       amount: invoice.amount,
       dueDate: invoice.due_date,
@@ -1717,7 +1717,7 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
     const entry: ReminderEntry = {
       sent_at: nowISO(),
       type: "manual",
-      to: debtor.contact_email,
+      to: customer.contact_email,
       note: `Manual reminder sent (overdue ${daysOverdue} day${daysOverdue === 1 ? "" : "s"})`,
     };
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, {
@@ -1729,7 +1729,7 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
     createActivityAlert({
       client_id: invoice.client_id,
       company_id: invoice.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "invoice_created",
       severity: "info",
@@ -1743,10 +1743,10 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
   }
 });
 
-// ── GET /api/invoices/:id/remind-debtor/:token ── (public, token-authenticated)
-// The link a reminder email points at: the debtor's one-time token verifies
+// ── GET /api/invoices/:id/remind-customer/:token ── (public, token-authenticated)
+// The link a reminder email points at: the customer's one-time token verifies
 // they can see this invoice's summary without a login (mirrors /api/noa/:token).
-router.get("/:id/remind-debtor/:token", async (req: Request, res: Response) => {
+router.get("/:id/remind-customer/:token", async (req: Request, res: Response) => {
   try {
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice || !invoice.noa_token || invoice.noa_token !== req.params.token) {

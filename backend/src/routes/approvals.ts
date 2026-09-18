@@ -7,12 +7,12 @@ import {
 } from "../db/client.js";
 import { nowISO } from "../utils/helpers.js";
 import { effectiveUnitPrice, computeQuotationTotals } from "../utils/quotations.js";
-import type { Quotation, Debtor } from "../types/index.js";
+import type { Quotation, Customer } from "../types/index.js";
 
 const router = Router();
 
 /** Public-safe view of a quotation for the approval page (no internal fields). */
-function publicView(q: Quotation, debtor: Debtor | undefined) {
+function publicView(q: Quotation, customer: Customer | undefined) {
   const lines = q.lines.map((l) => ({
     name: l.name,
     sku: l.sku,
@@ -26,10 +26,10 @@ function publicView(q: Quotation, debtor: Debtor | undefined) {
     quotation_number: q.quotation_number,
     quotation_date: q.quotation_date,
     valid_until: q.valid_until,
-    customer_name: q.customer_name ?? q.prospect_name ?? debtor?.name ?? "Customer",
+    customer_name: q.customer_name ?? q.prospect_name ?? customer?.name ?? "Customer",
     contact_person: q.contact_person,
-    debtor_status: q.debtor_status,
-    debtor_comments: q.debtor_comments || "",
+    customer_status: q.customer_status,
+    customer_comments: q.customer_comments || "",
     status: q.status,
     lines,
     freight: q.freight ?? 0,
@@ -46,7 +46,7 @@ function publicView(q: Quotation, debtor: Debtor | undefined) {
 router.get("/:token", async (req: Request, res: Response) => {
   try {
     const quotes = await scanTable<Quotation>(TABLES.QUOTATIONS, {
-      filterExpression: "debtor_token = :token",
+      filterExpression: "customer_token = :token",
       expressionAttributeValues: { ":token": req.params.token },
     });
     if (quotes.length === 0) {
@@ -54,8 +54,8 @@ router.get("/:token", async (req: Request, res: Response) => {
       return;
     }
     const q = quotes[0];
-    const debtor = q.customer_id ? await getItem(TABLES.DEBTORS, { id: q.customer_id }) as Debtor | undefined : undefined;
-    res.json(publicView(q, debtor));
+    const customer = q.customer_id ? await getItem(TABLES.CUSTOMERS, { id: q.customer_id }) as Customer | undefined : undefined;
+    res.json(publicView(q, customer));
   } catch (err) {
     console.error("Get approval error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -72,7 +72,7 @@ router.post("/:token/respond", async (req: Request, res: Response) => {
     }
 
     const quotes = await scanTable<Quotation>(TABLES.QUOTATIONS, {
-      filterExpression: "debtor_token = :token",
+      filterExpression: "customer_token = :token",
       expressionAttributeValues: { ":token": req.params.token },
     });
     if (quotes.length === 0) {
@@ -80,7 +80,7 @@ router.post("/:token/respond", async (req: Request, res: Response) => {
       return;
     }
     const q = quotes[0];
-    if (q.debtor_status === "approved") {
+    if (q.customer_status === "approved") {
       res.status(400).json({ error: "This quotation was already approved" });
       return;
     }
@@ -94,16 +94,16 @@ router.post("/:token/respond", async (req: Request, res: Response) => {
     }
 
     const update: Record<string, unknown> = {
-      debtor_status: decision,
-      debtor_comments: comments ? String(comments).slice(0, 2000) : null,
-      debtor_responded_at: nowISO(),
+      customer_status: decision,
+      customer_comments: comments ? String(comments).slice(0, 2000) : null,
+      customer_responded_at: nowISO(),
       updated_at: nowISO(),
     };
-    // Debtor acceptance moves the lifecycle to `accepted`.
+    // Customer acceptance moves the lifecycle to `accepted`.
     if (decision === "approved") update.status = "accepted";
 
     await updateItem(TABLES.QUOTATIONS, { id: q.id }, update);
-    res.json({ success: true, debtor_status: decision });
+    res.json({ success: true, customer_status: decision });
   } catch (err) {
     console.error("Respond approval error:", err);
     res.status(500).json({ error: "Internal server error" });

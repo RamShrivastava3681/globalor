@@ -59,7 +59,7 @@ export function safeMoney(val: unknown): number {
 
 /**
  * Resolve the company_id for a new entity when the creating user has no
- * company_id (e.g. a super admin). Falls back to the debtor's company_id,
+ * company_id (e.g. a super admin). Falls back to the customer's company_id,
  * then the user's company_id. Returns null only if nothing is available.
  *
  * This prevents invoices (and other entities) from being created with
@@ -68,8 +68,8 @@ export function safeMoney(val: unknown): number {
  */
 export function inferCompanyId(
   userCompanyId: string | null | undefined,
-  debtorCompanyId?: string | null,
+  customerCompanyId?: string | null,
   fallbackCompanyId?: string | null,
 ): string | null {
-  return userCompanyId || debtorCompanyId || fallbackCompanyId || null;
+  return userCompanyId || customerCompanyId || fallbackCompanyId || null;
 }

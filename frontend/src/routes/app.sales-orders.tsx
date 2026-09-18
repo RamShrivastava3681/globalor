@@ -56,7 +56,7 @@ type SO = {
   created_at: string;
 };
 
-type DebtorOpt = {
+type CustomerOpt = {
   id: string;
   name: string;
   contact_name: string | null;
@@ -76,7 +76,7 @@ const STATUS_META: Record<SO["status"], { label: string; cls: string }> = {
 const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
 const GST_OPTIONS = ["0", "5", "12", "18", "28"];
 
-function SalesOrdersPage() {
+export function SalesOrdersPage() {
   const { user, canWrite } = useAuth();
   const canEdit = canWrite("goods-sales-orders");
   const qc = useQueryClient();
@@ -436,9 +436,9 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     queryKey: ["products"],
     queryFn: async () => (await api.get<ProductOpt[]>("/products")) ?? [],
   });
-  const debtorsQ = useQuery({
-    queryKey: ["debtor-options"],
-    queryFn: async () => (await api.get<DebtorOpt[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customer-options"],
+    queryFn: async () => (await api.get<CustomerOpt[]>("/customers")) ?? [],
   });
   const quotationsQ = useQuery({
     queryKey: ["quotations"],
@@ -446,7 +446,7 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
   });
 
   const activeProducts = (productsQ.data ?? []).filter((p) => p.status === "active");
-  const debtors = debtorsQ.data ?? [];
+  const customers = customersQ.data ?? [];
   const openQuotations = (quotationsQ.data ?? []).filter(
     (q) => q.status === "draft" || q.status === "sent" || q.status === "accepted",
   );
@@ -530,7 +530,7 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     // A manual customer change breaks the quotation link — drop it so the
     // link stays truthful (details were copied, not re-fetched).
     if (link) setLink(null);
-    const d = debtors.find((x) => x.id === id);
+    const d = customers.find((x) => x.id === id);
     setForm((f) => ({
       ...f,
       customer_id: id,
@@ -629,10 +629,10 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
               )}
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Customer (debtor) *" full>
+              <L label="Customer (customer) *" full>
                 <select className="inp" value={form.customer_id} onChange={(e) => pickCustomer(e.target.value)}>
                   <option value="">—</option>
-                  {debtors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </L>
               <L label="Contact person"><input className="inp" value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></L>
@@ -641,8 +641,8 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
                   {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </L>
-              <L label="Billing address" full><input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Auto-filled from debtor" /></L>
-              <L label="Delivery address" full><input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Auto-filled from debtor" /></L>
+              <L label="Billing address" full><input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Auto-filled from customer" /></L>
+              <L label="Delivery address" full><input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Auto-filled from customer" /></L>
               <L label="Salesperson"><input className="inp" value={form.salesperson_name} onChange={(e) => setForm({ ...form, salesperson_name: e.target.value })} /></L>
               <L label="Expected dispatch"><input type="date" className="inp" value={form.expected_dispatch_date} onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })} /></L>
               <L label="Expected delivery"><input type="date" className="inp" value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} /></L>

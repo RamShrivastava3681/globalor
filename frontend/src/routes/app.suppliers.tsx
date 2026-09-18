@@ -54,7 +54,7 @@ const emptyForm = {
   notes: "",
 };
 
-function SuppliersPage() {
+export function SuppliersPage() {
   const { canWrite } = useAuth();
   const canEdit = canWrite("suppliers");
   const qc = useQueryClient();

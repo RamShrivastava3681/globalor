@@ -52,15 +52,15 @@ type Q = {
   status: "draft" | "sent" | "accepted" | "rejected" | "expired" | "converted_to_so";
   approval_status: "none" | "pending_review" | "approved" | "rejected";
   approval_comments: string | null;
-  debtor_status: "pending" | "approved" | "rejected";
-  debtor_comments: string | null;
-  debtor_sent_at: string | null;
+  customer_status: "pending" | "approved" | "rejected";
+  customer_comments: string | null;
+  customer_sent_at: string | null;
   converted_to_so_id: string | null;
   converted_to_so_number: string | null;
   created_at: string;
 };
 
-type DebtorOpt = {
+type CustomerOpt = {
   id: string;
   name: string;
   contact_name: string | null;
@@ -86,10 +86,10 @@ const APPROVAL_META: Record<Q["approval_status"], { label: string; cls: string }
   rejected: { label: "Prices rejected", cls: "border-destructive/40 bg-destructive/10 text-destructive" },
 };
 
-const DEBTOR_META: Record<Q["debtor_status"], { label: string; cls: string }> = {
-  pending: { label: "Debtor: not asked", cls: "border-border text-muted-foreground" },
-  approved: { label: "Debtor approved", cls: "border-success/40 bg-success/10 text-success" },
-  rejected: { label: "Debtor rejected", cls: "border-destructive/40 bg-destructive/10 text-destructive" },
+const CUSTOMER_META: Record<Q["customer_status"], { label: string; cls: string }> = {
+  pending: { label: "Customer: not asked", cls: "border-border text-muted-foreground" },
+  approved: { label: "Customer approved", cls: "border-success/40 bg-success/10 text-success" },
+  rejected: { label: "Customer rejected", cls: "border-destructive/40 bg-destructive/10 text-destructive" },
 };
 
 const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
@@ -162,9 +162,9 @@ function QuotationsPage() {
     onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ["checker-quotations"] }); toast.success("Price review recorded"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
-  const sendToDebtor = useMutation({
-    mutationFn: async (id: string) => { await api.post(`/quotations/${id}/send-to-debtor`); },
-    onSuccess: () => { invalidate(); toast.success("Secure approval link emailed to the debtor"); },
+  const sendToCustomer = useMutation({
+    mutationFn: async (id: string) => { await api.post(`/quotations/${id}/send-to-customer`); },
+    onSuccess: () => { invalidate(); toast.success("Secure approval link emailed to the customer"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
   const convert = useMutation({
@@ -187,7 +187,7 @@ function QuotationsPage() {
       <PageHeader
         eyebrow="Sales"
         title="Quotations"
-        description="An offer that never touches inventory or accounting. Send it, get the pricing checker-approved, optionally get the debtor's secure approval, then convert to a sales order."
+        description="An offer that never touches inventory or accounting. Send it, get the pricing checker-approved, optionally get the customer's secure approval, then convert to a sales order."
         actions={
           canEdit ? (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -248,7 +248,7 @@ function QuotationsPage() {
                     <th className="px-5 py-2 text-right font-normal">Total</th>
                     <th className="px-5 py-2 text-left font-normal">Lifecycle</th>
                     <th className="px-5 py-2 text-left font-normal">Price review</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
                 </thead>
@@ -271,7 +271,7 @@ function QuotationsPage() {
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${APPROVAL_META[qt.approval_status].cls}`}>{APPROVAL_META[qt.approval_status].label}</span>
                       </td>
                       <td className="px-5 py-3">
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${DEBTOR_META[qt.debtor_status].cls}`}>{DEBTOR_META[qt.debtor_status].label}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${CUSTOMER_META[qt.customer_status].cls}`}>{CUSTOMER_META[qt.customer_status].label}</span>
                       </td>
                       <td className="px-5 py-3 text-right">
                         {canEdit && qt.status === "draft" && (
@@ -304,10 +304,10 @@ function QuotationsPage() {
                                 <BadgeCheck className="h-3 w-3" /> Submit prices
                               </button>
                             )}
-                            {qt.debtor_status !== "approved" && (
-                              <button onClick={() => sendToDebtor.mutate(qt.id)} disabled={sendToDebtor.isPending}
+                            {qt.customer_status !== "approved" && (
+                              <button onClick={() => sendToCustomer.mutate(qt.id)} disabled={sendToCustomer.isPending}
                                 className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
-                                <Undo2 className="h-3 w-3" /> Send to debtor
+                                <Undo2 className="h-3 w-3" /> Send to customer
                               </button>
                             )}
                           </div>
@@ -379,7 +379,7 @@ function QuotationDetail({ q, onClose, isApprover, onReview, reviewPending }: {
             <span className="font-mono text-primary">{q.quotation_number}</span>
             <span className="ml-2 align-middle"><Pill meta={LIFE_META[q.status]} /></span>
             <span className="ml-1 align-middle"><Pill meta={APPROVAL_META[q.approval_status]} /></span>
-            <span className="ml-1 align-middle"><Pill meta={DEBTOR_META[q.debtor_status]} /></span>
+            <span className="ml-1 align-middle"><Pill meta={CUSTOMER_META[q.customer_status]} /></span>
           </h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
@@ -448,10 +448,10 @@ function QuotationDetail({ q, onClose, isApprover, onReview, reviewPending }: {
             </table>
           </div>
 
-          {(q.approval_comments || q.debtor_comments) && (
+          {(q.approval_comments || q.customer_comments) && (
             <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3 text-xs">
               {q.approval_comments && <p><span className="text-[10px] uppercase tracking-widest text-muted-foreground">Checker comments: </span>{q.approval_comments}</p>}
-              {q.debtor_comments && <p><span className="text-[10px] uppercase tracking-widest text-muted-foreground">Debtor comments: </span>{q.debtor_comments}</p>}
+              {q.customer_comments && <p><span className="text-[10px] uppercase tracking-widest text-muted-foreground">Customer comments: </span>{q.customer_comments}</p>}
             </div>
           )}
 
@@ -549,13 +549,13 @@ function QuotationModal({ quote, onClose }: { quote?: Q; onClose: () => void }) 
     queryKey: ["products"],
     queryFn: async () => (await api.get<ProductOpt[]>("/products")) ?? [],
   });
-  const debtorsQ = useQuery({
-    queryKey: ["debtor-options"],
-    queryFn: async () => (await api.get<DebtorOpt[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customer-options"],
+    queryFn: async () => (await api.get<CustomerOpt[]>("/customers")) ?? [],
   });
 
   const activeProducts = (productsQ.data ?? []).filter((p) => p.status === "active");
-  const debtors = debtorsQ.data ?? [];
+  const customers = customersQ.data ?? [];
 
   const setLine = (i: number, patch: Partial<LineForm>) => {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -578,7 +578,7 @@ function QuotationModal({ quote, onClose }: { quote?: Q; onClose: () => void }) 
   };
 
   const pickCustomer = (id: string) => {
-    const d = debtors.find((x) => x.id === id);
+    const d = customers.find((x) => x.id === id);
     setForm((f) => ({
       ...f,
       customer_id: id,
@@ -663,10 +663,10 @@ function QuotationModal({ quote, onClose }: { quote?: Q; onClose: () => void }) 
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           <Section title="Customer & offer">
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Customer (debtor)" full>
+              <L label="Customer (customer)" full>
                 <select className="inp" value={form.customer_id} onChange={(e) => pickCustomer(e.target.value)}>
                   <option value="">— free-text prospect —</option>
-                  {debtors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </L>
               {!form.customer_id && (

@@ -101,8 +101,8 @@ export async function sendWelcomeEmail(params: WelcomeEmailParams): Promise<void
 
 export interface NoaEmailParams {
   to: string;
-  debtorName: string;
-  debtorContactName: string | null;
+  customerName: string;
+  customerContactName: string | null;
   invoiceNumber: string;
   amount: number;
   companyName: string;
@@ -183,7 +183,7 @@ export async function sendQuotationEmail(params: QuotationEmailParams): Promise<
   }
 }
 
-export interface QuotationDebtorEmailParams {
+export interface QuotationCustomerEmailParams {
   to: string;
   customerName: string;
   contactName: string | null;
@@ -193,8 +193,8 @@ export interface QuotationDebtorEmailParams {
   approvalUrl: string;
 }
 
-/** "Send to debtor" — one-time secure-token approval link email. */
-export async function sendQuotationDebtorEmail(params: QuotationDebtorEmailParams): Promise<void> {
+/** "Send to customer" — one-time secure-token approval link email. */
+export async function sendQuotationCustomerEmail(params: QuotationCustomerEmailParams): Promise<void> {
   const t = getTransporter();
   if (!t) return;
 
@@ -254,9 +254,9 @@ export async function sendQuotationDebtorEmail(params: QuotationDebtorEmailParam
       subject: `Quotation ${params.quotationNumber} — your approval is requested`,
       html,
     });
-    console.log(`   ✅ Quotation debtor email sent to ${params.to}`);
+    console.log(`   ✅ Quotation customer email sent to ${params.to}`);
   } catch (err) {
-    console.error(`   ❌ Failed to send quotation debtor email to ${params.to}:`, err);
+    console.error(`   ❌ Failed to send quotation customer email to ${params.to}:`, err);
   }
 }
 
@@ -265,7 +265,7 @@ export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
   if (!t) return;
 
   const { smtp } = config;
-  const name = params.debtorContactName || params.debtorName;
+  const name = params.customerContactName || params.customerName;
 
   const html = `
 <!DOCTYPE html>
@@ -329,8 +329,8 @@ export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
 
 export interface ReminderEmailParams {
   to: string;
-  debtorName: string;
-  debtorContactName: string | null;
+  customerName: string;
+  customerContactName: string | null;
   invoiceNumber: string;
   amount: number;
   dueDate: string | null;
@@ -375,7 +375,7 @@ export async function sendReminderEmail(params: ReminderEmailParams): Promise<vo
       <div class="sub">Invoice overdue by ${days} day${days === 1 ? "" : "s"}</div>
     </div>
     <div class="body">
-      <p>Dear <strong>${params.debtorName}</strong>,</p>
+      <p>Dear <strong>${params.customerName}</strong>,</p>
       <p>This is a friendly reminder that the following invoice from <strong>${params.companyName}</strong> is now <strong>${days} day${days === 1 ? "" : "s"} past its due date</strong>. We would appreciate your prompt settlement.</p>
       <div class="details">
         <div class="row"><span class="label">Invoice Number</span><span class="value">${params.invoiceNumber}</span></div>
