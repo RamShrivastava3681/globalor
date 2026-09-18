@@ -12,6 +12,7 @@ import { requireAuth, requireAnyWriteAccess, getCompanyFilter, type AuthRequest 
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
+import { scanCustomersMerged } from "../utils/customers.js";
 
 const router = Router();
 
@@ -332,8 +333,8 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with party names (customers + vendors)
-    const allCustomers = await scanTable<{ id: string; name: string }>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    // Enrich with party names (customers/debtors + vendors)
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const customerMap = new Map(allCustomers.map((d) => [d.id, d.name]));
     const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));

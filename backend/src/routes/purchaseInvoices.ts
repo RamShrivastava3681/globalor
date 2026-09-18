@@ -17,6 +17,7 @@ import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
 import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // to avoid N+1 GetItem calls during enrichment
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allSalesInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -49,7 +50,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           .map((sId) => {
             const si = salesInvMap.get(sId);
             if (si) {
-              return { ...si, customer: customerMap.get(si.customer_id) };
+              return { ...si, customer: customerMap.get(getInvoicePartyId(si) ?? "") };
             }
             return null;
           })
@@ -162,8 +163,9 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       const results = await Promise.all(
         invoice.linked_sales_invoice_ids.map(async (sId) => {
           const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-          if (si?.customer_id) {
-            si.customer = await getItem(TABLES.CUSTOMERS, { id: si.customer_id }) as Customer | undefined;
+          const partyId = getInvoicePartyId(si);
+          if (partyId) {
+            si.customer = await getCustomerById(partyId);
           }
           return si;
         }),

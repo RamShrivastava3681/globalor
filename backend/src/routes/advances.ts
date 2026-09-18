@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Advance, AdvanceSide, DocMeta } from "../types/index.js";
+import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -23,7 +24,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
-    const allCustomers = await scanTable<any>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
@@ -39,7 +40,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
         if (a.invoice_id) {
           const inv = invoiceMap.get(a.invoice_id);
           if (inv) {
-            const customer = customerMap.get(inv.customer_id);
+            const customer = customerMap.get(getInvoicePartyId(inv) ?? "");
             invoice = { invoice_number: inv.invoice_number, amount: inv.amount, customer: customer ? { name: customer.name } : undefined };
           }
         }

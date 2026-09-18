@@ -5,6 +5,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import type { Invoice, PurchaseInvoice, Customer, Vendor } from "../types/index.js";
+import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -17,7 +18,7 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
 
     // Preload all customers and vendors for enrichment
     const [allCustomers, allVendors] = await Promise.all([
-      scanTable<Customer>(TABLES.CUSTOMERS),
+      scanCustomersMerged() as Promise<Customer[]>,
       scanTable<Vendor>(TABLES.VENDORS),
     ]);
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -49,11 +50,12 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
     // Sales invoices (customer → money in)
     for (const inv of allInvoices) {
       if (inv.status === "paid" && inv.paid_date) {
-        const customer = inv.customer_id ? customerMap.get(inv.customer_id) : undefined;
+        const partyId = getInvoicePartyId(inv) ?? inv.customer_id;
+        const customer = partyId ? customerMap.get(partyId) : undefined;
         events.push({
           id: inv.id,
           type: "customer_payment",
-          party_id: inv.customer_id,
+          party_id: partyId,
           party_name: customer?.name ?? "Unknown customer",
           invoice_number: inv.invoice_number,
           amount: inv.amount,

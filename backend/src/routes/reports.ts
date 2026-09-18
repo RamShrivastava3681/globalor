@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
+import { scanCustomersMerged, getInvoicePartyId, normalizeInvoiceParty } from "../utils/customers.js";
 import { diffDaysUTC } from "../utils/helpers.js";
 import { computeCreditNoteTotals } from "../utils/creditNotes.js";
 import type {
@@ -62,7 +63,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 
     // Preload all customers, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -93,7 +94,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 
     // Fast enrichment using lookup maps (synchronous, no DB calls)
     const enrichInvoiceFast = (inv: Invoice) => {
-      const customer = customerMap.get(inv.customer_id);
+      const customer = customerMap.get(getInvoicePartyId(inv) ?? "");
       const client = profileMap.get(inv.client_id);
       let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
       if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
@@ -104,14 +105,14 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
       }
       const closed = inv.status === "paid" || inv.status === "funded";
       const outstanding = closed ? 0 : Number(inv.amount) - (Number(inv.amount_received) || 0);
-      return { ...inv, customer, client, purchases, outstanding };
+      return { ...normalizeInvoiceParty(inv), customer, client, purchases, outstanding };
     };
 
     // Server-side search filter (applied before pagination)
     const search = (req.query.search as string) || "";
     let filtered = search
       ? invoices.filter((inv) => {
-          const searchable = JSON.stringify(Object.values({ ...inv, customer: customerMap.get(inv.customer_id), client: profileMap.get(inv.client_id) })).toLowerCase();
+          const searchable = JSON.stringify(Object.values({ ...inv, customer: customerMap.get(getInvoicePartyId(inv) ?? ""), client: profileMap.get(inv.client_id) })).toLowerCase();
           return searchable.includes(search.toLowerCase());
         })
       : invoices;
@@ -119,7 +120,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
     // Server-side buyer (customer) filter
     const buyerId = (req.query.buyer_id as string) || "";
     if (buyerId) {
-      filtered = filtered.filter((inv) => inv.customer_id === buyerId);
+      filtered = filtered.filter((inv) => getInvoicePartyId(inv) === buyerId);
     }
 
     // Server-side status filter (applied before pagination, after search)
@@ -227,7 +228,7 @@ router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) =>
     }
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -260,7 +261,7 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     }
     const [invoices, allCustomers] = await Promise.all([
       Promise.resolve(allInvoices),
-      scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
     ]);
 
     const now = new Date();
@@ -278,7 +279,8 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     }>();
 
     for (const inv of invoices) {
-      if (inv.status === "paid" || inv.status === "rejected" || !inv.customer_id) continue;
+      const partyId = getInvoicePartyId(inv);
+      if (inv.status === "paid" || inv.status === "rejected" || !partyId) continue;
 
       const amount = Number(inv.amount);
       let bucket: keyof typeof bucketsByCustomer extends never ? string : "current" | "bucket_1_30" | "bucket_31_60" | "bucket_61_90" | "bucket_91_120" | "bucket_over_120" = "current";
@@ -295,10 +297,10 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
         else bucket = "current";
       }
 
-      let entry = bucketsByCustomer.get(inv.customer_id);
+      let entry = bucketsByCustomer.get(partyId);
       if (!entry) {
         entry = { current: 0, bucket_1_30: 0, bucket_31_60: 0, bucket_61_90: 0, bucket_91_120: 0, bucket_over_120: 0, total: 0 };
-        bucketsByCustomer.set(inv.customer_id, entry);
+        bucketsByCustomer.set(partyId, entry);
       }
 
       entry[bucket] += amount;
@@ -339,20 +341,21 @@ router.get("/customers", requireAuth, async (req: AuthRequest, res: Response) =>
       allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
     }
     const [customers, invoices] = await Promise.all([
-      scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
       Promise.resolve(allInvoices),
     ]);
 
     const SALES_OPEN = new Set(["draft", "submitted", "approved", "advanced", "overdue", "disputed"]);
     const SALES_CLOSED = new Set(["funded", "paid"]);
 
-    // Group invoices by customer_id
+    // Group invoices by customer_id (legacy debtor_id supported)
     const invoicesByCustomer = new Map<string, Invoice[]>();
     for (const inv of invoices) {
-      if (inv.customer_id) {
-        const list = invoicesByCustomer.get(inv.customer_id) ?? [];
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) {
+        const list = invoicesByCustomer.get(partyId) ?? [];
         list.push(inv);
-        invoicesByCustomer.set(inv.customer_id, list);
+        invoicesByCustomer.set(partyId, list);
       }
     }
 
@@ -463,7 +466,7 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
     const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
-    const allCustomers = await scanTable<any>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
@@ -479,7 +482,7 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
         if (a.invoice_id) {
           const inv = invoiceMap.get(a.invoice_id);
           if (inv) {
-            const customer = customerMap.get(inv.customer_id);
+            const customer = customerMap.get(getInvoicePartyId(inv) ?? "");
             invoice = { invoice_number: inv.invoice_number, amount: inv.amount, customer: customer ? { name: customer.name } : undefined };
           }
         }
@@ -764,10 +767,11 @@ router.get("/portfolio", requireAuth, async (req: AuthRequest, res: Response) =>
 
     const totalInvoices = filtered.length;
 
-    // Unique buyers (customers)
+    // Unique buyers (customers — debtor_id or customer_id)
     const buyerIds = new Set<string>();
     for (const inv of filtered) {
-      if (inv.customer_id) buyerIds.add(inv.customer_id);
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) buyerIds.add(partyId);
     }
 
     const totalBuyers = buyerIds.size;
@@ -922,13 +926,15 @@ router.get("/dashboard-summary", requireAuth, async (req: AuthRequest, res: Resp
     const filter = getCompanyFilter(req.user!);
 
     // ── Step 1: All DynamoDB scans in parallel ──
+    // NOTE: customer master lives in DEBTORS — merge with CUSTOMERS so the
+    // book is never empty when only debtors exist.
     const [invoices, purchaseInvoices, expenses, alerts, customers, vendors, advances, creditDebitNotes, purchaseOrders, suppliers] =
       await Promise.all([
         scanTable<Invoice>(TABLES.INVOICES, filter),
         scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, filter),
         scanTable<Expense>(TABLES.EXPENSES, filter),
         scanTable<any>(TABLES.ALERTS, filter),
-        scanTable<Customer>(TABLES.CUSTOMERS, filter),
+        scanCustomersMerged(filter as any),
         scanTable<Vendor>(TABLES.VENDORS, filter),
         scanTable<Advance>(TABLES.ADVANCES, filter),
         scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, filter),
@@ -1043,7 +1049,7 @@ router.get("/dashboard-summary", requireAuth, async (req: AuthRequest, res: Resp
     // --- Concentration: top customers by outstanding ---
     const customerExposure = new Map<string, { name: string; outstanding: number; count: number }>();
     openSales.forEach((i) => {
-      const did = i.customer_id;
+      const did = getInvoicePartyId(i) ?? "unknown";
       const name = customerMap.get(did)?.name ?? "Unknown";
       const existing = customerExposure.get(did) ?? { name, outstanding: 0, count: 0 };
       existing.outstanding += Number(i.amount);
@@ -1121,8 +1127,8 @@ router.get("/dashboard-summary", requireAuth, async (req: AuthRequest, res: Resp
         invoice_number: i.invoice_number,
         amount: i.amount,
         short_payment: i.short_payment,
-        customer_id: i.customer_id,
-        customer_name: customerMap.get(i.customer_id)?.name ?? "Unknown",
+        customer_id: getInvoicePartyId(i),
+        customer_name: customerMap.get(getInvoicePartyId(i) ?? "")?.name ?? "Unknown",
       })),
 
       // Payment days

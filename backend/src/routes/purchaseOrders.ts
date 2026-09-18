@@ -16,6 +16,7 @@ import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { computeOrderTotals } from "../utils/goodsOrders.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { scanCustomersMerged, getCustomerById } from "../utils/customers.js";
 import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Customer, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
 
 const router = Router();
@@ -26,7 +27,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -492,7 +493,7 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
     };
     const totals = computeSalesTotals([line], 0);
     const customer = proforma.customer_id
-      ? await getItem(TABLES.CUSTOMERS, { id: proforma.customer_id }) as Customer | undefined
+      ? await getCustomerById(proforma.customer_id)
       : undefined;
 
     const id = generateId();

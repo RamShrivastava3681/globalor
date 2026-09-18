@@ -36,7 +36,6 @@ import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-ord
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppProcurementWorkbenchRouteImport } from './routes/app.procurement-workbench'
-import { Route as AppNaughtyListRouteImport } from './routes/app.naughty-list'
 import { Route as AppMyReportsRouteImport } from './routes/app.my-reports'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
@@ -194,11 +193,6 @@ const AppProcurementWorkbenchRoute = AppProcurementWorkbenchRouteImport.update({
   path: '/procurement-workbench',
   getParentRoute: () => AppRoute,
 } as any)
-const AppNaughtyListRoute = AppNaughtyListRouteImport.update({
-  id: '/naughty-list',
-  path: '/naughty-list',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppMyReportsRoute = AppMyReportsRouteImport.update({
   id: '/my-reports',
   path: '/my-reports',
@@ -328,7 +322,6 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/my-reports': typeof AppMyReportsRoute
-  '/app/naughty-list': typeof AppNaughtyListRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
@@ -379,7 +372,6 @@ export interface FileRoutesByTo {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/my-reports': typeof AppMyReportsRoute
-  '/app/naughty-list': typeof AppNaughtyListRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
@@ -430,7 +422,6 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/my-reports': typeof AppMyReportsRoute
-  '/app/naughty-list': typeof AppNaughtyListRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
@@ -483,7 +474,6 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/my-reports'
-    | '/app/naughty-list'
     | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
@@ -534,7 +524,6 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/my-reports'
-    | '/app/naughty-list'
     | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
@@ -584,7 +573,6 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/my-reports'
-    | '/app/naughty-list'
     | '/app/procurement-workbench'
     | '/app/products'
     | '/app/proformas'
@@ -812,13 +800,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProcurementWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/naughty-list': {
-      id: '/app/naughty-list'
-      path: '/naughty-list'
-      fullPath: '/app/naughty-list'
-      preLoaderRoute: typeof AppNaughtyListRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/my-reports': {
       id: '/app/my-reports'
       path: '/my-reports'
@@ -1003,7 +984,6 @@ interface AppRouteChildren {
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppMyReportsRoute: typeof AppMyReportsRoute
-  AppNaughtyListRoute: typeof AppNaughtyListRoute
   AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
   AppProformasRoute: typeof AppProformasRoute
@@ -1048,7 +1028,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppMyReportsRoute: AppMyReportsRoute,
-  AppNaughtyListRoute: AppNaughtyListRoute,
   AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,
   AppProformasRoute: AppProformasRoute,

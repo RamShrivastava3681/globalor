@@ -1,6 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   BarChart3,
   BellRing,
   Briefcase,
@@ -48,7 +47,6 @@ const PAGE_META: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/app/procurement-workbench", label: "Procurement", icon: ShoppingCart },
   { to: "/app/sales-workbench", label: "Sales", icon: ShoppingBag },
   { to: "/app/crm", label: "Leads", icon: Users },
-  { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
   { to: "/app/customers", label: "Customers", icon: Building2 },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/products", label: "Product Catalogue", icon: Package },

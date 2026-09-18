@@ -18,6 +18,7 @@ import { config } from "../config.js";
 import { sendNoaEmail, sendReminderEmail } from "../utils/email.js";
 import type { Invoice, InvoiceLine, Customer, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId, normalizeInvoiceParty } from "../utils/customers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { getFileStream } from "../s3/client.js";
 import { Readable } from "stream";
@@ -61,7 +62,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
     const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
 
     // Preload customers, vendors, and profiles for enrichment
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -76,7 +77,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
       amount: number;
       status: string;
       client_id: string;
-      customer_id?: string;
+      customer_id?: string | null;
       vendor_id?: string;
       issue_date?: string;
       created_at?: string;
@@ -93,7 +94,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
         amount: inv.amount,
         status: inv.status,
         client_id: inv.client_id,
-        customer_id: inv.customer_id,
+        customer_id: getInvoicePartyId(inv),
         issue_date: inv.issue_date,
         created_at: inv.created_at,
       });
@@ -169,7 +170,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     // Preload all customers, profiles, vendors, and purchase invoices into lookup maps
     // to avoid N+1 GetItem calls during enrichment
-    const allCustomers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
@@ -180,7 +181,8 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 
     // Fast synchronous enrichment function
     const enrichInv = (inv: Invoice) => {
-      const customer = inv.customer_id ? customerMap.get(inv.customer_id) : undefined;
+      const partyId = getInvoicePartyId(inv);
+      const customer = partyId ? customerMap.get(partyId) : undefined;
       const client = inv.client_id ? profileMap.get(inv.client_id) : undefined;
       let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
       if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
@@ -195,7 +197,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           })
           .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
       }
-      return { ...inv, customer, client, purchases };
+      return { ...normalizeInvoiceParty(inv), customer, client, purchases };
     };
 
     // Server-side search filtering (including customer name and visible UID)
@@ -204,7 +206,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     if (searchQuery) {
       filteredInvoices = invoices.filter((inv) => {
         const q = searchQuery;
-        const customerName = (customerMap.get(inv.customer_id)?.name ?? "").toLowerCase();
+        const customerName = (customerMap.get(getInvoicePartyId(inv) ?? "")?.name ?? "").toLowerCase();
         const visibleUid = inv.id.slice(-8).toLowerCase();
         return (
           inv.invoice_number?.toLowerCase().includes(q) ||
@@ -308,7 +310,7 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
       pi.linked_sales_invoice_ids.map(async (invId) => {
         const inv = await getItem(TABLES.INVOICES, { id: invId }) as Invoice | undefined;
         if (!inv) return null;
-        const customer = await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined;
+        const customer = await getCustomerById(getInvoicePartyId(inv));
         return {
           id: inv.id,
           invoice_number: inv.invoice_number,
@@ -672,7 +674,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const noa_token = generateNoaToken();
 
     // Look up the customer to infer company_id for super admins (who have company_id = null)
-    const customer = await getItem(TABLES.CUSTOMERS, { id: parsed.customer_id }) as Customer | undefined;
+    const customer = await getCustomerById(parsed.customer_id);
 
     const termsDays = parsed.payment_terms_days;
     const dueDate = parsed.due_date !== null
@@ -689,6 +691,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       client_id: req.user!.id,
       company_id: inferCompanyId(req.user!.company_id, customer?.company_id),
       customer_id: parsed.customer_id,
+      debtor_id: parsed.customer_id,
       supplier_id: null,
       invoice_number: parsed.invoice_number,
       amount: parsed.amount,
@@ -806,7 +809,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
-    const customer = invoice.customer_id ? await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined : undefined;
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
     const salesOrder = invoice.goods_sales_order_id
       ? await getItem(TABLES.GOODS_SALES_ORDERS, { id: invoice.goods_sales_order_id }) as GoodsSalesOrder | undefined
@@ -826,7 +829,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
     }
 
-    res.json({ ...invoice, customer, client, purchases, sales_order: salesOrder });
+    res.json({ ...normalizeInvoiceParty(invoice), customer, client, purchases, sales_order: salesOrder });
   } catch (err) {
     console.error("Get invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -960,7 +963,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
     // Look up the customer to infer company_id for super admins
-    const customer = await getItem(TABLES.CUSTOMERS, { id: parsed.customer_id }) as Customer | undefined;
+    const customer = await getCustomerById(parsed.customer_id);
     const resolvedCompanyId = inferCompanyId(req.user!.company_id, customer?.company_id);
 
     // Build all invoice objects first
@@ -982,6 +985,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
           client_id: req.user!.id,
           company_id: resolvedCompanyId,
           customer_id: parsed.customer_id,
+          debtor_id: parsed.customer_id,
           supplier_id: null,
           invoice_number: item.invoice_number,
           amount: item.amount,
@@ -1447,7 +1451,7 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     // Preload all invoices, customers, and profiles
     const [allInvoices, allCustomers, allProfiles] = await Promise.all([
       scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
-      scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
       scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
     ]);
 
@@ -1467,13 +1471,13 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         invoice_number: inv.invoice_number,
         amount: inv.amount,
         issue_date: inv.issue_date,
-        customer_id: inv.customer_id,
+        customer_id: getInvoicePartyId(inv),
       });
 
       if (searchSet.has(normalized)) {
         found.push({
-          ...inv,
-          customer: inv.customer_id ? customerMap.get(inv.customer_id) : undefined,
+          ...normalizeInvoiceParty(inv),
+          customer: getInvoicePartyId(inv) ? customerMap.get(getInvoicePartyId(inv)!) : undefined,
           client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
         });
       }
@@ -1528,7 +1532,7 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
     // Lookup customer for email
-    const customer = await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined;
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
     const companyName = client?.company_name || "A client";
 
@@ -1561,7 +1565,7 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
         noaUrl: fullUrl,
       });
     } else {
-      console.warn(`   ⚠️ No contact email for customer "${customer?.name ?? invoice.customer_id}" — NOA not emailed.`);
+      console.warn(`   ⚠️ No contact email for customer "${customer?.name ?? getInvoicePartyId(invoice)}" — NOA not emailed.`);
     }
 
     res.json({ noa_status: "sent", noa_link: link });
@@ -1691,7 +1695,7 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
       return;
     }
 
-    const customer = await getItem(TABLES.CUSTOMERS, { id: invoice.customer_id }) as Customer | undefined;
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
     if (!customer?.contact_email) {
       res.status(400).json({ error: "This customer has no contact email on file — add one before reminding" });

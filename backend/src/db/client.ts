@@ -36,6 +36,9 @@ export const TABLES = {
   PROFILES: `${p()}_profiles`,
   USER_ROLES: `${p()}_user_roles`,
   CUSTOMERS: `${p()}_customers`,
+  /** Legacy/debtors master — the live customer data lives here (`demo-data_debtors`).
+   *  Kept alongside CUSTOMERS for backward compatibility; reads merge both. */
+  DEBTORS: `${p()}_debtors`,
   VENDORS: `${p()}_vendors`,
   SUPPLIERS: `${p()}_suppliers`,
   INVOICES: `${p()}_invoices`,

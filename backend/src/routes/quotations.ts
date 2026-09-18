@@ -13,6 +13,7 @@ import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilte
 import { config } from "../config.js";
 import { generateId, generateDocNumber, generateNoaToken, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { scanCustomersMerged } from "../utils/customers.js";
 import { effectiveUnitPrice, computeQuotationTotals, isQuotationExpired, withExpiry } from "../utils/quotations.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { sendQuotationEmail, sendQuotationCustomerEmail } from "../utils/email.js";
@@ -27,7 +28,7 @@ const router = Router();
 // ── Helpers ──
 
 async function buildCustomerMap(companyId: string | null): Promise<Map<string, Customer>> {
-  const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter({ company_id: companyId }));
+  const customers = await scanCustomersMerged(getCompanyFilter({ company_id: companyId }) as any);
   return new Map(customers.map((d) => [d.id, d]));
 }
 

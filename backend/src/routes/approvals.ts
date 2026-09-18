@@ -6,6 +6,7 @@ import {
   TABLES,
 } from "../db/client.js";
 import { nowISO } from "../utils/helpers.js";
+import { getCustomerById } from "../utils/customers.js";
 import { effectiveUnitPrice, computeQuotationTotals } from "../utils/quotations.js";
 import type { Quotation, Customer } from "../types/index.js";
 
@@ -54,7 +55,7 @@ router.get("/:token", async (req: Request, res: Response) => {
       return;
     }
     const q = quotes[0];
-    const customer = q.customer_id ? await getItem(TABLES.CUSTOMERS, { id: q.customer_id }) as Customer | undefined : undefined;
+    const customer = q.customer_id ? await getCustomerById(q.customer_id) : undefined;
     res.json(publicView(q, customer));
   } catch (err) {
     console.error("Get approval error:", err);

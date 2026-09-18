@@ -156,7 +156,7 @@ function SalesWorkbenchPage() {
         {section === "credit" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CreditNotesEmbedded /></Suspense>}
         {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Sales activity" onAction={openItemBelow} /></Suspense>}
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">Sales-rep tools stay in the sidebar (<Link to="/app/crm" className="font-semibold text-primary hover:underline">Leads</Link> · <Link to="/app/naughty-list" className="font-semibold text-primary hover:underline">Naughty List</Link>).</p>
+      <p className="mt-3 text-xs text-muted-foreground">Sales-rep tools stay in the sidebar (<Link to="/app/crm" className="font-semibold text-primary hover:underline">Leads</Link>).</p>
     </div>
   );
 }

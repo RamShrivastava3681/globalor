@@ -6,6 +6,7 @@ import {
   TABLES,
 } from "../db/client.js";
 import { nowISO } from "../utils/helpers.js";
+import { getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 import type { Invoice, NoaInvoiceResult, Customer, Profile } from "../types/index.js";
 
 const router = Router();
@@ -24,7 +25,7 @@ router.get("/:token", async (req: Request, res: Response) => {
     }
 
     const inv = invoices[0];
-    const customer = await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined;
+    const customer = await getCustomerById(getInvoicePartyId(inv));
     const client = await getItem(TABLES.PROFILES, { id: inv.client_id }) as Profile | undefined;
 
     const advanceAmount = (inv.amount * inv.advance_rate) / 100;

@@ -12,13 +12,15 @@ import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } f
 import { generateId, nowISO } from "../utils/helpers.js";
 import type { Customer } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { scanCustomersMerged, getCustomerById } from "../utils/customers.js";
 
 const router = Router();
 
 // ── GET /api/customers ──
+// Serves the debtors master (merged with customers for compat).
 router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const customers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     res.json(customers.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
   } catch (err) {
     console.error("Get customers error:", err);
@@ -29,7 +31,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
 // ── GET /api/customers/:id ──
 router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const customer = await getItem(TABLES.CUSTOMERS, { id: req.params.id }) as Customer | undefined;
+    const customer = await getCustomerById(req.params.id as string);
     if (!customer) { res.status(404).json({ error: "Customer not found" }); return; }
     res.json(customer);
   } catch (err) {
@@ -85,7 +87,9 @@ router.post("/", requireAuth, requireWriteAccess("customers"), async (req: AuthR
       updated_at: now,
     };
 
-    await putItem(TABLES.CUSTOMERS, customer as any);
+    await putItem(TABLES.DEBTORS, customer as any);
+    // Mirror into CUSTOMERS so any code reading only the new table stays in sync.
+    await putItem(TABLES.CUSTOMERS, customer as any).catch(() => {});
 
     // Create activity alert
     createActivityAlert({
@@ -116,8 +120,21 @@ router.patch("/:id", requireAuth, requireWriteAccess("customers"), async (req: A
     delete updates.id;
     delete updates.created_at;
 
-    const updated = await updateItem(TABLES.CUSTOMERS, { id: req.params.id }, updates);
-    if (!updated) { res.status(404).json({ error: "Customer not found" }); return; }
+    // Primary store is DEBTORS; mirror to CUSTOMERS. Fall back across both.
+    const cid = req.params.id as string;
+    let updated = await updateItem(TABLES.DEBTORS, { id: cid }, updates).catch(() => null);
+    if (!updated) {
+      updated = await updateItem(TABLES.CUSTOMERS, { id: cid }, updates).catch(() => null);
+    } else {
+      await updateItem(TABLES.CUSTOMERS, { id: cid }, updates).catch(() => null);
+    }
+    if (!updated) {
+      // Record may exist only in the other table — try a merged read to confirm.
+      const existing = await getCustomerById(cid);
+      if (!existing) { res.status(404).json({ error: "Customer not found" }); return; }
+      res.json({ ...existing, ...updates });
+      return;
+    }
     res.json(updated);
   } catch (err) {
     console.error("Update customer error:", err);
@@ -128,7 +145,9 @@ router.patch("/:id", requireAuth, requireWriteAccess("customers"), async (req: A
 // ── DELETE /api/customers/:id ──
 router.delete("/:id", requireAuth, requireWriteAccess("customers"), async (req: AuthRequest, res: Response) => {
   try {
-    await deleteItem(TABLES.CUSTOMERS, { id: req.params.id });
+    const cid = req.params.id as string;
+    await deleteItem(TABLES.DEBTORS, { id: cid }).catch(() => {});
+    await deleteItem(TABLES.CUSTOMERS, { id: cid }).catch(() => {});
     res.json({ success: true });
   } catch (err) {
     console.error("Delete customer error:", err);

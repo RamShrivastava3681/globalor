@@ -13,6 +13,7 @@ import { requireAuth, requireRole, getCompanyFilter, type AuthRequest } from "..
 import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js";
 import { sendWelcomeEmail } from "../utils/email.js";
 import { runOverdueReminderSweep } from "../utils/reminders.js";
+import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
 import { config } from "../config.js";
 import type {
   AppRole, UserRole, Profile, Invoice, Customer, Alert,
@@ -269,7 +270,7 @@ router.delete("/users/:userId", requireAuth, requireRole("factor_admin"), async 
 router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter(req.user!));
+    const customers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
 
     const alertsToCreate: Alert[] = [];
 
@@ -282,7 +283,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          customer_id: i.customer_id,
+          customer_id: getInvoicePartyId(i),
           type: "overdue",
           severity: dpd > 60 ? "critical" : dpd > 30 ? "warning" : "info",
           message: `Invoice ${i.invoice_number} overdue ${dpd} days — $${i.amount.toLocaleString()}`,
@@ -292,13 +293,13 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
         });
       }
       if (Number(i.amount) >= 100000) {
-        const customer = customers.find((d) => d.id === i.customer_id);
+        const customer = customers.find((d) => d.id === getInvoicePartyId(i));
         alertsToCreate.push({
           id: generateId(),
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          customer_id: i.customer_id,
+          customer_id: getInvoicePartyId(i),
           type: "large_invoice",
           severity: "info",
           message: `Large invoice received: $${i.amount.toLocaleString()} from ${customer?.name ?? "customer"}`,

@@ -162,6 +162,9 @@ export interface Invoice {
   client_id: string;
   company_id: string | null;
   customer_id: string;
+  /** Legacy link — live DB rows store the customer in `debtor_id` (debtors table).
+   *  Always populated alongside `customer_id` on write; read via either. */
+  debtor_id?: string | null;
   supplier_id: string | null;
   invoice_number: string;
   amount: number;

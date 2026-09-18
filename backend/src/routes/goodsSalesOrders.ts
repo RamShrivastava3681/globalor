@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { scanCustomersMerged } from "../utils/customers.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import type {
   GoodsSalesOrder, GoodsSalesOrderLine,
@@ -31,9 +32,9 @@ function matchExistingLine(
   return existing.find((l) => l.name === nl.name);
 }
 
-/** Customer id → {name, contact, address, payment terms} (customer master). */
+/** Customer id → {name, contact, address, payment terms} (debtors master merged). */
 async function buildCustomerMap(companyId: string | null): Promise<Map<string, Customer>> {
-  const customers = await scanTable<Customer>(TABLES.CUSTOMERS, getCompanyFilter({ company_id: companyId }));
+  const customers = await scanCustomersMerged(getCompanyFilter({ company_id: companyId }) as any);
   return new Map(customers.map((d) => [d.id, d]));
 }
 

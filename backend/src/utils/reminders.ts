@@ -1,4 +1,5 @@
 import { TABLES, scanTable, updateItemConditional, getItem } from "../db/client.js";
+import { getCustomerById, getInvoicePartyId } from "./customers.js";
 import { nowISO } from "./helpers.js";
 import { sendReminderEmail } from "./email.js";
 import { config } from "../config.js";
@@ -29,14 +30,12 @@ export async function runOverdueReminderSweep(): Promise<{
       inv.due_date < today &&
       inv.noa_status !== "not_sent" &&
       inv.last_overdue_reminder_date !== today &&
-      inv.customer_id,
+      getInvoicePartyId(inv),
   );
 
   for (const inv of candidates) {
     try {
-      const customer = inv.customer_id
-        ? await getItem(TABLES.CUSTOMERS, { id: inv.customer_id }) as Customer | undefined
-        : undefined;
+      const customer = await getCustomerById(getInvoicePartyId(inv));
       if (!customer?.contact_email) {
         skipped += 1;
         continue;
