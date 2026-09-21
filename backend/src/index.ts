@@ -8,7 +8,7 @@ import { requireAuth } from "./middleware/auth.js";
 import { apiLimiter, uploadLimiter, publicLimiter } from "./middleware/rateLimiter.js";
 
 // Admin seed
-import { seedAdmin } from "./seed.js";
+import { seedAdmin, seedLogisticsProviders } from "./seed.js";
 
 // DynamoDB table creation
 import { createTables } from "./db/schema.js";
@@ -51,7 +51,15 @@ const app = express();
 
 // ── Global middleware ──
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(
+  express.json({
+    limit: "50mb",
+    verify: (req: any, _res, buf) => {
+      // Preserve the raw body for logistics webhook signature verification
+      if (req.url?.startsWith("/api/logistics/webhooks/")) req.rawBody = buf.toString("utf8");
+    },
+  }),
+);
 
 // Global rate limiter applied to all routes
 app.use(apiLimiter);
@@ -143,6 +151,16 @@ app.use("/api/companies", companyRoutes);
 import cashRoutes from "./routes/cash.js";
 app.use("/api/cash", cashRoutes);
 
+// Logistics module (shipments, providers, settings, carrier webhooks)
+import shipmentRoutes from "./routes/shipments.js";
+app.use("/api/shipments", shipmentRoutes);
+
+import logisticsProviderRoutes from "./routes/logisticsProviders.js";
+app.use("/api/logistics", logisticsProviderRoutes);
+
+import shipmentWebhookRoutes from "./routes/shipmentWebhooks.js";
+app.use("/api/logistics/webhooks", shipmentWebhookRoutes);
+
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -183,10 +201,26 @@ app.listen(config.port, async () => {
   // Seed admin user from env vars
   await seedAdmin();
 
+  // Seed demo logistics providers (manual + stub) for companies that have none
+  await seedLogisticsProviders();
+
   // Kick the reminder sweep ~60s after boot (gives startup time to settle),
   // then every 24h. Manual trigger: POST /api/admin/run-overdue-reminders.
   setTimeout(dailyOverdueReminderTick, 60_000);
   setInterval(dailyOverdueReminderTick, 24 * 60 * 60 * 1000);
+
+  // Daily logistics poll: carrier tracking refresh + delay/stale/eway/POD alerts.
+  const { runLogisticsPoll } = await import("./logistics/polling.js");
+  const dailyLogisticsTick = async () => {
+    try {
+      const { polled, events, alerts } = await runLogisticsPoll();
+      console.log(`   🚚 Logistics poll: ${polled} polled, ${events} events, ${alerts} alerts`);
+    } catch (err) {
+      console.error("   ❌ Logistics poll failed:", err);
+    }
+  };
+  setTimeout(dailyLogisticsTick, 120_000);
+  setInterval(dailyLogisticsTick, 24 * 60 * 60 * 1000);
 
   // Daily "ensure fresh" forecast recompute (in addition to the event triggers).
   const dailyForecastTick = async () => {

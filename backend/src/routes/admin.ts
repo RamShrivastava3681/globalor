@@ -334,4 +334,16 @@ router.post("/run-overdue-reminders", requireAuth, requireRole("factor_admin"), 
   }
 });
 
+// ── POST /api/admin/run-logistics-poll ── (manual trigger of the logistics polling + alert sweep)
+router.post("/run-logistics-poll", requireAuth, requireRole("factor_admin"), async (_req: AuthRequest, res: Response) => {
+  try {
+    const { runLogisticsPoll } = await import("../logistics/polling.js");
+    const result = await runLogisticsPoll();
+    res.json(result);
+  } catch (err) {
+    console.error("Run logistics poll error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, BellRing, Banknote } from "lucide-react";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, BellRing, Banknote, Ship } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -524,6 +524,12 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
                             <button onClick={() => exportSalesInvoicePdf(i)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">
                               <Printer className="h-3 w-3" /> PDF
                             </button>
+                            {canWrite("logistics") && !["draft", "rejected", "cancelled"].includes(i.status) && (
+                              <Link to="/app/logistics" search={{ from_type: "sales_invoice", from_id: i.id }}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-primary hover:text-primary">
+                                <Ship className="h-3 w-3" /> Ship
+                              </Link>
+                            )}
                             {canSendNoa && i.noa_status === "not_sent" && (
                               <button onClick={() => sendNoa.mutate(i.id)} className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
                                 <Send className="h-3 w-3" /> Send NOA

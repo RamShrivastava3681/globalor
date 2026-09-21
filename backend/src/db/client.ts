@@ -70,6 +70,12 @@ export const TABLES = {
   RECURRING_EXPENSES: `${p()}_recurring_expenses`,
   PURCHASE_COMMITMENTS: `${p()}_purchase_commitments`,
   TREASURY_SETTINGS: `${p()}_treasury_settings`,
+  SHIPMENTS: `${p()}_shipments`,
+  SHIPMENT_EVENTS: `${p()}_shipment_events`,
+  SHIPMENT_QUOTES: `${p()}_shipment_quotes`,
+  LOGISTICS_PROVIDERS: `${p()}_logistics_providers`,
+  SHIPMENT_AUDIT: `${p()}_shipment_audit`,
+  LOGISTICS_SETTINGS: `${p()}_logistics_settings`,
   /**
    * email → user_id registry. Used to look up users by email without a full
    * table scan, and as an atomic uniqueness constraint on signup (conditional

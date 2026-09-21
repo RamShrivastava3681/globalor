@@ -6,7 +6,7 @@ import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, Send, Ban, Truck, Pencil, Package, Wallet, FileSignature, FileText, Boxes, Link2,
+  Plus, X, Loader2, Trash2, CheckCircle2, Send, Ban, Truck, Pencil, Package, Wallet, FileSignature, FileText, Boxes, Link2, Ship,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -249,6 +249,12 @@ export function PurchaseOrdersPage() {
                           <Link to="/app/goods-receipts" search={{ po: po.id }}
                             className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
                             <Truck className="h-3 w-3" /> Receive goods
+                          </Link>
+                        )}
+                        {(po.status === "approved" || po.status === "sent" || po.status === "partially_received") && (
+                          <Link to="/app/logistics" search={{ from_type: "goods_purchase_order", from_id: po.id }}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary">
+                            <Ship className="h-3 w-3" /> Ship
                           </Link>
                         )}
                         {(po.status === "draft" || po.status === "approved" || po.status === "sent") && canEdit && (

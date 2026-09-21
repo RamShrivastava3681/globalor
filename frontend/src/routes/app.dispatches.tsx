@@ -1,11 +1,11 @@
-import { createFileRoute, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, useRouterState, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, XCircle, Pencil, Truck, Package, FileText, Undo2, PackageCheck, AlertTriangle,
+  Plus, X, Loader2, Trash2, CheckCircle2, XCircle, Pencil, Truck, Package, FileText, Undo2, PackageCheck, AlertTriangle, Ship,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -255,6 +255,10 @@ export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoP
                           )}
                           {(d.status === "confirmed" || d.status === "partially_delivered") && canEdit && (
                             <div className="flex items-center justify-end gap-1.5">
+                              <Link to="/app/logistics" search={{ from_type: "goods_dispatch", from_id: d.id }}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary">
+                                <Ship className="h-3 w-3" /> Ship
+                              </Link>
                               <button onClick={() => setDeliverTarget(d)}
                                 className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
                                 <PackageCheck className="h-3 w-3" /> Deliver

@@ -108,7 +108,8 @@ export function requireRole(...roles: AppRole[]) {
 //   "suppliers", "customers", "invoices", "purchase-invoices",
 //   "purchase-orders", "stock-movements", "advances", "expenses",
 //   "vendors", "products", "goods-purchase-orders", "goods-sales-orders",
-//   "quotations", "checker-desk", "funding-queue", "upload", "admin", "cash"
+//   "quotations", "checker-desk", "funding-queue", "upload", "admin", "cash",
+//   "logistics"
 
 type ResourcePermission = {
   read: string[];   // '*' means all
@@ -136,6 +137,8 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
       "goods-purchase-orders",
       "goods-sales-orders",
       "quotations",
+      "logistics",
+      "upload",
     ],
   },
   checker: {
@@ -151,7 +154,7 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
     // Clients write through the normal flow (their own data); they also
     // maintain their own product catalogue and place their own purchase
     // orders + goods receipts + sales orders/dispatches + quotations (maker model).
-    write: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
+    write: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations", "logistics"],
   },
   viewer: {
     read: ["*"],

@@ -37,6 +37,7 @@ import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppProcurementWorkbenchRouteImport } from './routes/app.procurement-workbench'
 import { Route as AppMyReportsRouteImport } from './routes/app.my-reports'
+import { Route as AppLogisticsRouteImport } from './routes/app.logistics'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppGoodsReceiptsRouteImport } from './routes/app.goods-receipts'
@@ -198,6 +199,11 @@ const AppMyReportsRoute = AppMyReportsRouteImport.update({
   path: '/my-reports',
   getParentRoute: () => AppRoute,
 } as any)
+const AppLogisticsRoute = AppLogisticsRouteImport.update({
+  id: '/logistics',
+  path: '/logistics',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
@@ -321,6 +327,7 @@ export interface FileRoutesByFullPath {
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -371,6 +378,7 @@ export interface FileRoutesByTo {
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -421,6 +429,7 @@ export interface FileRoutesById {
   '/app/goods-receipts': typeof AppGoodsReceiptsRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -473,6 +482,7 @@ export interface FileRouteTypes {
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -523,6 +533,7 @@ export interface FileRouteTypes {
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -572,6 +583,7 @@ export interface FileRouteTypes {
     | '/app/goods-receipts'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -807,6 +819,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMyReportsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/logistics': {
+      id: '/app/logistics'
+      path: '/logistics'
+      fullPath: '/app/logistics'
+      preLoaderRoute: typeof AppLogisticsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/invoices': {
       id: '/app/invoices'
       path: '/invoices'
@@ -983,6 +1002,7 @@ interface AppRouteChildren {
   AppGoodsReceiptsRoute: typeof AppGoodsReceiptsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppLogisticsRoute: typeof AppLogisticsRoute
   AppMyReportsRoute: typeof AppMyReportsRoute
   AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
@@ -1027,6 +1047,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGoodsReceiptsRoute: AppGoodsReceiptsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppLogisticsRoute: AppLogisticsRoute,
   AppMyReportsRoute: AppMyReportsRoute,
   AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,

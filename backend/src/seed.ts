@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { config } from "./config.js";
-import { putItem, TABLES } from "./db/client.js";
+import { putItem, scanTable, TABLES } from "./db/client.js";
 import { findUserByEmail, reserveEmail, releaseEmail, finalizeEmailReservation } from "./db/users.js";
 import { generateId, nowISO } from "./utils/helpers.js";
 import type { User, Profile, UserRole, AppRole, Company } from "./types/index.js";
@@ -124,3 +124,74 @@ export async function seedAdmin(): Promise<void> {
     console.error("   ❌ Failed to seed admin user:", err);
   }
 }
+
+/**
+ * Seeds two demo logistics providers per company that has none: the always-available
+ * `manual` adapter plus the `stub-domestic` adapter. Idempotent — a company with an
+ * existing provider row is skipped, so restarts never duplicate.
+ */
+export async function seedLogisticsProviders(): Promise<void> {
+  try {
+    const companies = await scanTable<{ id: string; name: string }>(TABLES.COMPANIES);
+    let created = 0;
+    for (const company of companies) {
+      const existing = await scanTable(TABLES.LOGISTICS_PROVIDERS, {
+        filterExpression: "company_id = :cid",
+        expressionAttributeValues: { ":cid": company.id },
+      });
+      if (existing.length > 0) continue;
+      const now = nowISO();
+      await putItem(TABLES.LOGISTICS_PROVIDERS, {
+        id: generateId(),
+        company_id: company.id,
+        provider_name: "Manual booking",
+        carrier_name: null,
+        modes: ["road", "air", "sea", "rail", "courier"],
+        domestic: true,
+        cross_border: true,
+        service_areas: null,
+        integration_status: "manual",
+        adapter_key: "manual",
+        account_ref: null,
+        billing_terms: null,
+        default_service_level: null,
+        insurance_option: false,
+        support_contact: null,
+        escalation_contact: null,
+        active: true,
+        created_at: now,
+        updated_at: now,
+      });
+      await putItem(TABLES.LOGISTICS_PROVIDERS, {
+        id: generateId(),
+        company_id: company.id,
+        provider_name: "Stub Domestic Carrier",
+        carrier_name: "Stub Domestic Carrier",
+        modes: ["road", "courier"],
+        domestic: true,
+        cross_border: false,
+        service_areas: "Demo — India domestic",
+        integration_status: "integrated",
+        adapter_key: "stub-domestic",
+        account_ref: null,
+        billing_terms: null,
+        default_service_level: "standard",
+        insurance_option: false,
+        support_contact: null,
+        escalation_contact: null,
+        active: true,
+        created_at: now,
+        updated_at: now,
+      });
+      created += 2;
+    }
+    if (created > 0) console.log(`   ✅ Seeded ${created} demo logistics provider(s).`);
+  } catch (err: any) {
+    if (err?.name === "ResourceNotFoundException") {
+      console.warn("   ⚠️ Logistics providers table not found — provider seed skipped.");
+    } else {
+      console.warn("   ⚠️ Provider seed skipped:", err?.message ?? err);
+    }
+  }
+}
+

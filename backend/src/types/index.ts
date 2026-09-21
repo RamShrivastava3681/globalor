@@ -1,7 +1,7 @@
 // ── Enums ──
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "customer_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created";
+export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "customer_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created" | "shipment_created" | "shipment_booked" | "shipment_delayed" | "shipment_exception" | "shipment_delivered" | "shipment_cancelled" | "shipment_stale_tracking" | "shipment_eway_expiring" | "shipment_freight_variance";
 export type InvoiceStatus = "draft" | "submitted" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 
 /** One entry in an invoice's reminder log — NOA sends and overdue reminders. */
@@ -1110,5 +1110,266 @@ export interface TreasurySettings {
   company_id: string | null;
   minimum_buffer: number;
   created_at: string;
+  updated_at: string;
+}
+
+// ── Logistics module ──
+// Booking freight NEVER moves stock. Inbound stock is credited only on goods
+// receipt; outbound stock is debited only on confirmed dispatch. A carrier
+// marking "delivered" updates the shipment only.
+
+export type ShipmentType = "inbound" | "outbound" | "transfer" | "return";
+export type ShipmentLinkedDocType =
+  | "goods_purchase_order"
+  | "purchase_invoice"
+  | "sales_invoice"
+  | "goods_dispatch"
+  | "manual";
+export type ShipmentPriority = "normal" | "urgent" | "critical";
+export type ShipmentMode = "road" | "air" | "sea" | "rail" | "courier";
+export type ShipmentServiceType = "standard" | "express" | "surface" | "air" | "freight" | "container";
+export type ShipmentBorder = "domestic" | "cross_border";
+export type FreightPayment = "prepaid" | "to_pay" | "collect" | "third_party";
+export type ShipmentStatus =
+  | "draft"
+  | "quote_requested"
+  | "quote_received"
+  | "booked"
+  | "pickup_scheduled"
+  | "picked_up"
+  | "in_transit"
+  | "at_hub"
+  | "at_customs"
+  | "customs_hold"
+  | "out_for_delivery"
+  | "delivered"
+  | "delivery_attempt_failed"
+  | "delayed"
+  | "damaged"
+  | "lost"
+  | "return_initiated"
+  | "returned"
+  | "cancelled";
+export type TrackingSource = "carrier_api" | "webhook" | "manual";
+
+export interface ShipmentParty {
+  name: string;
+  contact_person: string | null;
+  mobile: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  tax_id: string | null;
+}
+
+export interface ShipmentDocRef {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  kind: "pod" | "label" | "invoice" | "certificate" | "other";
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
+export interface ShipmentEway {
+  eway_bill_number: string | null;
+  eway_bill_date: string | null;
+  eway_validity: string | null;
+  transporter_id: string | null;
+  vehicle_number: string | null;
+  lr_number: string | null;
+  delivery_challan_number: string | null;
+}
+
+export interface ShipmentCrossBorder {
+  exporter_of_record: string | null;
+  importer_of_record: string | null;
+  iec_number: string | null;
+  origin_country: string | null;
+  destination_country: string | null;
+  incoterms: string | null;
+  port_of_loading: string | null;
+  port_of_discharge: string | null;
+  final_destination: string | null;
+  commercial_invoice_number: string | null;
+  packing_list_number: string | null;
+  shipping_bill_number: string | null;
+  bill_of_entry_number: string | null;
+  bl_awb_number: string | null;
+  certificate_of_origin: boolean;
+  customs_broker: string | null;
+  customs_status: string | null;
+  duty_tax_amount: number;
+  seal_number: string | null;
+}
+
+export interface Shipment {
+  id: string;
+  company_id: string | null;
+  shipment_number: string;
+  shipment_type: ShipmentType;
+  linked_doc_type: ShipmentLinkedDocType;
+  linked_doc_id: string | null;
+  linked_doc_no: string | null;
+  priority: ShipmentPriority;
+  owner_id: string | null;
+  business_unit: string | null;
+  sales_channel: string | null;
+  status: ShipmentStatus;
+  // Parties
+  pickup: ShipmentParty;
+  pickup_window: string | null;
+  delivery: ShipmentParty;
+  requested_delivery_date: string | null;
+  // Cargo
+  mode: ShipmentMode;
+  service_type: ShipmentServiceType;
+  border: ShipmentBorder;
+  package_count: number;
+  actual_weight: number;
+  volumetric_weight: number;
+  chargeable_weight: number;
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
+  package_unit: string | null;
+  package_unit_count: number;
+  declared_value: number;
+  currency: string;
+  goods_description: string | null;
+  hs_code: string | null;
+  dangerous_goods: boolean;
+  insurance_required: boolean;
+  handling_notes: string | null;
+  // Commercial — booking creates NO payable; linkage only
+  freight_payment: FreightPayment;
+  estimated_freight: number;
+  quoted_freight: number;
+  booked_freight: number;
+  final_freight: number;
+  fuel_surcharge: number;
+  insurance_charge: number;
+  other_charges: number;
+  total_freight: number;
+  cost_centre: string | null;
+  freight_invoice_id: string | null;
+  freight_payment_status: string | null;
+  // Carrier
+  provider_id: string | null;
+  provider_name: string | null;
+  carrier_name: string | null;
+  service_level: string | null;
+  tracking_number: string | null;
+  container_number: string | null;
+  vehicle_number: string | null;
+  driver_name: string | null;
+  driver_mobile: string | null;
+  transporter_id: string | null;
+  booking_reference: string | null;
+  expected_pickup_date: string | null;
+  expected_delivery_date: string | null;
+  actual_pickup_at: string | null;
+  actual_delivery_at: string | null;
+  // Compliance blocks
+  eway: ShipmentEway;
+  cross_border: ShipmentCrossBorder;
+  documents: ShipmentDocRef[];
+  goods_receipt_id: string | null;
+  goods_dispatch_id: string | null;
+  last_event_at: string | null;
+  last_event_source: TrackingSource | null;
+  booking_failure: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface ShipmentEvent {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  status: ShipmentStatus;
+  carrier_raw_status: string | null;
+  event_at: string;
+  location: string | null;
+  description: string | null;
+  source: TrackingSource;
+  attachment_url: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ShipmentQuote {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  provider_id: string | null;
+  provider_name: string;
+  carrier_name: string | null;
+  mode: ShipmentMode;
+  service_level: string | null;
+  estimated_pickup_date: string | null;
+  estimated_delivery_date: string | null;
+  transit_days: number | null;
+  freight_charge: number;
+  fuel_charges: number;
+  other_charges: number;
+  insurance_charge: number;
+  total_cost: number;
+  tracking_available: boolean;
+  cancellation_terms: string | null;
+  is_selected: boolean;
+  expires_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface LogisticsProvider {
+  id: string;
+  company_id: string | null;
+  provider_name: string;
+  carrier_name: string | null;
+  modes: ShipmentMode[];
+  domestic: boolean;
+  cross_border: boolean;
+  service_areas: string | null;
+  integration_status: "manual" | "integrated" | "disabled";
+  adapter_key: string;
+  account_ref: string | null;
+  billing_terms: string | null;
+  default_service_level: string | null;
+  insurance_option: boolean;
+  support_contact: string | null;
+  escalation_contact: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShipmentAudit {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  action: string;
+  old_value: string | null;
+  new_value: string | null;
+  actor_id: string | null;
+  created_at: string;
+}
+
+export interface LogisticsSettings {
+  company_id: string;
+  delay_buffer_days: number;
+  stale_tracking_hours: number;
+  eway_expiry_warn_hours: number;
+  default_provider_id: string | null;
+  default_mode: ShipmentMode;
+  freight_variance_pct: number;
+  pod_grace_hours: number;
   updated_at: string;
 }

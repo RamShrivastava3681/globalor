@@ -253,6 +253,42 @@ const tableDefs = [
     BillingMode: "PAY_PER_REQUEST",
   },
   {
+    TableName: TABLES.SHIPMENTS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.SHIPMENT_EVENTS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.SHIPMENT_QUOTES,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.LOGISTICS_PROVIDERS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.SHIPMENT_AUDIT,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
+    TableName: TABLES.LOGISTICS_SETTINGS,
+    KeySchema: [{ AttributeName: "company_id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "company_id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
+  {
     // Email → user_id registry: fast lookup by email and atomic signup
     // uniqueness (conditional writes). Auto-created on startup for new
     // deployments; existing deployments should run migrate-email-registry.ts.

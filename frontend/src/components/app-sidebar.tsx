@@ -13,6 +13,7 @@ import {
   Shield,
   ShoppingBag,
   ShoppingCart,
+  Truck,
   Wallet,
   Warehouse,
   ChevronsLeft,
@@ -68,6 +69,7 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
       { label: "Sales", icon: ShoppingBag, to: "/app/sales-workbench", roles: ["sales_rep", "operations", "admin"] },
       { label: "Product Catalogue", icon: Package, to: "/app/products", roles: ["operations", "admin"] },
       { label: "Warehouse Control", icon: Warehouse, to: "/app/warehouse-workbench", roles: ["operations", "admin"] },
+      { label: "Logistics", icon: Truck, to: "/app/logistics", roles: ["operations", "treasury", "admin"] },
       { label: "Reports", icon: BarChart3, to: "/app/reports", roles: ["all"] },
     ];
 
