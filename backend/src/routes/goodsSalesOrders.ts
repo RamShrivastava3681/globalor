@@ -54,6 +54,8 @@ const soLineSchema = z.object({
 const createSchema = z.object({
   order_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   customer_id: z.string().trim().max(200).nullable().optional(),
+  billing_customer_id: z.string().trim().max(200).nullable().optional(),
+  shipping_customer_id: z.string().trim().max(200).nullable().optional(),
   contact_person: z.string().trim().max(120).nullable().optional(),
   billing_address: z.string().trim().max(500).nullable().optional(),
   delivery_address: z.string().trim().max(500).nullable().optional(),
@@ -140,8 +142,14 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
 
     const { subtotal, total_discount, gst_total, grand_total } = computeSalesTotals(lines, parsed.freight ?? 0);
 
-    const customer = parsed.customer_id ? (await buildCustomerMap(req.user!.company_id)).get(parsed.customer_id) : undefined;
-    const customerName = parsed.customer_id ? (customer?.name ?? null) : null;
+    const customerMap = await buildCustomerMap(req.user!.company_id);
+    // Billing party defaults to the legacy customer_id; shipping falls back to billing.
+    const billingId = parsed.billing_customer_id || parsed.customer_id || null;
+    const shippingId = parsed.shipping_customer_id || billingId;
+    const billingCustomer = billingId ? customerMap.get(billingId) : undefined;
+    const shippingCustomer = shippingId && shippingId !== billingId ? customerMap.get(shippingId) : billingCustomer;
+    const customer = billingCustomer;
+    const customerName = billingCustomer?.name ?? null;
 
     const soNumber = generateDocNumber("SO");
     const so: GoodsSalesOrder = {
@@ -150,11 +158,15 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       company_id: req.user!.company_id,
       so_number: soNumber,
       order_date: parsed.order_date,
-      customer_id: parsed.customer_id || null,
+      customer_id: billingId,
       customer_name: customerName,
-      contact_person: parsed.contact_person ?? customer?.contact_name ?? null,
-      billing_address: parsed.billing_address ?? customer?.registered_address ?? null,
-      delivery_address: parsed.delivery_address ?? customer?.registered_address ?? null,
+      billing_customer_id: billingId,
+      billing_customer_name: billingCustomer?.name ?? null,
+      shipping_customer_id: shippingId,
+      shipping_customer_name: shippingCustomer?.name ?? null,
+      contact_person: parsed.contact_person ?? billingCustomer?.contact_name ?? null,
+      billing_address: parsed.billing_address ?? billingCustomer?.registered_address ?? null,
+      delivery_address: parsed.delivery_address ?? shippingCustomer?.registered_address ?? (parsed.billing_address ?? billingCustomer?.registered_address ?? null),
       salesperson_name: parsed.salesperson_name ?? req.user!.email,
       linked_quotation_id: parsed.linked_quotation_id || null,
       linked_quotation_number: parsed.linked_quotation_number || null,
@@ -266,6 +278,21 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), asyn
 
     for (const [k, v] of Object.entries(parsed)) {
       if (v !== undefined && k !== "lines") updates[k] = v;
+    }
+    // Keep denormalized party names truthful when the bill/ship customer changes.
+    if (parsed.billing_customer_id !== undefined || parsed.shipping_customer_id !== undefined || parsed.customer_id !== undefined) {
+      const customerMap = await buildCustomerMap(req.user!.company_id);
+      const billingId = (parsed.billing_customer_id as string | null | undefined)
+        ?? (parsed.customer_id as string | null | undefined)
+        ?? existing.billing_customer_id ?? existing.customer_id ?? null;
+      const shippingId = ((parsed.shipping_customer_id as string | null | undefined)
+        ?? existing.shipping_customer_id ?? billingId) || null;
+      updates.customer_id = billingId;
+      updates.billing_customer_id = billingId;
+      updates.shipping_customer_id = shippingId;
+      updates.customer_name = billingId ? customerMap.get(billingId)?.name ?? null : null;
+      updates.billing_customer_name = updates.customer_name;
+      updates.shipping_customer_name = shippingId ? customerMap.get(shippingId)?.name ?? null : null;
     }
     delete updates.id;
     delete updates.created_at;

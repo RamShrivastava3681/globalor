@@ -186,6 +186,19 @@ export function CustomersPage() {
   );
 }
 
+type AddressForm = {
+  id?: string;
+  label: string;
+  kind: "billing" | "shipping" | "both";
+  line1: string;
+  line2: string;
+  city: string;
+  state: string;
+  country: string;
+  postal_code: string;
+  is_default: boolean;
+};
+
 function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; onClose: () => void; onDone: () => void }) {
   const [form, setForm] = useState(() => ({
     name: editing?.name ?? "",
@@ -196,6 +209,9 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
 
     registered_address: editing?.registered_address ?? "",
     postal_code: editing?.postal_code ?? "",
+    city: editing?.city ?? "",
+    state: editing?.state ?? "",
+    country: editing?.country ?? "",
     phone: editing?.phone ?? "",
     website: editing?.website ?? "",
     contact_name: editing?.contact_name ?? "",
@@ -203,13 +219,32 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
     contact_designation: editing?.contact_designation ?? "",
     contact_phone: editing?.contact_phone ?? "",
   }));
+  const [addresses, setAddresses] = useState<AddressForm[]>(() =>
+    (editing?.addresses ?? []).map((a: any) => ({
+      id: a.id,
+      label: a.label ?? "",
+      kind: a.kind ?? "both",
+      line1: a.line1 ?? "",
+      line2: a.line2 ?? "",
+      city: a.city ?? "",
+      state: a.state ?? "",
+      country: a.country ?? "",
+      postal_code: a.postal_code ?? "",
+      is_default: !!a.is_default,
+    })),
+  );
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
+  const setAddr = (i: number, patch: Partial<AddressForm>) =>
+    setAddresses((arr) => arr.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
 
   const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("Customer name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
+      for (const a of addresses) {
+        if (!a.line1.trim() && !a.city.trim()) throw new Error("Every saved address needs at least a street or city");
+      }
 
       const payload = {
         name: form.name.trim(),
@@ -220,6 +255,21 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
 
         registered_address: form.registered_address || null,
         postal_code: form.postal_code || null,
+        city: form.city || null,
+        state: form.state || null,
+        country: form.country || null,
+        addresses: addresses.map((a) => ({
+          id: a.id || undefined,
+          label: a.label || null,
+          kind: a.kind,
+          line1: a.line1 || null,
+          line2: a.line2 || null,
+          city: a.city || null,
+          state: a.state || null,
+          country: a.country || null,
+          postal_code: a.postal_code || null,
+          is_default: a.is_default,
+        })),
         phone: form.phone || null,
         website: form.website || null,
         contact_name: form.contact_name || null,
@@ -263,7 +313,62 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
           <Section title="Registered Address">
             <div className="grid gap-3 md:grid-cols-2">
               <L label="Registered Address" full><input maxLength={500} className="inp" value={form.registered_address} onChange={set("registered_address")} /></L>
+              <L label="City"><input maxLength={100} className="inp" value={form.city} onChange={set("city")} /></L>
+              <L label="State"><input maxLength={100} className="inp" value={form.state} onChange={set("state")} /></L>
+              <L label="Country"><input maxLength={100} className="inp" value={form.country} onChange={set("country")} /></L>
               <L label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={set("postal_code")} /></L>
+            </div>
+          </Section>
+
+          <Section title={`Billing & shipping addresses (${addresses.length})`}>
+            <div className="space-y-2">
+              {addresses.map((a, i) => (
+                <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
+                  <div className="sm:col-span-4">
+                    <input className="inp" placeholder="Label (e.g. HQ, Warehouse A)" value={a.label} onChange={(e) => setAddr(i, { label: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <select className="inp" value={a.kind} onChange={(e) => setAddr(i, { kind: e.target.value as AddressForm["kind"] })}>
+                      <option value="both">Billing + shipping</option>
+                      <option value="billing">Billing only</option>
+                      <option value="shipping">Shipping only</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-4">
+                    <input className="inp" placeholder="Street / building" value={a.line1} onChange={(e) => setAddr(i, { line1: e.target.value })} />
+                  </div>
+                  <div className="flex items-center gap-1 sm:col-span-1">
+                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground" title="Default for its kind">
+                      <input type="checkbox" checked={a.is_default} onChange={(e) => setAddr(i, { is_default: e.target.checked })} /> Def
+                    </label>
+                    <button type="button" onClick={() => setAddresses((arr) => arr.filter((_, idx) => idx !== i))}
+                      className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove address">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="sm:col-span-6">
+                    <input className="inp" placeholder="Area / landmark" value={a.line2} onChange={(e) => setAddr(i, { line2: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input className="inp" placeholder="City" value={a.city} onChange={(e) => setAddr(i, { city: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input className="inp" placeholder="State" value={a.state} onChange={(e) => setAddr(i, { state: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <input className="inp" placeholder="PIN" value={a.postal_code} onChange={(e) => setAddr(i, { postal_code: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <input className="inp" placeholder="Country" value={a.country} onChange={(e) => setAddr(i, { country: e.target.value })} />
+                  </div>
+                </div>
+              ))}
+              <button type="button"
+                onClick={() => setAddresses((arr) => [...arr, { label: "", kind: "both", line1: "", line2: "", city: "", state: "", country: "", postal_code: "", is_default: false }])}
+                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-3 py-1.5 text-xs text-primary hover:bg-primary/5">
+                <Plus className="h-3.5 w-3.5" /> Add address
+              </button>
+              <p className="text-[11px] text-muted-foreground">Saved addresses become selectable as billing / shipping on purchase and sales orders.</p>
             </div>
           </Section>
 
@@ -428,10 +533,31 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
 
               <Detail label="Contact" value={customer.contact_name || "—"} />
               <Detail label="Email" value={customer.contact_email || "—"} />
-              {customer.registered_address && <Detail label="Registered Address" value={customer.registered_address} />}
+              {customer.registered_address && <Detail label="Registered Address" value={[customer.registered_address, customer.city, customer.state, customer.country, customer.postal_code].filter(Boolean).join(", ")} />}
               <Detail label="Phone" value={customer.contact_phone || "—"} />
             </div>
           </div>
+
+          {(customer.addresses ?? []).length > 0 && (
+            <div className="rounded-lg border border-border bg-background/40 p-4">
+              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Billing & shipping addresses ({(customer.addresses ?? []).length})</h4>
+              <div className="grid gap-2 md:grid-cols-2">
+                {(customer.addresses ?? []).map((a: any) => (
+                  <div key={a.id} className="rounded-md border border-border/60 px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{a.label || "Address"}</span>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {a.kind}{a.is_default ? " · default" : ""}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {[a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ") || "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Stats cards */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-6">

@@ -22,6 +22,10 @@ export const logisticsApi = {
     api.get<{ prefill: any; linked_doc_no: string | null }>(
       `/shipments/prefill?linked_doc_type=${encodeURIComponent(linked_doc_type)}&linked_doc_id=${encodeURIComponent(linked_doc_id)}`,
     ),
+  linkableDocs: (type: string, search = "", limit = 30) =>
+    api.get<Array<{ id: string; number: string; party: string | null; date: string | null; amount: number; status: string }>>(
+      `/shipments/linkable-docs?type=${encodeURIComponent(type)}&search=${encodeURIComponent(search)}&limit=${limit}`,
+    ),
   create: (body: Record<string, any>) => api.post<Shipment>("/shipments", body),
   detail: (id: string) => api.get<ShipmentDetail>(`/shipments/${id}`),
   update: (id: string, body: Record<string, any>) => api.patch<Shipment>(`/shipments/${id}`, body),

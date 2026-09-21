@@ -9,6 +9,7 @@ import {
   Plus, X, Loader2, Trash2, CheckCircle2, Send, Ban, Truck, Pencil, Package, Wallet, FileSignature, FileText, Boxes, Link2, Ship,
 } from "lucide-react";
 import { toast } from "sonner";
+import { addressOptionsFor, defaultAddressFor } from "@/lib/customerAddresses";
 
 export const Route = createFileRoute("/app/purchase-orders")({
   component: PurchaseOrdersPage,
@@ -32,6 +33,12 @@ type PO = {
   po_date: string;
   supplier_id: string | null;
   supplier_name: string | null;
+  bill_to_customer_id: string | null;
+  bill_to_customer_name: string | null;
+  billing_address: string | null;
+  ship_to_customer_id: string | null;
+  ship_to_customer_name: string | null;
+  shipping_address: string | null;
   warehouse: string | null;
   expected_delivery_date: string | null;
   payment_terms: string | null;
@@ -312,6 +319,8 @@ function PODetailModal({ po, onClose }: { po: PO; onClose: () => void }) {
               </Detail>
             )}
             <Detail label="Supplier">{po.supplier_name ?? "—"}</Detail>
+            <Detail label="Bill to">{[po.bill_to_customer_name, po.billing_address].filter(Boolean).join(" — ") || "—"}</Detail>
+            <Detail label="Ship to">{[po.ship_to_customer_name, po.shipping_address].filter(Boolean).join(" — ") || "—"}</Detail>
             <Detail label="Warehouse">{po.warehouse ?? "—"}</Detail>
             <Detail label="Expected delivery">{po.expected_delivery_date ? fmtDate(po.expected_delivery_date) : "—"}</Detail>
             <Detail label="PO date">{fmtDate(po.po_date)}</Detail>
@@ -381,6 +390,13 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
   const qc = useQueryClient();
   const [form, setForm] = useState({
     supplier_id: "",
+    bill_to_customer_id: "",
+    billing_address: "",
+    billing_addr_key: "",
+    same_as_billing: true,
+    ship_to_customer_id: "",
+    shipping_address: "",
+    shipping_addr_key: "",
     warehouse: "",
     expected_delivery_date: "",
     payment_terms: "Net 30",
@@ -412,10 +428,43 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
     queryKey: ["po_last_prices"],
     queryFn: async () => (await api.get<Record<string, number>>("/goods-purchase-orders/last-prices")) ?? {},
   });
+  const customersQ = useQuery({
+    queryKey: ["customer-options-po"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
+  });
 
   const activeProducts = (productsQ.data ?? []).filter((p) => p.status === "active");
   const supplierOptions = suppliersQ.data ?? [];
   const lastPrices = lastPricesQ.data ?? {};
+  const customers = customersQ.data ?? [];
+  const billCustomer = customers.find((c: any) => c.id === form.bill_to_customer_id);
+  const shipCustomer = customers.find((c: any) => c.id === form.ship_to_customer_id);
+  const billAddrOpts = addressOptionsFor(billCustomer, "billing");
+  const shipAddrOpts = addressOptionsFor(shipCustomer, "shipping");
+
+  const pickBillTo = (id: string) => {
+    const c = customers.find((x: any) => x.id === id);
+    const addr = c ? defaultAddressFor(c, "billing") : "";
+    setForm((f) => ({
+      ...f,
+      bill_to_customer_id: id,
+      billing_address: addr,
+      billing_addr_key: "",
+      ...(f.same_as_billing
+        ? { ship_to_customer_id: id, shipping_address: c ? defaultAddressFor(c, "shipping") : addr, shipping_addr_key: "" }
+        : {}),
+    }));
+  };
+
+  const pickShipTo = (id: string) => {
+    const c = customers.find((x: any) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      ship_to_customer_id: id,
+      shipping_address: c ? defaultAddressFor(c, "shipping") : "",
+      shipping_addr_key: "",
+    }));
+  };
 
   const setLine = (i: number, patch: Partial<LineForm>) => {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -454,9 +503,15 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
         if (Number(l.unit_price) < 0) throw new Error("Unit price must be >= 0");
       }
       const supplier = supplierOptions.find((s) => s.id === form.supplier_id);
+      const shipId = form.same_as_billing ? form.bill_to_customer_id : form.ship_to_customer_id;
+      const shipAddr = form.same_as_billing ? form.billing_address : form.shipping_address;
       await api.post("/goods-purchase-orders", {
         supplier_id: form.supplier_id || null,
         supplier_name: supplier?.name ?? null,
+        bill_to_customer_id: form.bill_to_customer_id || null,
+        billing_address: form.billing_address || null,
+        ship_to_customer_id: shipId || null,
+        shipping_address: shipAddr || null,
         warehouse: form.warehouse || null,
         expected_delivery_date: form.expected_delivery_date || null,
         payment_terms: form.payment_terms || null,
@@ -511,6 +566,78 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
               </L>
               <L label="Buyer"><input className="inp" value={form.buyer_name} onChange={(e) => setForm({ ...form, buyer_name: e.target.value })} /></L>
               <L label="Freight"><input type="text" inputMode="decimal" className="inp num" value={form.freight} onChange={(e) => setForm({ ...form, freight: e.target.value })} /></L>
+            </div>
+          </Section>
+
+          <Section title="Billing & shipping">
+            <div className="grid gap-3 md:grid-cols-2">
+              <L label="Bill to (customer)">
+                <select className="inp" value={form.bill_to_customer_id} onChange={(e) => pickBillTo(e.target.value)}>
+                  <option value="">—</option>
+                  {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </L>
+              <L label="Billing address">
+                <select
+                  className="inp"
+                  value={form.billing_addr_key}
+                  disabled={!form.bill_to_customer_id}
+                  onChange={(e) => {
+                    const opt = billAddrOpts.find((o) => o.key === e.target.value);
+                    setForm({ ...form, billing_addr_key: e.target.value, billing_address: opt ? opt.full : form.billing_address });
+                  }}
+                >
+                  <option value="">{billAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                  {billAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
+                </select>
+              </L>
+              <L label="Billing address (details)" full>
+                <input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+              </L>
+              <label className="flex items-center gap-2 text-sm md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={form.same_as_billing}
+                  onChange={(e) => {
+                    const same = e.target.checked;
+                    setForm((f) => ({
+                      ...f,
+                      same_as_billing: same,
+                      ...(same
+                        ? { ship_to_customer_id: f.bill_to_customer_id, shipping_address: f.billing_address, shipping_addr_key: f.billing_addr_key }
+                        : {}),
+                    }));
+                  }}
+                />
+                Shipping same as billing
+              </label>
+              {!form.same_as_billing && (
+                <>
+                  <L label="Ship to (customer)">
+                    <select className="inp" value={form.ship_to_customer_id} onChange={(e) => pickShipTo(e.target.value)}>
+                      <option value="">—</option>
+                      {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </L>
+                  <L label="Shipping address">
+                    <select
+                      className="inp"
+                      value={form.shipping_addr_key}
+                      disabled={!form.ship_to_customer_id}
+                      onChange={(e) => {
+                        const opt = shipAddrOpts.find((o) => o.key === e.target.value);
+                        setForm({ ...form, shipping_addr_key: e.target.value, shipping_address: opt ? opt.full : form.shipping_address });
+                      }}
+                    >
+                      <option value="">{shipAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                      {shipAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
+                    </select>
+                  </L>
+                  <L label="Shipping address (details)" full>
+                    <input className="inp" value={form.shipping_address} onChange={(e) => setForm({ ...form, shipping_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+                  </L>
+                </>
+              )}
             </div>
           </Section>
 

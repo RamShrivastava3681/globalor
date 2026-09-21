@@ -85,6 +85,21 @@ export interface UserRole {
 }
 
 // ── Customers ──
+/** One saved billing / shipping address on a customer. */
+export interface CustomerAddress {
+  id: string;
+  label: string | null;
+  /** Which documents this address may be picked for. */
+  kind: "billing" | "shipping" | "both";
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  is_default: boolean;
+}
+
 export interface Customer {
   id: string;
   company_id: string | null;
@@ -94,6 +109,9 @@ export interface Customer {
   relationship_since: string | null;
   registered_address: string | null;
   postal_code: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
   phone: string | null;
   website: string | null;
   contact_name: string | null;
@@ -102,6 +120,8 @@ export interface Customer {
   contact_phone: string | null;
   industry: string | null;
   payment_terms_days?: number;
+  /** Saved billing / shipping addresses (pickable on PO / SO). */
+  addresses?: CustomerAddress[] | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -141,6 +161,7 @@ export interface Supplier {
   address_line: string | null;
   address_line2: string | null;
   city: string | null;
+  state?: string | null;
   country: string | null;
   postal_code: string | null;
   contact_name: string | null;
@@ -362,6 +383,14 @@ export interface GoodsPurchaseOrder {
   /** Supplier OR vendor id (merged dropdowns); name denormalized. */
   supplier_id: string | null;
   supplier_name: string | null;
+  /** Billing party (customer) + address picked from the customer master. */
+  bill_to_customer_id?: string | null;
+  bill_to_customer_name?: string | null;
+  billing_address?: string | null;
+  /** Shipping party — may differ from billing; falls back to billing when same. */
+  ship_to_customer_id?: string | null;
+  ship_to_customer_name?: string | null;
+  shipping_address?: string | null;
   warehouse: string | null;
   expected_delivery_date: string | null;
   payment_terms: string | null;
@@ -415,6 +444,9 @@ export interface GoodsReceipt {
   goods_purchase_order_id: string;
   po_number: string | null;
   supplier_name: string | null;
+  supplier_address?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
   warehouse: string | null;
   received_date: string;
   challan_number: string | null;
@@ -465,6 +497,12 @@ export interface GoodsSalesOrder {
   /** Customer id (merged customer master). */
   customer_id: string | null;
   customer_name: string | null;
+  /** Billing party — may differ from the shipping party. */
+  billing_customer_id?: string | null;
+  billing_customer_name?: string | null;
+  /** Shipping party — falls back to the billing party when kept the same. */
+  shipping_customer_id?: string | null;
+  shipping_customer_name?: string | null;
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
@@ -531,6 +569,9 @@ export interface GoodsDispatch {
   goods_sales_order_id: string;
   so_number: string | null;
   customer_name: string | null;
+  billing_customer_name?: string | null;
+  billing_address?: string | null;
+  shipping_customer_name?: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   warehouse: string | null;

@@ -69,12 +69,31 @@ async function buildPrefill(linkedDocType: string, linkedDocId: string): Promise
       return { prefill: {}, linkedDocNo: po.po_number, error: "Purchase order must be approved before creating an inbound shipment." };
     }
     const desc = (po.lines ?? []).map((l) => `${l.name} × ${l.ordered_qty}`).join("; ").slice(0, 1000) || null;
+    // Pull the supplier's saved address for the pickup party (best-effort).
+    let supplierAddr: Record<string, string | null> = {};
+    if ((po as any).supplier_id) {
+      const supplier = (await getItem(TABLES.SUPPLIERS, { id: (po as any).supplier_id }).catch(() => null)) as any
+        ?? (await getItem(TABLES.VENDORS, { id: (po as any).supplier_id }).catch(() => null)) as any;
+      if (supplier) {
+        supplierAddr = {
+          address: [supplier.address_line ?? supplier.address, supplier.address_line2].filter(Boolean).join(", ") || null,
+          city: supplier.city ?? null,
+          state: supplier.state ?? null,
+          country: supplier.country ?? null,
+          postal_code: supplier.postal_code ?? null,
+        };
+      }
+    }
+    const poAny = po as unknown as Record<string, any>;
     return {
       linkedDocNo: po.po_number,
       prefill: {
         shipment_type: "inbound",
-        pickup: { ...emptyParty(po.supplier_name ?? ""), city: null, state: null, country: null },
-        delivery: { ...emptyParty(po.warehouse ?? ""), city: null, state: null, country: null },
+        pickup: { ...emptyParty(po.supplier_name ?? ""), ...supplierAddr },
+        delivery: {
+          ...emptyParty(poAny.ship_to_customer_name ?? po.warehouse ?? ""),
+          address: poAny.shipping_address ?? poAny.billing_address ?? null,
+        },
         requested_delivery_date: po.expected_delivery_date,
         goods_description: desc,
         declared_value: Number(po.grand_total) || 0,
@@ -266,6 +285,114 @@ router.get("/prefill", requireAuth, async (req: AuthRequest, res: Response) => {
     return;
   }
   res.json({ prefill, linked_doc_no: linkedDocNo });
+});
+
+// ── Linkable documents (searchable picker for the shipment create form) ──
+// GET /api/shipments/linkable-docs?type=goods_purchase_order&search=po-12
+// Returns only documents eligible for linking (approved PO, confirmed dispatch,
+// non-draft invoices) so the UI can offer search + select instead of manual ID paste.
+// Must stay registered before "/:id".
+
+router.get("/linkable-docs", requireAuth, async (req: AuthRequest, res: Response) => {
+  const type = String((req.query as Record<string, string>).type ?? "");
+  const search = String((req.query as Record<string, string>).search ?? "").trim().toLowerCase();
+  const limit = Math.min(Math.max(Number((req.query as Record<string, string>).limit) || 30, 1), 100);
+  const filter = getCompanyFilter(req.user!);
+  const matches = (hay: string) => !search || hay.toLowerCase().includes(search);
+
+  try {
+    if (type === "goods_purchase_order") {
+      const orders = await scanTable<GoodsPurchaseOrder>(TABLES.GOODS_PURCHASE_ORDERS, filter);
+      const out = orders
+        .filter((po: any) => {
+          const ms = po.manual_status ?? po.status;
+          const st = po.status;
+          const eligible =
+            ms === "approved" || ms === "sent" || st === "approved" || st === "sent" || st === "partially_received";
+          if (!eligible) return false;
+          const hay = `${po.po_number ?? ""} ${po.supplier_name ?? ""} ${po.supplier_id ?? ""} ${po.id ?? ""} ${po.warehouse ?? ""}`;
+          return matches(hay);
+        })
+        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+        .slice(0, limit)
+        .map((po: any) => ({
+          id: po.id,
+          number: po.po_number,
+          party: po.supplier_name ?? null,
+          date: po.po_date ?? po.expected_delivery_date ?? null,
+          amount: Number(po.grand_total) || 0,
+          status: po.manual_status ?? po.status,
+        }));
+      res.json(out);
+      return;
+    }
+    if (type === "goods_dispatch") {
+      const rows = await scanTable<GoodsDispatch>(TABLES.GOODS_DISPATCHES, filter);
+      const out = rows
+        .filter((d: any) => {
+          if (d.status === "draft" || d.status === "cancelled") return false;
+          const hay = `${d.dispatch_number ?? ""} ${d.customer_name ?? ""} ${d.id ?? ""} ${d.warehouse ?? ""}`;
+          return matches(hay);
+        })
+        .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))
+        .slice(0, limit)
+        .map((d: any) => ({
+          id: d.id,
+          number: d.dispatch_number,
+          party: d.customer_name ?? null,
+          date: d.delivery_date ?? null,
+          amount: (d.lines ?? []).reduce((s: number, l: any) => s + Number(l.line_value || 0), 0),
+          status: d.status,
+        }));
+      res.json(out);
+      return;
+    }
+    if (type === "sales_invoice") {
+      const rows = await scanTable<Invoice>(TABLES.INVOICES, filter);
+      const out = rows
+        .filter((inv: any) => {
+          if (inv.status === "draft" || inv.status === "rejected") return false;
+          const hay = `${inv.invoice_number ?? ""} ${inv.customer_name ?? ""} ${inv.customer_id ?? ""} ${inv.id ?? ""}`;
+          return matches(hay);
+        })
+        .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))
+        .slice(0, limit)
+        .map((inv: any) => ({
+          id: inv.id,
+          number: inv.invoice_number,
+          party: inv.customer_name ?? null,
+          date: inv.issue_date ?? null,
+          amount: Number(inv.grand_total ?? inv.amount) || 0,
+          status: inv.status,
+        }));
+      res.json(out);
+      return;
+    }
+    if (type === "purchase_invoice") {
+      const rows = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, filter);
+      const out = rows
+        .filter((pi: any) => {
+          const hay = `${pi.invoice_number ?? ""} ${pi.vendor_id ?? ""} ${pi.supplier_name ?? ""} ${pi.id ?? ""}`;
+          return matches(hay);
+        })
+        .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))
+        .slice(0, limit)
+        .map((pi: any) => ({
+          id: pi.id,
+          number: pi.invoice_number,
+          party: pi.supplier_name ?? null,
+          date: pi.issue_date ?? null,
+          amount: Number(pi.amount) || 0,
+          status: pi.status,
+        }));
+      res.json(out);
+      return;
+    }
+    res.status(400).json({ error: "Unknown linkable doc type. Use goods_purchase_order | goods_dispatch | sales_invoice | purchase_invoice." });
+  } catch (err) {
+    console.error("Get linkable docs error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // ── List ──

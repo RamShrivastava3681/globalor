@@ -38,6 +38,9 @@ type DSP = {
   goods_sales_order_id: string;
   so_number: string | null;
   customer_name: string | null;
+  billing_customer_name: string | null;
+  billing_address: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   warehouse: string | null;
@@ -69,6 +72,9 @@ type SO = {
   id: string;
   so_number: string;
   customer_name: string | null;
+  billing_customer_name: string | null;
+  billing_address: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   status: string;
@@ -218,7 +224,14 @@ export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoP
                           <div className="text-[10px] text-muted-foreground">{fmtDate(d.dispatch_date)}{d.transporter_name ? ` · ${d.transporter_name}` : ""}</div>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs text-primary">{d.so_number ?? "—"}</td>
-                        <td className="px-5 py-3">{d.customer_name ?? "—"}</td>
+                        <td className="px-5 py-3">
+                          <div>{d.shipping_customer_name ?? d.customer_name ?? "—"}</div>
+                          {(d.billing_address || d.delivery_address) && (
+                            <div className="max-w-56 truncate text-[10px] text-muted-foreground" title={`Bill: ${d.billing_address ?? "—"} | Ship: ${d.delivery_address ?? "—"}`}>
+                              Bill: {d.billing_address ?? "—"} | Ship: {d.delivery_address ?? "—"}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right num text-warning">{dispatched.toLocaleString()}</td>
                         <td className="px-5 py-3 text-right num font-medium">{fmtMoney(value)}</td>
                         <td className="px-5 py-3">
@@ -471,6 +484,11 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
 
           {soId && so && (
             <>
+              <div className="grid gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs sm:grid-cols-3">
+                <div><span className="text-muted-foreground">Bill to: </span><span className="font-medium">{[(so.billing_customer_name ?? so.customer_name), so.billing_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Ship to: </span><span className="font-medium">{[(so.shipping_customer_name ?? so.customer_name), so.delivery_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Contact: </span><span className="font-medium">{so.contact_person ?? "—"}</span></div>
+              </div>
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-xs uppercase tracking-widest text-muted-foreground">

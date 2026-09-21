@@ -343,6 +343,118 @@ const LINKED_DOC_OPTIONS = [
   { value: "purchase_invoice", label: "Purchase invoice → inbound" },
 ];
 
+// ── Searchable linked-document picker (replaces manual ID paste) ──
+
+export type LinkableDoc = {
+  id: string; number: string; party: string | null;
+  date: string | null; amount: number; status: string;
+};
+
+function LinkedDocPicker({ docType, value, selectedLabel, onPick, placeholder }: {
+  docType: string;
+  value?: string;
+  selectedLabel?: string | null;
+  onPick: (doc: LinkableDoc | null) => void;
+  placeholder?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const docsQ = useQuery({
+    queryKey: ["linkable-docs", docType, debounced],
+    queryFn: () => logisticsApi.linkableDocs(docType, debounced),
+    enabled: docType !== "manual" && open,
+    retry: false,
+  });
+  const docs: LinkableDoc[] = docsQ.data ?? [];
+
+  return (
+    <div className="relative">
+      {value ? (
+        <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">{selectedLabel || value}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">{value}</div>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setSearch("");
+              onPick(null);
+            }}
+          >
+            <XCircle className="h-4 w-4" /> Change
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder={placeholder ?? "Search by number, party or ID…"}
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+            />
+          </div>
+          {open && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+              <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover shadow-lg">
+                {docsQ.isLoading && (
+                  <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
+                  </div>
+                )}
+                {!docsQ.isLoading && docsQ.isError && (
+                  <div className="px-3 py-3 text-xs text-destructive">Search failed — try again.</div>
+                )}
+                {!docsQ.isLoading && !docsQ.isError && docs.length === 0 && (
+                  <div className="px-3 py-3 text-xs text-muted-foreground">
+                    {debounced ? `No eligible documents match “${debounced}”.` : "No eligible documents found."}
+                  </div>
+                )}
+                {docs.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted"
+                    onClick={() => {
+                      onPick(d);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{d.number}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {[d.party, d.status].filter(Boolean).join(" · ")}
+                        {d.date ? ` · ${fmtDate(d.date)}` : ""}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold">{fmtMoney(d.amount)}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function CreateDialog({ fromType, fromId, onClose, onCreated }: {
   fromType?: string; fromId?: string; onClose: () => void; onCreated: (id: string) => void;
 }) {
@@ -382,26 +494,61 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
   });
   const providers: any[] = providersQ.data ?? [];
 
+  const applyPrefillResult = (prefill: any, linked_doc_no: string | null, docType: string) => {
+    setForm((f) => ({
+      ...f,
+      shipment_type: prefill.shipment_type ?? f.shipment_type,
+      pickup_name: prefill.pickup?.name ?? f.pickup_name ?? "",
+      pickup_contact: prefill.pickup?.contact_person ?? f.pickup_contact ?? "",
+      pickup_address: prefill.pickup?.address ?? f.pickup_address ?? "",
+      pickup_city: prefill.pickup?.city ?? f.pickup_city ?? "",
+      pickup_state: prefill.pickup?.state ?? f.pickup_state ?? "",
+      pickup_country: prefill.pickup?.country ?? f.pickup_country ?? "",
+      pickup_postal: prefill.pickup?.postal_code ?? f.pickup_postal ?? "",
+      pickup_tax: prefill.pickup?.tax_id ?? f.pickup_tax ?? "",
+      delivery_name: prefill.delivery?.name ?? f.delivery_name ?? "",
+      delivery_contact: prefill.delivery?.contact_person ?? f.delivery_contact ?? "",
+      delivery_address: prefill.delivery?.address ?? f.delivery_address ?? "",
+      delivery_city: prefill.delivery?.city ?? f.delivery_city ?? "",
+      delivery_state: prefill.delivery?.state ?? f.delivery_state ?? "",
+      delivery_country: prefill.delivery?.country ?? f.delivery_country ?? "",
+      delivery_postal: prefill.delivery?.postal_code ?? f.delivery_postal ?? "",
+      delivery_tax: prefill.delivery?.tax_id ?? f.delivery_tax ?? "",
+      requested_delivery_date: prefill.requested_delivery_date ?? f.requested_delivery_date ?? "",
+      goods_description: prefill.goods_description ?? f.goods_description ?? "",
+      declared_value: prefill.declared_value ?? f.declared_value ?? "",
+      estimated_freight: prefill.estimated_freight ?? f.estimated_freight ?? "",
+      delivery_challan_number: prefill.eway?.delivery_challan_number ?? f.delivery_challan_number ?? "",
+      linked_doc_no: linked_doc_no ?? f.linked_doc_no ?? null,
+    }));
+    setPrefillNote(`Pre-filled from ${linked_doc_no ?? docType}. Buyer/supplier, items, quantities, addresses and values pulled automatically.`);
+  };
+
+  const handleLinkedDocPick = (doc: LinkableDoc | null) => {
+    if (!doc) {
+      setForm((f) => ({ ...f, linked_doc_id: "", linked_doc_no: null }));
+      setPrefillNote(null);
+      return;
+    }
+    const docType = form.linked_doc_type;
+    setForm((f) => ({ ...f, linked_doc_id: doc.id, linked_doc_no: doc.number }));
+    logisticsApi.prefill(docType, doc.id)
+      .then(({ prefill, linked_doc_no }) => applyPrefillResult(prefill, linked_doc_no ?? doc.number, docType))
+      .catch((e: any) => {
+        setPrefillNote(e.message ?? "Pre-fill failed.");
+        toast.error(e.message ?? "Pre-fill failed.");
+      });
+  };
+
   useEffect(() => {
     if (!fromType || !fromId || fromType === "manual") return;
     logisticsApi.prefill(fromType, fromId)
       .then(({ prefill, linked_doc_no }) => {
-        setForm((f) => ({
-          ...f,
-          shipment_type: prefill.shipment_type ?? f.shipment_type,
-          pickup_name: prefill.pickup?.name ?? "",
-          delivery_name: prefill.delivery?.name ?? "",
-          delivery_contact: prefill.delivery?.contact_person ?? "",
-          delivery_address: prefill.delivery?.address ?? "",
-          requested_delivery_date: prefill.requested_delivery_date ?? "",
-          goods_description: prefill.goods_description ?? "",
-          declared_value: prefill.declared_value ?? "",
-          estimated_freight: prefill.estimated_freight ?? "",
-          delivery_challan_number: prefill.eway?.delivery_challan_number ?? "",
-        }));
-        setPrefillNote(`Pre-filled from ${linked_doc_no ?? fromType}. Buyer/supplier, items, quantities, addresses and values pulled automatically.`);
+        setForm((f) => ({ ...f, linked_doc_id: fromId, linked_doc_no: linked_doc_no ?? null }));
+        applyPrefillResult(prefill, linked_doc_no, fromType);
       })
       .catch((e: any) => setPrefillNote(e.message ?? "Pre-fill failed."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromType, fromId]);
 
   const chargeable = Math.max(Number(form.actual_weight || 0), Number(form.volumetric_weight || 0));
@@ -537,14 +684,29 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
           <Field label="Shipment type">{sel("shipment_type", ["inbound", "outbound", "transfer", "return"])}</Field>
           <Field label="Priority">{sel("priority", ["normal", "urgent", "critical"])}</Field>
           <Field label="Linked document" span>
-            <Select value={form.linked_doc_type} onValueChange={(v) => set("linked_doc_type", v)}>
+            <Select
+              value={form.linked_doc_type}
+              onValueChange={(v) => {
+                setForm((f) => ({ ...f, linked_doc_type: v, linked_doc_id: "", linked_doc_no: null }));
+                setPrefillNote(null);
+              }}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{LINKED_DOC_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
           {form.linked_doc_type !== "manual" && (
-            <Field label="Linked document ID" span>
-              <Input value={form.linked_doc_id ?? ""} onChange={(e) => set("linked_doc_id", e.target.value)} placeholder="Paste approved PO / dispatch / invoice ID" />
+            <Field label="Linked document — search & select" span>
+              <LinkedDocPicker
+                docType={form.linked_doc_type}
+                value={form.linked_doc_id}
+                selectedLabel={form.linked_doc_no}
+                onPick={handleLinkedDocPick}
+                placeholder="Search by document no. / party… then click to select"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Only eligible documents are listed. Selecting one auto-fills route, parties and values.
+              </p>
             </Field>
           )}
           <Field label="Business unit"><Input value={form.business_unit ?? ""} onChange={(e) => set("business_unit", e.target.value)} /></Field>
@@ -1015,19 +1177,33 @@ function DocsBlock({ s, canEdit, onChanged }: { s: any; canEdit: boolean; onChan
 
 function FreightLinkBlock({ s, onChanged }: { s: any; onChanged: () => void }) {
   const [piId, setPiId] = useState("");
+  const [piLabel, setPiLabel] = useState<string | null>(null);
   const [final, setFinal] = useState("");
   const m = useMutation({
     mutationFn: () => logisticsApi.linkFreightInvoice(s.id, { freight_invoice_id: piId, final_freight: final === "" ? undefined : Number(final) }),
-    onSuccess: () => { toast.success("Carrier invoice linked for reconciliation."); setPiId(""); setFinal(""); onChanged(); },
+    onSuccess: () => { toast.success("Carrier invoice linked for reconciliation."); setPiId(""); setPiLabel(null); setFinal(""); onChanged(); },
     onError: (e: any) => toast.error(e.message ?? "Link failed"),
   });
   if (s.freight_invoice_id) return null;
   return (
     <Card title="Link carrier bill">
-      <div className="flex flex-wrap items-end gap-2">
-        <div><Label className="text-xs">Purchase invoice ID</Label><Input className="w-64" placeholder="Approved freight PI id" value={piId} onChange={(e) => setPiId(e.target.value)} /></div>
+      <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+        <div>
+          <Label className="text-xs">Carrier purchase invoice — search & select</Label>
+          <LinkedDocPicker
+            docType="purchase_invoice"
+            value={piId}
+            selectedLabel={piLabel}
+            placeholder="Search PI number / vendor… then click to select"
+            onPick={(doc) => {
+              setPiId(doc?.id ?? "");
+              setPiLabel(doc?.number ?? null);
+              if (doc && final === "") setFinal(String(doc.amount ?? ""));
+            }}
+          />
+        </div>
         <div><Label className="text-xs">Final billed (optional)</Label><Input className="w-40" type="number" value={final} onChange={(e) => setFinal(e.target.value)} /></div>
-        <Button size="sm" disabled={m.isPending || !piId} onClick={() => m.mutate()}>Link</Button>
+        <div className="flex items-end"><Button size="sm" disabled={m.isPending || !piId} onClick={() => m.mutate()}>Link</Button></div>
       </div>
       <div className="pt-1 text-[11px] text-muted-foreground">Creates no payable — links the approved PI so billed cost reconciles against the quote.</div>
     </Card>

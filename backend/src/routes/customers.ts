@@ -41,6 +41,19 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/customers ──
+const customerAddressSchema = z.object({
+  id: z.string().max(100).nullable().optional(),
+  label: z.string().max(120).nullable().optional(),
+  kind: z.enum(["billing", "shipping", "both"]).optional().default("both"),
+  line1: z.string().max(300).nullable().optional(),
+  line2: z.string().max(300).nullable().optional(),
+  city: z.string().max(100).nullable().optional(),
+  state: z.string().max(100).nullable().optional(),
+  country: z.string().max(100).nullable().optional(),
+  postal_code: z.string().max(20).nullable().optional(),
+  is_default: z.boolean().optional().default(false),
+});
+
 const createCustomerSchema = z.object({
   name: z.string().min(1).max(200),
   legal_entity_name: z.string().max(200).nullable().optional(),
@@ -50,6 +63,10 @@ const createCustomerSchema = z.object({
 
   registered_address: z.string().max(500).nullable().optional(),
   postal_code: z.string().max(20).nullable().optional(),
+  city: z.string().max(100).nullable().optional(),
+  state: z.string().max(100).nullable().optional(),
+  country: z.string().max(100).nullable().optional(),
+  addresses: z.array(customerAddressSchema).max(20).nullable().optional(),
   phone: z.string().max(40).nullable().optional(),
   website: z.string().max(255).nullable().optional(),
   contact_name: z.string().max(120).nullable().optional(),
@@ -76,6 +93,21 @@ router.post("/", requireAuth, requireWriteAccess("customers"), async (req: AuthR
 
       registered_address: parsed.registered_address || null,
       postal_code: parsed.postal_code || null,
+      city: parsed.city || null,
+      state: parsed.state || null,
+      country: parsed.country || null,
+      addresses: (parsed.addresses ?? []).map((a, i) => ({
+        id: a.id || `addr-${Date.now()}-${i}`,
+        label: a.label || null,
+        kind: a.kind,
+        line1: a.line1 || null,
+        line2: a.line2 || null,
+        city: a.city || null,
+        state: a.state || null,
+        country: a.country || null,
+        postal_code: a.postal_code || null,
+        is_default: !!a.is_default,
+      })),
       phone: parsed.phone || null,
       website: parsed.website || null,
       contact_name: parsed.contact_name || null,

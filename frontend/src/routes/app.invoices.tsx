@@ -3171,8 +3171,8 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
                   <span><span className="text-muted-foreground">Customer:</span> <span className="font-medium">{selectedSo.customer_name}</span></span>
                   {selectedSo.contact_person && <span><span className="text-muted-foreground">Contact:</span> {selectedSo.contact_person}</span>}
-                  {selectedSo.billing_address && <span><span className="text-muted-foreground">Bill to:</span> {selectedSo.billing_address}</span>}
-                  {selectedSo.delivery_address && <span><span className="text-muted-foreground">Ship to:</span> {selectedSo.delivery_address}</span>}
+                  {selectedSo.billing_address && <span><span className="text-muted-foreground">Bill to:</span> {(selectedSo.billing_customer_name ?? selectedSo.customer_name) ? `${selectedSo.billing_customer_name ?? selectedSo.customer_name} — ` : ""}{selectedSo.billing_address}</span>}
+                  {selectedSo.delivery_address && <span><span className="text-muted-foreground">Ship to:</span> {(selectedSo.shipping_customer_name ?? selectedSo.customer_name) ? `${selectedSo.shipping_customer_name ?? selectedSo.customer_name} — ` : ""}{selectedSo.delivery_address}</span>}
                 </div>
               </div>
 

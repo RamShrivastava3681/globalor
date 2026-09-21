@@ -151,6 +151,17 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       notes: l.notes || null,
     }));
 
+    // Snapshot the PO's parties + addresses so the GRN carries the full context.
+    let supplierAddress: string | null = null;
+    if (po.supplier_id) {
+      const supplier = (await getItem(TABLES.SUPPLIERS, { id: po.supplier_id }).catch(() => null)) as any
+        ?? (await getItem(TABLES.VENDORS, { id: po.supplier_id }).catch(() => null)) as any;
+      if (supplier) {
+        supplierAddress = [supplier.address_line ?? supplier.address, supplier.address_line2, supplier.city, (supplier as any).state, supplier.country, supplier.postal_code]
+          .filter(Boolean).join(", ") || null;
+      }
+    }
+
     const grn: GoodsReceipt = {
       id: generateId(),
       client_id: req.user!.id,
@@ -159,6 +170,9 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       goods_purchase_order_id: po.id,
       po_number: po.po_number,
       supplier_name: po.supplier_name,
+      supplier_address: supplierAddress,
+      billing_address: (po as any).billing_address ?? null,
+      shipping_address: (po as any).shipping_address ?? null,
       warehouse: parsed.warehouse || po.warehouse || null,
       received_date: parsed.received_date,
       challan_number: parsed.challan_number || null,

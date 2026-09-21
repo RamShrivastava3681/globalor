@@ -9,6 +9,7 @@ import {
   Plus, X, Loader2, Trash2, CheckCircle2, Ban, Truck, Pencil, Package, Wallet, Building2, Boxes, Link2, Quote,
 } from "lucide-react";
 import { toast } from "sonner";
+import { addressOptionsFor, defaultAddressFor } from "@/lib/customerAddresses";
 
 export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
@@ -33,6 +34,10 @@ type SO = {
   order_date: string;
   customer_id: string | null;
   customer_name: string | null;
+  billing_customer_id: string | null;
+  billing_customer_name: string | null;
+  shipping_customer_id: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
@@ -61,6 +66,22 @@ type CustomerOpt = {
   name: string;
   contact_name: string | null;
   registered_address: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  postal_code?: string | null;
+  addresses?: Array<{
+    id: string;
+    label: string | null;
+    kind: "billing" | "shipping" | "both";
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+    is_default: boolean;
+  }> | null;
   payment_terms_days: number | null;
 };
 type ProductOpt = { id: string; name: string; sku: string; barcode: string | null; unit_of_measure: string; unit_price: number; gst_rate: number | null; status: string };
@@ -309,7 +330,8 @@ function SODetailModal({ so, onClose }: { so: SO; onClose: () => void }) {
                 </span>
               </Detail>
             )}
-            <Detail label="Customer">{so.customer_name ?? "—"}</Detail>
+            <Detail label="Bill to">{so.billing_customer_name ?? so.customer_name ?? "—"}</Detail>
+            <Detail label="Ship to">{so.shipping_customer_name ?? so.customer_name ?? "—"}</Detail>
             <Detail label="Contact">{so.contact_person ?? "—"}</Detail>
             <Detail label="Salesperson">{so.salesperson_name ?? "—"}</Detail>
             <Detail label="Order date">{fmtDate(so.order_date)}</Detail>
@@ -382,45 +404,17 @@ type LineForm = {
   gst_rate: string;
 };
 
-/** An open quotation that can be linked — details auto-fill into the SO. */
-type QuotationLink = {
-  id: string;
-  quotation_number: string;
-  quotation_date: string;
-  customer_id: string | null;
-  customer_name: string | null;
-  prospect_name: string | null;
-  contact_person: string | null;
-  billing_address: string | null;
-  delivery_address: string | null;
-  salesperson_name: string | null;
-  payment_terms: string | null;
-  expected_delivery_date: string | null;
-  freight: number | null;
-  notes: string | null;
-  status: string;
-  grand_total: number;
-  lines: {
-    product_id: string | null;
-    sku: string;
-    name: string;
-    unit: string;
-    quantity: number;
-    unit_price: number;
-    updated_unit_price: number | null;
-    discount_type: "pct" | "amount" | "none";
-    discount_value: number;
-    gst_rate: number | null;
-  }[];
-};
-
 function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    customer_id: "",
-    contact_person: "",
+    billing_customer_id: "",
     billing_address: "",
+    billing_addr_key: "",
+    same_as_billing: true,
+    shipping_customer_id: "",
     delivery_address: "",
+    shipping_addr_key: "",
+    contact_person: "",
     salesperson_name: salespersonDefault,
     payment_terms: "Net 30",
     expected_dispatch_date: "",
@@ -429,8 +423,6 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     notes: "",
   });
   const [lines, setLines] = useState<LineForm[]>([{ product_id: "", name: "", sku: "", unit: "piece", ordered_qty: "", unit_price: "", discount_pct: "0", gst_rate: "0" }]);
-  const [link, setLink] = useState<{ id: string; number: string } | null>(null);
-  const [linking, setLinking] = useState(false);
 
   const productsQ = useQuery({
     queryKey: ["products"],
@@ -440,71 +432,13 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     queryKey: ["customer-options"],
     queryFn: async () => (await api.get<CustomerOpt[]>("/customers")) ?? [],
   });
-  const quotationsQ = useQuery({
-    queryKey: ["quotations"],
-    queryFn: async () => (await api.get<QuotationLink[]>("/quotations")) ?? [],
-  });
 
   const activeProducts = (productsQ.data ?? []).filter((p) => p.status === "active");
   const customers = customersQ.data ?? [];
-  const openQuotations = (quotationsQ.data ?? []).filter(
-    (q) => q.status === "draft" || q.status === "sent" || q.status === "accepted",
-  );
-
-  /**
-   * Copy every detail of a quotation into the SO form. Lines use the
-   * quotation's EFFECTIVE price — the checker-approved `updated_unit_price`
-   * when set, otherwise the original `unit_price` (mirrors the convert flow).
-   */
-  const applyQuotation = (q: QuotationLink) => {
-    setForm((f) => ({
-      ...f,
-      customer_id: q.customer_id ?? "",
-      contact_person: q.contact_person ?? "",
-      billing_address: q.billing_address ?? "",
-      delivery_address: q.delivery_address ?? "",
-      salesperson_name: q.salesperson_name ?? f.salesperson_name,
-      payment_terms: q.payment_terms ?? f.payment_terms,
-      expected_delivery_date: q.expected_delivery_date ?? "",
-      freight: q.freight != null ? String(q.freight) : "",
-      notes: q.notes ?? "",
-    }));
-    if (q.lines.length > 0) {
-      setLines(q.lines.map((l) => {
-        const eff = l.updated_unit_price ?? l.unit_price;
-        const gross = (Number(l.quantity) || 0) * (Number(eff) || 0);
-        let discountPct = 0;
-        if (l.discount_type === "pct") discountPct = Math.min(100, Math.max(0, Number(l.discount_value) || 0));
-        else if (l.discount_type === "amount" && gross > 0) {
-          discountPct = Math.min(100, Math.max(0, (Math.min(Number(l.discount_value) || 0, gross) / gross) * 100));
-        }
-        return {
-          product_id: l.product_id ?? "",
-          name: l.name,
-          sku: l.sku,
-          unit: l.unit,
-          ordered_qty: String(l.quantity),
-          unit_price: String(Math.round((Number(eff) || 0) * 100) / 100),
-          discount_pct: String(Math.round(discountPct * 100) / 100),
-          gst_rate: String(l.gst_rate ?? 0),
-        };
-      }));
-    }
-    setLink({ id: q.id, number: q.quotation_number });
-  };
-
-  const pickQuotation = async (id: string) => {
-    if (!id) return;
-    setLinking(true);
-    try {
-      const q = await api.get<QuotationLink>(`/quotations/${id}`);
-      applyQuotation(q);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load the quotation");
-    } finally {
-      setLinking(false);
-    }
-  };
+  const billCustomer = customers.find((c) => c.id === form.billing_customer_id);
+  const shipCustomer = customers.find((c) => c.id === form.shipping_customer_id);
+  const billAddrOpts = addressOptionsFor(billCustomer, "billing");
+  const shipAddrOpts = addressOptionsFor(shipCustomer, "shipping");
 
   const setLine = (i: number, patch: Partial<LineForm>) => {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -526,18 +460,33 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     });
   };
 
-  const pickCustomer = (id: string) => {
-    // A manual customer change breaks the quotation link — drop it so the
-    // link stays truthful (details were copied, not re-fetched).
-    if (link) setLink(null);
+  const pickBillingCustomer = (id: string) => {
+    const d = customers.find((x) => x.id === id);
+    const addr = d ? defaultAddressFor(d, "billing") : "";
+    setForm((f) => ({
+      ...f,
+      billing_customer_id: id,
+      contact_person: d?.contact_name ?? "",
+      billing_address: addr,
+      billing_addr_key: "",
+      payment_terms: d?.payment_terms_days ? `Net ${d.payment_terms_days}` : f.payment_terms,
+      ...(f.same_as_billing
+        ? {
+            shipping_customer_id: id,
+            delivery_address: d ? defaultAddressFor(d, "shipping") || addr : "",
+            shipping_addr_key: "",
+          }
+        : {}),
+    }));
+  };
+
+  const pickShippingCustomer = (id: string) => {
     const d = customers.find((x) => x.id === id);
     setForm((f) => ({
       ...f,
-      customer_id: id,
-      contact_person: d?.contact_name ?? "",
-      billing_address: d?.registered_address ?? "",
-      delivery_address: d?.registered_address ?? "",
-      payment_terms: d?.payment_terms_days ? `Net ${d.payment_terms_days}` : f.payment_terms,
+      shipping_customer_id: id,
+      delivery_address: d ? defaultAddressFor(d, "shipping") : "",
+      shipping_addr_key: "",
     }));
   };
 
@@ -558,14 +507,16 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
         if (!l.ordered_qty || Number(l.ordered_qty) <= 0) throw new Error("Ordered qty must be > 0 on every line");
         if (Number(l.unit_price) < 0) throw new Error("Unit price must be >= 0");
       }
+      const shipId = form.same_as_billing ? form.billing_customer_id : form.shipping_customer_id;
+      const shipAddr = form.same_as_billing ? form.billing_address : form.delivery_address;
       await api.post("/goods-sales-orders", {
-        customer_id: form.customer_id || null,
+        customer_id: form.billing_customer_id || null,
+        billing_customer_id: form.billing_customer_id || null,
+        shipping_customer_id: shipId || null,
         contact_person: form.contact_person || null,
         billing_address: form.billing_address || null,
-        delivery_address: form.delivery_address || null,
+        delivery_address: shipAddr || null,
         salesperson_name: form.salesperson_name || null,
-        linked_quotation_id: link?.id ?? null,
-        linked_quotation_number: link?.number ?? null,
         payment_terms: form.payment_terms || null,
         expected_dispatch_date: form.expected_dispatch_date || null,
         expected_delivery_date: form.expected_delivery_date || null,
@@ -599,50 +550,86 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-5 p-5">
-          <Section title="Customer & delivery">
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2">
-              <Link2 className="h-4 w-4 text-info" />
-              <select
-                className="inp max-w-sm"
-                value={link?.id ?? ""}
-                onChange={(e) => pickQuotation(e.target.value)}
-                disabled={linking}
-              >
-                <option value="">Link an open quotation…</option>
-                {openQuotations.map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.quotation_number} — {q.customer_name ?? q.prospect_name ?? "Prospect"} · {fmtMoney(q.grand_total)}
-                  </option>
-                ))}
-              </select>
-              {linking && <Loader2 className="h-3.5 w-3.5 animate-spin text-info" />}
-              {link && !linking && (
-                <>
-                  <span className="text-[11px] text-info">
-                    Linked to <span className="font-mono">{link.number}</span> — customer, delivery and lines copied with the quotation's effective prices
-                  </span>
-                  <button type="button" onClick={() => setLink(null)}
-                    className="ml-auto rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground">
-                    Unlink
-                  </button>
-                </>
-              )}
-            </div>
+          <Section title="Billing & shipping">
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Customer (customer) *" full>
-                <select className="inp" value={form.customer_id} onChange={(e) => pickCustomer(e.target.value)}>
+              <L label="Bill to (customer) *">
+                <select className="inp" value={form.billing_customer_id} onChange={(e) => pickBillingCustomer(e.target.value)}>
                   <option value="">—</option>
                   {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </L>
+              <L label="Billing address (saved)">
+                <select
+                  className="inp"
+                  value={form.billing_addr_key}
+                  disabled={!form.billing_customer_id}
+                  onChange={(e) => {
+                    const opt = billAddrOpts.find((o) => o.key === e.target.value);
+                    setForm({ ...form, billing_addr_key: e.target.value, billing_address: opt ? opt.full : form.billing_address });
+                  }}
+                >
+                  <option value="">{billAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                  {billAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
+                </select>
+              </L>
               <L label="Contact person"><input className="inp" value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></L>
+              <L label="Billing address (details)" full>
+                <input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+              </L>
+              <label className="flex items-center gap-2 text-sm md:col-span-3">
+                <input
+                  type="checkbox"
+                  checked={form.same_as_billing}
+                  onChange={(e) => {
+                    const same = e.target.checked;
+                    setForm((f) => ({
+                      ...f,
+                      same_as_billing: same,
+                      ...(same
+                        ? { shipping_customer_id: f.billing_customer_id, delivery_address: f.billing_address, shipping_addr_key: f.billing_addr_key }
+                        : {}),
+                    }));
+                  }}
+                />
+                Shipping same as billing
+              </label>
+              {!form.same_as_billing && (
+                <>
+                  <L label="Ship to (customer)">
+                    <select className="inp" value={form.shipping_customer_id} onChange={(e) => pickShippingCustomer(e.target.value)}>
+                      <option value="">—</option>
+                      {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </L>
+                  <L label="Shipping address (saved)" full>
+                    <select
+                      className="inp"
+                      value={form.shipping_addr_key}
+                      disabled={!form.shipping_customer_id}
+                      onChange={(e) => {
+                        const opt = shipAddrOpts.find((o) => o.key === e.target.value);
+                        setForm({ ...form, shipping_addr_key: e.target.value, delivery_address: opt ? opt.full : form.delivery_address });
+                      }}
+                    >
+                      <option value="">{shipAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                      {shipAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
+                    </select>
+                  </L>
+                  <L label="Delivery address (details)" full>
+                    <input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+                  </L>
+                </>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Terms & schedule">
+            <div className="grid gap-3 md:grid-cols-3">
               <L label="Payment terms">
                 <select className="inp" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}>
                   {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </L>
-              <L label="Billing address" full><input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Auto-filled from customer" /></L>
-              <L label="Delivery address" full><input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Auto-filled from customer" /></L>
               <L label="Salesperson"><input className="inp" value={form.salesperson_name} onChange={(e) => setForm({ ...form, salesperson_name: e.target.value })} /></L>
               <L label="Expected dispatch"><input type="date" className="inp" value={form.expected_dispatch_date} onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })} /></L>
               <L label="Expected delivery"><input type="date" className="inp" value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} /></L>

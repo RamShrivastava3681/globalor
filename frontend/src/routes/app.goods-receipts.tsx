@@ -37,6 +37,9 @@ type GRN = {
   goods_purchase_order_id: string;
   po_number: string | null;
   supplier_name: string | null;
+  supplier_address: string | null;
+  billing_address: string | null;
+  shipping_address: string | null;
   warehouse: string | null;
   received_date: string;
   challan_number: string | null;
@@ -64,6 +67,10 @@ type PO = {
   id: string;
   po_number: string;
   supplier_name: string | null;
+  bill_to_customer_name: string | null;
+  billing_address: string | null;
+  ship_to_customer_name: string | null;
+  shipping_address: string | null;
   warehouse: string | null;
   status: string;
   lines: POLine[];
@@ -190,7 +197,14 @@ export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselected
                           <div className="text-[10px] text-muted-foreground">{fmtDate(g.received_date)}{g.challan_number ? ` · challan ${g.challan_number}` : ""}</div>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs text-primary">{g.po_number ?? "—"}</td>
-                        <td className="px-5 py-3">{g.supplier_name ?? "—"}</td>
+                        <td className="px-5 py-3">
+                          <div>{g.supplier_name ?? "—"}</div>
+                          {(g.billing_address || g.shipping_address) && (
+                            <div className="max-w-56 truncate text-[10px] text-muted-foreground" title={`Bill: ${g.billing_address ?? "—"} | Ship: ${g.shipping_address ?? "—"}`}>
+                              Bill: {g.billing_address ?? "—"} | Ship: {g.shipping_address ?? "—"}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right num text-success">{accepted.toLocaleString()}</td>
                         <td className="px-5 py-3 text-right num text-destructive">{rejected > 0 ? rejected.toLocaleString() : "—"}</td>
                         <td className="px-5 py-3 text-right num font-medium">{fmtMoney(value)}</td>
@@ -419,6 +433,11 @@ function NewGRNModal({ preselectPo, canOverride, onClose }: { preselectPo?: stri
 
           {poId && po && (
             <>
+              <div className="grid gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs sm:grid-cols-3">
+                <div><span className="text-muted-foreground">Supplier: </span><span className="font-medium">{po.supplier_name ?? "—"}</span></div>
+                <div><span className="text-muted-foreground">Bill to: </span><span className="font-medium">{[po.bill_to_customer_name, po.billing_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Ship to: </span><span className="font-medium">{[po.ship_to_customer_name, po.shipping_address].filter(Boolean).join(" — ") || po.warehouse || "—"}</span></div>
+              </div>
               <div className="relative">
                 <ScanBarcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input

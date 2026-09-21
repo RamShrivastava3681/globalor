@@ -23,6 +23,7 @@ type Supplier = {
   address_line: string | null;
   address_line2: string | null;
   city: string | null;
+  state: string | null;
   country: string | null;
   postal_code: string | null;
   contact_name: string | null;
@@ -43,6 +44,7 @@ const emptyForm = {
   address_line: "",
   address_line2: "",
   city: "",
+  state: "",
   country: "",
   postal_code: "",
   contact_name: "",
@@ -86,6 +88,7 @@ export function SuppliersPage() {
         address_line: form.address_line || null,
         address_line2: form.address_line2 || null,
         city: form.city || null,
+        state: form.state || null,
         country: form.country || null,
         postal_code: form.postal_code || null,
         contact_name: form.contact_name || null,
@@ -139,6 +142,7 @@ export function SuppliersPage() {
       address_line: s.address_line ?? "",
       address_line2: s.address_line2 ?? "",
       city: s.city ?? "",
+      state: s.state ?? "",
       country: s.country ?? "",
       postal_code: s.postal_code ?? "",
       contact_name: s.contact_name ?? "",
@@ -319,9 +323,10 @@ export function SuppliersPage() {
               {/* ── Address ── */}
               <Section title="Address">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Address" full><input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} /></F>
-                  <F label="Address" full><input maxLength={300} className="inp" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} /></F>
+                  <F label="Address line 1" full><input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} placeholder="Street / building" /></F>
+                  <F label="Address line 2" full><input maxLength={300} className="inp" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} placeholder="Area / landmark" /></F>
                   <F label="City"><input maxLength={100} className="inp" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></F>
+                  <F label="State"><input maxLength={100} className="inp" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></F>
                   <F label="Country"><input maxLength={100} className="inp" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></F>
                   <F label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} /></F>
                 </div>
@@ -425,7 +430,8 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
               <DetailRow label="Contact" value={supplier.contact_name || "—"} />
               <DetailRow label="Email" value={supplier.contact_email || "—"} />
               <DetailRow label="Phone" value={supplier.contact_phone || "—"} />
-              <DetailRow label="Location" value={[supplier.city, supplier.country].filter(Boolean).join(", ") || "—"} />
+              <DetailRow label="Address" value={[supplier.address_line, supplier.address_line2].filter(Boolean).join(", ") || "—"} />
+              <DetailRow label="Location" value={[supplier.city, supplier.state, supplier.country, supplier.postal_code].filter(Boolean).join(", ") || "—"} />
               <DetailRow label="Advance rate" value={`${(Number(supplier.advance_rate) * 100).toFixed(1)}%`} />
               <DetailRow label="Fee rate" value={`${(Number(supplier.fee_rate) * 100).toFixed(2)}%`} />
             </div>

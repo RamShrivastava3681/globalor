@@ -64,6 +64,10 @@ const poLineSchema = z.object({
 const createSchema = z.object({
   po_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   supplier_id: z.string().trim().max(200).nullable().optional(),
+  bill_to_customer_id: z.string().trim().max(200).nullable().optional(),
+  billing_address: z.string().trim().max(500).nullable().optional(),
+  ship_to_customer_id: z.string().trim().max(200).nullable().optional(),
+  shipping_address: z.string().trim().max(500).nullable().optional(),
   warehouse: z.string().trim().max(120).nullable().optional(),
   expected_delivery_date: z.string().nullable().optional(),
   payment_terms: z.string().trim().max(60).nullable().optional(),
@@ -169,6 +173,13 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
 
     const { subtotal, gst_total, grand_total } = computeOrderTotals(lines, parsed.freight ?? 0);
     const supplierName = parsed.supplier_id ? (await buildSupplierMap(req.user!.company_id)).get(parsed.supplier_id) ?? null : null;
+    const { getCustomerById } = await import("../utils/customers.js");
+    const billTo = parsed.bill_to_customer_id ? await getCustomerById(parsed.bill_to_customer_id).catch(() => null) : null;
+    // Shipping falls back to the billing party when the user keeps them the same.
+    const shipToId = parsed.ship_to_customer_id || parsed.bill_to_customer_id || null;
+    const shipTo = shipToId && shipToId !== parsed.bill_to_customer_id
+      ? await getCustomerById(shipToId).catch(() => null)
+      : (shipToId ? billTo : null);
 
     const id = generateId();
     const poNumber = generateDocNumber("PO");
@@ -180,6 +191,12 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       po_date: parsed.po_date,
       supplier_id: parsed.supplier_id || null,
       supplier_name: supplierName,
+      bill_to_customer_id: parsed.bill_to_customer_id || null,
+      bill_to_customer_name: billTo?.name ?? null,
+      billing_address: parsed.billing_address ?? billTo?.registered_address ?? null,
+      ship_to_customer_id: shipToId,
+      ship_to_customer_name: shipTo?.name ?? null,
+      shipping_address: parsed.shipping_address ?? shipTo?.registered_address ?? (shipToId === parsed.bill_to_customer_id ? (parsed.billing_address ?? billTo?.registered_address ?? null) : null),
       warehouse: parsed.warehouse || null,
       expected_delivery_date: parsed.expected_delivery_date || null,
       payment_terms: parsed.payment_terms || null,
@@ -374,6 +391,19 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
 
     for (const [k, v] of Object.entries(parsed)) {
       if (v !== undefined && k !== "lines") updates[k] = v;
+    }
+    // Keep denormalized party names truthful when the bill/ship customer changes.
+    if (parsed.bill_to_customer_id !== undefined || parsed.ship_to_customer_id !== undefined) {
+      const { getCustomerById } = await import("../utils/customers.js");
+      const billId = (parsed.bill_to_customer_id as string | null | undefined) ?? existing.bill_to_customer_id ?? null;
+      const shipId = ((parsed.ship_to_customer_id as string | null | undefined) ?? existing.ship_to_customer_id ?? billId) || null;
+      if (parsed.bill_to_customer_id !== undefined) {
+        updates.bill_to_customer_name = billId ? (await getCustomerById(billId).catch(() => null))?.name ?? null : null;
+      }
+      if (parsed.ship_to_customer_id !== undefined || parsed.bill_to_customer_id !== undefined) {
+        updates.ship_to_customer_id = shipId;
+        updates.ship_to_customer_name = shipId ? (await getCustomerById(shipId).catch(() => null))?.name ?? null : null;
+      }
     }
     delete updates.id;
     delete updates.created_at;
