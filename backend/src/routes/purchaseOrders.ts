@@ -16,6 +16,7 @@ import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { computeOrderTotals } from "../utils/goodsOrders.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { scanCustomersMerged, getCustomerById } from "../utils/customers.js";
 import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Customer, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
 
@@ -510,7 +511,7 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       shipping_customer_id: proforma.customer_id ?? null,
       shipping_customer_name: customer?.name ?? null,
       contact_person: customer?.contact_name ?? null,
-      billing_address: customer?.registered_address ?? null,
+      billing_address: defaultCustomerAddressFor(customer, "billing"),
       delivery_address: null,
       salesperson_name: null,
       linked_quotation_id: null,

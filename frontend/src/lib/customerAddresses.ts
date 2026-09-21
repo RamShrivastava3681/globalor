@@ -1,9 +1,11 @@
-/** Shared helpers for the customer multi-address (billing / shipping) model. */
+/** Shared helpers for the customer address model: separate billing & shipping lists (no registered address). */
+
+export type AddressKind = "billing" | "shipping";
 
 export type CustomerAddressEntry = {
   id?: string;
   label: string;
-  kind: "billing" | "shipping" | "both";
+  kind: AddressKind;
   line1: string;
   line2: string;
   city: string;
@@ -13,9 +15,9 @@ export type CustomerAddressEntry = {
   is_default: boolean;
 };
 
-export const emptyCustomerAddress = (): CustomerAddressEntry => ({
+export const emptyCustomerAddress = (kind: AddressKind = "billing"): CustomerAddressEntry => ({
   label: "",
-  kind: "both",
+  kind,
   line1: "",
   line2: "",
   city: "",
@@ -36,20 +38,16 @@ export function formatEntryAddress(a: CustomerAddressEntry): string {
   return formatAddressParts([a.line1, a.line2, a.city, a.state, a.country, a.postal_code]);
 }
 
-/** One selectable address option for a customer (registered + saved). */
+/** One selectable address option for a customer. */
 export type AddressOption = { key: string; label: string; full: string };
 
 /** Minimal shape of a customer needed for address picking. */
 export type AddressCustomer = {
-  registered_address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  postal_code?: string | null;
   addresses?: Array<{
     id?: string;
     label?: string | null;
-    kind?: "billing" | "shipping" | "both";
+    /** Legacy records may still carry "both" — treated as usable for either side. */
+    kind?: AddressKind | "both";
     line1?: string | null;
     line2?: string | null;
     city?: string | null;
@@ -60,29 +58,23 @@ export type AddressCustomer = {
   }> | null;
 };
 
+function matchesKind(kind: string | null | undefined, want: AddressKind): boolean {
+  return kind === want || kind === "both" || !kind;
+}
+
 export function addressOptionsFor(
   customer: AddressCustomer | null | undefined,
-  kind: "billing" | "shipping",
+  kind: AddressKind,
 ): AddressOption[] {
   if (!customer) return [];
   const out: AddressOption[] = [];
-  const registered = formatAddressParts([
-    customer.registered_address,
-    customer.city,
-    customer.state,
-    customer.country,
-    customer.postal_code,
-  ]);
-  if (registered) {
-    out.push({ key: "__registered__", label: "Registered address", full: registered });
-  }
   for (const a of customer.addresses ?? []) {
-    if (a.kind !== "both" && a.kind !== kind) continue;
+    if (!matchesKind(a.kind, kind)) continue;
     const full = formatAddressParts([a.line1, a.line2, a.city, a.state, a.country, a.postal_code]);
     if (!full) continue;
     out.push({
       key: a.id ?? full,
-      label: `${a.label || "Saved address"} (${a.kind})${a.is_default ? " · default" : ""}`,
+      label: `${a.label || "Saved address"} (${kind})${a.is_default ? " · default" : ""}`,
       full,
     });
   }
@@ -92,12 +84,12 @@ export function addressOptionsFor(
 /** Default address string for a customer + kind (default-flagged first). */
 export function defaultAddressFor(
   customer: AddressCustomer | null | undefined,
-  kind: "billing" | "shipping",
+  kind: AddressKind,
 ): string {
   const opts = addressOptionsFor(customer, kind);
   if (opts.length === 0 || !customer) return "";
   const saved = (customer.addresses ?? []).filter(
-    (a) => (a.kind === "both" || a.kind === kind) && a.is_default,
+    (a) => matchesKind(a.kind, kind) && a.is_default,
   );
   if (saved.length > 0) {
     const first = saved[0];
@@ -111,4 +103,22 @@ export function defaultAddressFor(
     ]);
   }
   return opts[0].full;
+}
+
+/** Split a customer's saved addresses into separate billing / shipping lists. */
+export function splitAddressesByKind(
+  customer: AddressCustomer | null | undefined,
+): { billing: NonNullable<AddressCustomer["addresses"]>; shipping: NonNullable<AddressCustomer["addresses"]> } {
+  const billing: NonNullable<AddressCustomer["addresses"]> = [];
+  const shipping: NonNullable<AddressCustomer["addresses"]> = [];
+  for (const a of customer?.addresses ?? []) {
+    if (a.kind === "shipping") shipping.push(a);
+    else if (a.kind === "billing") billing.push(a);
+    else {
+      // Legacy "both" entries appear under both lists.
+      billing.push(a);
+      shipping.push(a);
+    }
+  }
+  return { billing, shipping };
 }

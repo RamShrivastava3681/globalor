@@ -14,6 +14,7 @@ import jsPDF from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
 import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+import { defaultAddressFor } from "@/lib/customerAddresses";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
 import {
@@ -1603,7 +1604,7 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
 
       const footerLines = [
         client?.company_name || "Company Name",
-        customer?.registered_address || "",
+        customer?.registered_address || defaultAddressFor(customer, "billing") || "",
         `Phone: ${customer?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${customer?.website || "—"}`,
       ];
 
@@ -1636,7 +1637,7 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     doc.setFontSize(8);
     doc.setTextColor(30, 41, 59);
     const custName = customer?.name || "—";
-    const custAddr = customer?.registered_address || "";
+    const custAddr = customer?.registered_address || defaultAddressFor(customer, "billing") || "";
     const custLines = [custName, custAddr].filter(Boolean);
     custLines.forEach((line) => {
       doc.text(line, margin, y);

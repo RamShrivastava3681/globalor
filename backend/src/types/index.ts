@@ -89,7 +89,7 @@ export interface UserRole {
 export interface CustomerAddress {
   id: string;
   label: string | null;
-  /** Which documents this address may be picked for. */
+  /** Which documents this address may be picked for (billing vs shipping are kept separate). */
   kind: "billing" | "shipping" | "both";
   line1: string | null;
   line2: string | null;
@@ -107,7 +107,8 @@ export interface Customer {
   legal_entity_name: string | null;
   registration_no: string | null;
   relationship_since: string | null;
-  registered_address: string | null;
+  /** @deprecated Registered address removed — use `addresses` (billing / shipping) instead. Kept for reading legacy records. */
+  registered_address?: string | null;
   postal_code: string | null;
   city?: string | null;
   state?: string | null;

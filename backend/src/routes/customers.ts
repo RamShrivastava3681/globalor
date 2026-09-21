@@ -44,7 +44,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
 const customerAddressSchema = z.object({
   id: z.string().max(100).nullable().optional(),
   label: z.string().max(120).nullable().optional(),
-  kind: z.enum(["billing", "shipping", "both"]).optional().default("both"),
+  kind: z.enum(["billing", "shipping"]).optional().default("billing"),
   line1: z.string().max(300).nullable().optional(),
   line2: z.string().max(300).nullable().optional(),
   city: z.string().max(100).nullable().optional(),
@@ -61,7 +61,6 @@ const createCustomerSchema = z.object({
   relationship_since: z.string().nullable().optional(),
   industry: z.string().max(100).nullable().optional(),
 
-  registered_address: z.string().max(500).nullable().optional(),
   postal_code: z.string().max(20).nullable().optional(),
   city: z.string().max(100).nullable().optional(),
   state: z.string().max(100).nullable().optional(),
@@ -91,7 +90,6 @@ router.post("/", requireAuth, requireWriteAccess("customers"), async (req: AuthR
       relationship_since: parsed.relationship_since || null,
       industry: parsed.industry || null,
 
-      registered_address: parsed.registered_address || null,
       postal_code: parsed.postal_code || null,
       city: parsed.city || null,
       state: parsed.state || null,

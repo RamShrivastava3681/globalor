@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { scanCustomersMerged } from "../utils/customers.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import type {
@@ -165,8 +166,8 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       shipping_customer_id: shippingId,
       shipping_customer_name: shippingCustomer?.name ?? null,
       contact_person: parsed.contact_person ?? billingCustomer?.contact_name ?? null,
-      billing_address: parsed.billing_address ?? billingCustomer?.registered_address ?? null,
-      delivery_address: parsed.delivery_address ?? shippingCustomer?.registered_address ?? (parsed.billing_address ?? billingCustomer?.registered_address ?? null),
+      billing_address: parsed.billing_address ?? defaultCustomerAddressFor(billingCustomer, "billing"),
+      delivery_address: parsed.delivery_address ?? defaultCustomerAddressFor(shippingCustomer, "shipping") ?? (parsed.billing_address ?? defaultCustomerAddressFor(billingCustomer, "billing")),
       salesperson_name: parsed.salesperson_name ?? req.user!.email,
       linked_quotation_id: parsed.linked_quotation_id || null,
       linked_quotation_number: parsed.linked_quotation_number || null,

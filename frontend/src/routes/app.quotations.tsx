@@ -3,6 +3,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import { defaultAddressFor } from "@/lib/customerAddresses";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
@@ -65,7 +66,18 @@ type CustomerOpt = {
   name: string;
   contact_name: string | null;
   contact_email: string | null;
-  registered_address: string | null;
+  addresses?: Array<{
+    id: string;
+    label: string | null;
+    kind: "billing" | "shipping" | "both";
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+    is_default: boolean;
+  }> | null;
   payment_terms_days: number | null;
 };
 type ProductOpt = { id: string; name: string; sku: string; unit_of_measure: string; unit_price: number; gst_rate: number | null; status: string };
@@ -584,8 +596,8 @@ function QuotationModal({ quote, onClose }: { quote?: Q; onClose: () => void }) 
       customer_id: id,
       prospect_name: "",
       contact_person: d?.contact_name ?? "",
-      billing_address: d?.registered_address ?? "",
-      delivery_address: d?.registered_address ?? "",
+      billing_address: d ? defaultAddressFor(d, "billing") : "",
+      delivery_address: d ? defaultAddressFor(d, "shipping") : "",
       payment_terms: d?.payment_terms_days ? `Net ${d.payment_terms_days}` : f.payment_terms,
     }));
   };

@@ -65,11 +65,6 @@ type CustomerOpt = {
   id: string;
   name: string;
   contact_name: string | null;
-  registered_address: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  postal_code?: string | null;
   addresses?: Array<{
     id: string;
     label: string | null;

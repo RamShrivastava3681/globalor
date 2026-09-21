@@ -334,8 +334,8 @@ const createCustomerSchema = z.object({
   relationship_since: z.string().nullable().optional(),
   industry: z.string().max(100).nullable().optional(),
 
-  registered_address: z.string().max(500).nullable().optional(),
   postal_code: z.string().max(20).nullable().optional(),
+  addresses: z.array(customerAddressSchema).max(20).nullable().optional(), // kind: "billing" | "shipping" (kept separate)
   phone: z.string().max(40).nullable().optional(),
   website: z.string().max(255).nullable().optional(),
   contact_name: z.string().max(120).nullable().optional(),

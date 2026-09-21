@@ -124,7 +124,8 @@ export function CustomersPage() {
                   {(customersQ.data ?? []).filter((d: any) => {
                     if (!searchQuery.trim()) return true;
                     const q = searchQuery.toLowerCase();
-                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.registered_address?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
+                    const addrText = (d.addresses ?? []).map((a: any) => [a.label, a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(" ").toLowerCase()).join(" ");
+                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || addrText.includes(q) || d.contact_name?.toLowerCase().includes(q);
                   }).map((d: any) => {
                     return (
                       <tr key={d.id} className="border-b border-border/60">
@@ -189,7 +190,7 @@ export function CustomersPage() {
 type AddressForm = {
   id?: string;
   label: string;
-  kind: "billing" | "shipping" | "both";
+  kind: "billing" | "shipping";
   line1: string;
   line2: string;
   city: string;
@@ -207,11 +208,6 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
     relationship_since: editing?.relationship_since ?? "",
     industry: editing?.industry ?? "",
 
-    registered_address: editing?.registered_address ?? "",
-    postal_code: editing?.postal_code ?? "",
-    city: editing?.city ?? "",
-    state: editing?.state ?? "",
-    country: editing?.country ?? "",
     phone: editing?.phone ?? "",
     website: editing?.website ?? "",
     contact_name: editing?.contact_name ?? "",
@@ -219,20 +215,32 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
     contact_designation: editing?.contact_designation ?? "",
     contact_phone: editing?.contact_phone ?? "",
   }));
-  const [addresses, setAddresses] = useState<AddressForm[]>(() =>
-    (editing?.addresses ?? []).map((a: any) => ({
-      id: a.id,
-      label: a.label ?? "",
-      kind: a.kind ?? "both",
-      line1: a.line1 ?? "",
-      line2: a.line2 ?? "",
-      city: a.city ?? "",
-      state: a.state ?? "",
-      country: a.country ?? "",
-      postal_code: a.postal_code ?? "",
-      is_default: !!a.is_default,
-    })),
-  );
+  const [addresses, setAddresses] = useState<AddressForm[]>(() => {
+    const out: AddressForm[] = [];
+    for (const a of editing?.addresses ?? []) {
+      const base = {
+        label: a.label ?? "",
+        line1: a.line1 ?? "",
+        line2: a.line2 ?? "",
+        city: a.city ?? "",
+        state: a.state ?? "",
+        country: a.country ?? "",
+        postal_code: a.postal_code ?? "",
+        is_default: !!a.is_default,
+      };
+      if (a.kind === "shipping") {
+        out.push({ ...base, id: a.id, kind: "shipping" });
+      } else if (a.kind === "billing") {
+        out.push({ ...base, id: a.id, kind: "billing" });
+      } else {
+        // Legacy "both" entries become one billing + one shipping entry so each
+        // side stays independently selectable going forward.
+        out.push({ ...base, id: a.id, kind: "billing" });
+        out.push({ ...base, label: base.label, kind: "shipping" });
+      }
+    }
+    return out;
+  });
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
   const setAddr = (i: number, patch: Partial<AddressForm>) =>
@@ -253,11 +261,6 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
         relationship_since: form.relationship_since || null,
         industry: form.industry || null,
 
-        registered_address: form.registered_address || null,
-        postal_code: form.postal_code || null,
-        city: form.city || null,
-        state: form.state || null,
-        country: form.country || null,
         addresses: addresses.map((a) => ({
           id: a.id || undefined,
           label: a.label || null,
@@ -310,35 +313,18 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
             </div>
           </Section>
 
-          <Section title="Registered Address">
-            <div className="grid gap-3 md:grid-cols-2">
-              <L label="Registered Address" full><input maxLength={500} className="inp" value={form.registered_address} onChange={set("registered_address")} /></L>
-              <L label="City"><input maxLength={100} className="inp" value={form.city} onChange={set("city")} /></L>
-              <L label="State"><input maxLength={100} className="inp" value={form.state} onChange={set("state")} /></L>
-              <L label="Country"><input maxLength={100} className="inp" value={form.country} onChange={set("country")} /></L>
-              <L label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={set("postal_code")} /></L>
-            </div>
-          </Section>
-
-          <Section title={`Billing & shipping addresses (${addresses.length})`}>
+          <Section title={`Billing addresses (${addresses.filter((a) => a.kind === "billing").length})`}>
             <div className="space-y-2">
-              {addresses.map((a, i) => (
+              {addresses.map((a, i) => a.kind !== "billing" ? null : (
                 <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
-                  <div className="sm:col-span-4">
-                    <input className="inp" placeholder="Label (e.g. HQ, Warehouse A)" value={a.label} onChange={(e) => setAddr(i, { label: e.target.value })} />
+                  <div className="sm:col-span-5">
+                    <input className="inp" placeholder="Label (e.g. HQ, Billing office)" value={a.label} onChange={(e) => setAddr(i, { label: e.target.value })} />
                   </div>
-                  <div className="sm:col-span-3">
-                    <select className="inp" value={a.kind} onChange={(e) => setAddr(i, { kind: e.target.value as AddressForm["kind"] })}>
-                      <option value="both">Billing + shipping</option>
-                      <option value="billing">Billing only</option>
-                      <option value="shipping">Shipping only</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-4">
+                  <div className="sm:col-span-6">
                     <input className="inp" placeholder="Street / building" value={a.line1} onChange={(e) => setAddr(i, { line1: e.target.value })} />
                   </div>
                   <div className="flex items-center gap-1 sm:col-span-1">
-                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground" title="Default for its kind">
+                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground" title="Default billing address">
                       <input type="checkbox" checked={a.is_default} onChange={(e) => setAddr(i, { is_default: e.target.checked })} /> Def
                     </label>
                     <button type="button" onClick={() => setAddresses((arr) => arr.filter((_, idx) => idx !== i))}
@@ -364,11 +350,55 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
                 </div>
               ))}
               <button type="button"
-                onClick={() => setAddresses((arr) => [...arr, { label: "", kind: "both", line1: "", line2: "", city: "", state: "", country: "", postal_code: "", is_default: false }])}
+                onClick={() => setAddresses((arr) => [...arr, { label: "", kind: "billing", line1: "", line2: "", city: "", state: "", country: "", postal_code: "", is_default: false }])}
                 className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-3 py-1.5 text-xs text-primary hover:bg-primary/5">
-                <Plus className="h-3.5 w-3.5" /> Add address
+                <Plus className="h-3.5 w-3.5" /> Add billing address
               </button>
-              <p className="text-[11px] text-muted-foreground">Saved addresses become selectable as billing / shipping on purchase and sales orders.</p>
+            </div>
+          </Section>
+
+          <Section title={`Shipping addresses (${addresses.filter((a) => a.kind === "shipping").length})`}>
+            <div className="space-y-2">
+              {addresses.map((a, i) => a.kind !== "shipping" ? null : (
+                <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
+                  <div className="sm:col-span-5">
+                    <input className="inp" placeholder="Label (e.g. Warehouse A, Site)" value={a.label} onChange={(e) => setAddr(i, { label: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-6">
+                    <input className="inp" placeholder="Street / building" value={a.line1} onChange={(e) => setAddr(i, { line1: e.target.value })} />
+                  </div>
+                  <div className="flex items-center gap-1 sm:col-span-1">
+                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground" title="Default shipping address">
+                      <input type="checkbox" checked={a.is_default} onChange={(e) => setAddr(i, { is_default: e.target.checked })} /> Def
+                    </label>
+                    <button type="button" onClick={() => setAddresses((arr) => arr.filter((_, idx) => idx !== i))}
+                      className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive" aria-label="Remove address">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="sm:col-span-6">
+                    <input className="inp" placeholder="Area / landmark" value={a.line2} onChange={(e) => setAddr(i, { line2: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input className="inp" placeholder="City" value={a.city} onChange={(e) => setAddr(i, { city: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input className="inp" placeholder="State" value={a.state} onChange={(e) => setAddr(i, { state: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <input className="inp" placeholder="PIN" value={a.postal_code} onChange={(e) => setAddr(i, { postal_code: e.target.value })} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <input className="inp" placeholder="Country" value={a.country} onChange={(e) => setAddr(i, { country: e.target.value })} />
+                  </div>
+                </div>
+              ))}
+              <button type="button"
+                onClick={() => setAddresses((arr) => [...arr, { label: "", kind: "shipping", line1: "", line2: "", city: "", state: "", country: "", postal_code: "", is_default: false }])}
+                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-3 py-1.5 text-xs text-primary hover:bg-primary/5">
+                <Plus className="h-3.5 w-3.5" /> Add shipping address
+              </button>
+              <p className="text-[11px] text-muted-foreground">Billing and shipping addresses stay separate — each becomes selectable on purchase and sales orders after picking the customer.</p>
             </div>
           </Section>
 
@@ -533,28 +563,47 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
 
               <Detail label="Contact" value={customer.contact_name || "—"} />
               <Detail label="Email" value={customer.contact_email || "—"} />
-              {customer.registered_address && <Detail label="Registered Address" value={[customer.registered_address, customer.city, customer.state, customer.country, customer.postal_code].filter(Boolean).join(", ")} />}
               <Detail label="Phone" value={customer.contact_phone || "—"} />
             </div>
           </div>
 
-          {(customer.addresses ?? []).length > 0 && (
-            <div className="rounded-lg border border-border bg-background/40 p-4">
-              <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Billing & shipping addresses ({(customer.addresses ?? []).length})</h4>
-              <div className="grid gap-2 md:grid-cols-2">
-                {(customer.addresses ?? []).map((a: any) => (
-                  <div key={a.id} className="rounded-md border border-border/60 px-3 py-2 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{a.label || "Address"}</span>
-                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-                        {a.kind}{a.is_default ? " · default" : ""}
-                      </span>
+          {((customer.addresses ?? []).filter((a: any) => a.kind !== "shipping").length > 0 || (customer.addresses ?? []).filter((a: any) => a.kind !== "billing").length > 0) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border border-border bg-background/40 p-4">
+                <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Billing addresses ({(customer.addresses ?? []).filter((a: any) => a.kind === "billing" || a.kind === "both" || !a.kind).length})</h4>
+                <div className="grid gap-2">
+                  {(customer.addresses ?? []).filter((a: any) => a.kind === "billing" || a.kind === "both" || !a.kind).map((a: any) => (
+                    <div key={a.id} className="rounded-md border border-border/60 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{a.label || "Address"}</span>
+                        {a.is_default && (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">default</span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {[a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ") || "—"}
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {[a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ") || "—"}
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-background/40 p-4">
+                <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Shipping addresses ({(customer.addresses ?? []).filter((a: any) => a.kind === "shipping" || a.kind === "both" || !a.kind).length})</h4>
+                <div className="grid gap-2">
+                  {(customer.addresses ?? []).filter((a: any) => a.kind === "shipping" || a.kind === "both" || !a.kind).map((a: any) => (
+                    <div key={a.id} className="rounded-md border border-border/60 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{a.label || "Address"}</span>
+                        {a.is_default && (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">default</span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {[a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ") || "—"}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
           )}

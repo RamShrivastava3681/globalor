@@ -94,7 +94,7 @@ function CustomersPage() {
                   {(customersQ.data ?? []).filter((d: any) => {
                     if (!searchQuery.trim()) return true;
                     const q = searchQuery.toLowerCase();
-                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.registered_address?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
+                    return d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q) || d.contact_name?.toLowerCase().includes(q);
                   }).map((d: any) => {
                     return (
                       <tr key={d.id} className="border-b border-border/60">
@@ -145,7 +145,6 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
     relationship_since: editing?.relationship_since ?? "",
     industry: editing?.industry ?? "",
 
-    registered_address: editing?.registered_address ?? "",
     postal_code: editing?.postal_code ?? "",
     phone: editing?.phone ?? "",
     website: editing?.website ?? "",
@@ -169,7 +168,6 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
         relationship_since: form.relationship_since || null,
         industry: form.industry || null,
 
-        registered_address: form.registered_address || null,
         postal_code: form.postal_code || null,
         phone: form.phone || null,
         website: form.website || null,
@@ -208,13 +206,6 @@ function CustomerFormModal({ editing, onClose, onDone }: { editing: any | null; 
               <L label="Registration No."><input maxLength={100} className="inp" value={form.registration_no} onChange={set("registration_no")} /></L>
               <L label="Industry"><input maxLength={100} className="inp" value={form.industry} onChange={set("industry")} /></L>
               <L label="Relationship Since"><input type="text" className="inp" value={form.relationship_since} onChange={set("relationship_since")} placeholder="e.g. 1 year 3 months" /></L>
-            </div>
-          </Section>
-
-          <Section title="Registered Address">
-            <div className="grid gap-3 md:grid-cols-2">
-              <L label="Registered Address" full><input maxLength={500} className="inp" value={form.registered_address} onChange={set("registered_address")} /></L>
-              <L label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={set("postal_code")} /></L>
             </div>
           </Section>
 
@@ -331,7 +322,6 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
 
               <Detail label="Contact" value={customer.contact_name || "—"} />
               <Detail label="Email" value={customer.contact_email || "—"} />
-              {customer.registered_address && <Detail label="Registered Address" value={customer.registered_address} />}
               <Detail label="Phone" value={customer.contact_phone || "—"} />
             </div>
           </div>

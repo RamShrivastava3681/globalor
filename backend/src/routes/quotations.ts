@@ -13,6 +13,7 @@ import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilte
 import { config } from "../config.js";
 import { generateId, generateDocNumber, generateNoaToken, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { scanCustomersMerged } from "../utils/customers.js";
 import { effectiveUnitPrice, computeQuotationTotals, isQuotationExpired, withExpiry } from "../utils/quotations.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
@@ -167,8 +168,8 @@ router.post("/", requireAuth, requireWriteAccess("quotations"), async (req: Auth
       prospect_name: parsed.prospect_name || null,
       customer_name: customer?.name ?? null,
       contact_person: parsed.contact_person ?? customer?.contact_name ?? null,
-      billing_address: parsed.billing_address ?? customer?.registered_address ?? null,
-      delivery_address: parsed.delivery_address ?? customer?.registered_address ?? null,
+      billing_address: parsed.billing_address ?? defaultCustomerAddressFor(customer, "billing"),
+      delivery_address: parsed.delivery_address ?? defaultCustomerAddressFor(customer, "shipping"),
       salesperson_name: parsed.salesperson_name ?? req.user!.email,
       payment_terms: parsed.payment_terms ?? (customer?.payment_terms_days ? `Net ${customer.payment_terms_days}` : null),
       expected_delivery_date: parsed.expected_delivery_date || null,

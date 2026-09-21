@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { poDerivedStatus, computeOrderTotals } from "../utils/goodsOrders.js";
 import type {
   GoodsPurchaseOrder, GoodsPurchaseOrderLine,
@@ -193,10 +194,10 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       supplier_name: supplierName,
       bill_to_customer_id: parsed.bill_to_customer_id || null,
       bill_to_customer_name: billTo?.name ?? null,
-      billing_address: parsed.billing_address ?? billTo?.registered_address ?? null,
+      billing_address: parsed.billing_address ?? defaultCustomerAddressFor(billTo, "billing"),
       ship_to_customer_id: shipToId,
       ship_to_customer_name: shipTo?.name ?? null,
-      shipping_address: parsed.shipping_address ?? shipTo?.registered_address ?? (shipToId === parsed.bill_to_customer_id ? (parsed.billing_address ?? billTo?.registered_address ?? null) : null),
+      shipping_address: parsed.shipping_address ?? defaultCustomerAddressFor(shipTo, "shipping") ?? (shipToId === parsed.bill_to_customer_id ? (parsed.billing_address ?? defaultCustomerAddressFor(billTo, "billing")) : null),
       warehouse: parsed.warehouse || null,
       expected_delivery_date: parsed.expected_delivery_date || null,
       payment_terms: parsed.payment_terms || null,
