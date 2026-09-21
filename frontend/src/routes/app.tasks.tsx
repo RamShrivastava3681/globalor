@@ -9,7 +9,7 @@ import {
   CheckCheck,
   Clock,
   Inbox,
-  IndianRupee,
+  DollarSign,
   ListTodo,
   Loader2,
   RefreshCw,
@@ -486,10 +486,10 @@ const isRejectedTask = (t: Task) =>
     .toLowerCase()
     .includes("reject");
 
-const fmtINR = (n: number | null | undefined) =>
-  new Intl.NumberFormat("en-IN", {
+const fmtUSD = (n: number | null | undefined) =>
+  new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "INR",
+    currency: "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(Number(n ?? 0));
@@ -906,8 +906,8 @@ function TaskCard({ task: t, today, onOpen }: { task: Task; today: string; onOpe
           <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1">
             {amount > 0 && (
               <span className="inline-flex items-center gap-1 font-mono text-sm font-bold text-foreground">
-                <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
-                {fmtINR(amount)}
+                <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                {fmtUSD(amount)}
               </span>
             )}
             <span

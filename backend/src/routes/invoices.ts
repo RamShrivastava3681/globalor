@@ -57,14 +57,14 @@ const router = Router();
 // ── GET /api/invoices/check-duplicates ── (find duplicate invoice numbers across sales & purchase invoices)
 router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    // Scan both sales and purchase invoices
-    const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-
-    // Preload customers, vendors, and profiles for enrichment
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
+    // All scans run in parallel — previously sequential (sum of five scans).
+    const [salesInvoices, purchaseInvoices, allCustomers, allVendors, allProfiles] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+    ]);
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -166,14 +166,15 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-
-    // Preload all customers, profiles, vendors, and purchase invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+    // Run all table scans in parallel — previously these were sequential awaits,
+    // so response time was the SUM of five full-table scans.
+    const [invoices, allCustomers, allProfiles, allVendors, allPurchaseInvoices] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
@@ -293,6 +294,51 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
     );
   } catch (err) {
     console.error("Get invoices mini error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/invoices/stats ──
+// Compact aggregates for the sales dashboard + "review all drafts". Scans ONLY
+// the invoices table (the enriched GET / runs five scans) and returns small
+// rows — the dashboard needs status/amount/date/customer-name, not documents
+// or line items. Must stay registered before "/:id".
+router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const customerIds = new Set<string>();
+    for (const inv of invoices) {
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) customerIds.add(partyId);
+    }
+    // Resolve names for the buyer filter + top-customers chart.
+    const nameById = new Map<string, string>();
+    await Promise.all(
+      [...customerIds].map(async (id) => {
+        const c = await getCustomerById(id).catch(() => undefined);
+        if (c?.name) nameById.set(id, c.name);
+      }),
+    );
+
+    const rows = invoices.map((inv) => {
+      const partyId = getInvoicePartyId(inv);
+      return {
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: Number(inv.amount) || 0,
+        amount_received: Number(inv.amount_received) || 0,
+        short_payment: Number((inv as any).short_payment) || 0,
+        status: inv.status,
+        issue_date: inv.issue_date ?? null,
+        due_date: (inv as any).due_date ?? null,
+        created_at: (inv as any).created_at ?? null,
+        customer_id: partyId,
+        customer_name: partyId ? nameById.get(partyId) ?? "Unknown" : "Unknown",
+      };
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error("Get invoice stats error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

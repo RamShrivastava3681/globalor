@@ -342,7 +342,7 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
     mode: "road",
     service_type: "standard",
     border: "domestic",
-    currency: "INR",
+    currency: "USD",
     freight_payment: "prepaid",
     pickup_name: "", delivery_name: "",
   });

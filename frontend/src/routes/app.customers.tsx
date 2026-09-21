@@ -309,6 +309,7 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
   const [filter, setFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<"issue" | "due">("issue");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
 
   const filteredInvoices = useMemo(() => {
     let result = [...invoices];
@@ -318,6 +319,14 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
     } else if (filter === "closed") {
       result = result.filter((i: any) => i.status === "paid");
     }
+    // Apply search
+    const q = invoiceSearch.trim().toLowerCase();
+    if (q) {
+      result = result.filter((i: any) =>
+        [i.invoice_number, i.po_number, i.status]
+          .some((v) => String(v ?? "").toLowerCase().includes(q)),
+      );
+    }
     // Apply sort
     result.sort((a: any, b: any) => {
       const aVal = sortField === "issue" ? (a.issue_date ?? "") : (a.due_date ?? "");
@@ -326,7 +335,7 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
       return sortOrder === "asc" ? cmp : -cmp;
     });
     return result;
-  }, [invoices, filter, sortField, sortOrder]);
+  }, [invoices, filter, invoiceSearch, sortField, sortOrder]);
 
   const visibleInvoices = filteredInvoices;
 
@@ -464,8 +473,8 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
             <div className="mb-3">
               <FilterBar
                 searchPlaceholder="Search invoices…"
-                searchValue=""
-                onSearchChange={() => {}}
+                searchValue={invoiceSearch}
+                onSearchChange={setInvoiceSearch}
                 statusOptions={[
                   { label: "All", value: "all" },
                   { label: "Open", value: "open" },

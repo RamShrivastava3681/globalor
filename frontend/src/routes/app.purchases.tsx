@@ -63,18 +63,21 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
   const [confirmSendTarget, setConfirmSendTarget] = useState<{ id: string; number: string } | null>(null);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
-  // All purchase invoices query for dashboard stats
+  // Compact stats query for the dashboard tab + review-all-drafts. The old
+  // call fetched the fully-enriched list (5 backend scans + lines and linked
+  // sales per row); /purchase-invoices/stats scans only purchase invoices and
+  // vendors and returns the handful of fields the dashboard actually uses.
   const allPiQ = useQuery({
-    queryKey: ["purchase_invoices", "all"],
-    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+    queryKey: ["purchase_invoices", "stats"],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/stats")) ?? [],
   });
   const allPi = allPiQ.data ?? [];
 
-  // Dashboard stats
+  // Dashboard stats (same shape as before — stats rows keep amount/status fields)
   const dashboardStats = useMemo(() => {
     const inv = allPi;
     const total = inv.length;
-    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount ?? 0), 0);
     const draft = inv.filter((p: any) => p.status === "draft");
     const draftAmount = draft.reduce((s: number, p: any) => s + Number(p.amount), 0);
     const submitted = inv.filter((p: any) => p.status === "submitted");
@@ -754,7 +757,8 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const vendors = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.vendor_id && inv.vendor?.name) map.set(inv.vendor_id, { id: inv.vendor_id, name: inv.vendor.name });
+      const name = inv.vendor_name || inv.vendor?.name;
+      if (inv.vendor_id && name) map.set(inv.vendor_id, { id: inv.vendor_id, name });
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [invoices]);
@@ -810,7 +814,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const topSuppliers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.vendor?.name || "Unknown";
+      const name = inv.vendor_name || inv.vendor?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);

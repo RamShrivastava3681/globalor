@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { config } from "./config.js";
 
 import { requireAuth } from "./middleware/auth.js";
@@ -51,6 +52,9 @@ const app = express();
 
 // ── Global middleware ──
 app.use(cors());
+// Gzip all JSON responses — invoice lists are large and compress ~80%,
+// which is the single biggest win for slow-loading pages on remote networks.
+app.use(compression());
 app.use(
   express.json({
     limit: "50mb",

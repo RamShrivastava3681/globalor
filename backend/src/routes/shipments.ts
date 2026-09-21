@@ -351,7 +351,7 @@ router.post("/", requireAuth, requireWriteAccess("logistics"), async (req: AuthR
     package_unit: b.package_unit ?? null,
     package_unit_count: b.package_unit_count ?? 0,
     declared_value: b.declared_value ?? prefill.declared_value ?? 0,
-    currency: b.currency ?? "INR",
+    currency: b.currency ?? "USD",
     goods_description: b.goods_description ?? prefill.goods_description ?? null,
     hs_code: b.hs_code ?? null,
     dangerous_goods: b.dangerous_goods ?? false,

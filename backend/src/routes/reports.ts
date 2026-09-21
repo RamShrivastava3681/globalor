@@ -55,17 +55,29 @@ function dateRangeFilter(req: AuthRequest) {
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+
+    // All scans run in parallel — previously sequential (sum of five scans).
+    // The purchase-invoices scan is unconditional now: filtering referenced
+    // ids afterwards is cheap, and skipping a round-trip of latency detection
+    // was worth more than the rows when the date filter is set.
+    let invoices: Invoice[];
+    let allCustomers: Customer[];
+    let allProfiles: Profile[];
+    let allVendors: Vendor[];
+    let allPis: PurchaseInvoice[];
+    [invoices, allCustomers, allProfiles, allVendors, allPis] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
+
     if (from || to) {
       invoices = invoices.filter((inv) => isInRange(inv.issue_date));
     }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-    // Preload all customers, profiles, vendors, and purchase invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
@@ -81,7 +93,6 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
     }
     const purchaseInvoiceMap = new Map<string, PurchaseInvoice & { vendor?: Vendor }>();
     if (referencedPiIds.size > 0) {
-      const allPis = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
       for (const pi of allPis) {
         if (referencedPiIds.has(pi.id)) {
           if (pi.vendor_id) {
@@ -165,15 +176,22 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+
+    // All scans run in parallel — previously sequential (sum of three scans).
+    let invoices: PurchaseInvoice[];
+    let allVendors: Vendor[];
+    let allProfiles: Profile[];
+    [invoices, allVendors, allProfiles] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS),
+      scanTable<Profile>(TABLES.PROFILES),
+    ]);
+
     if (from || to) {
       invoices = invoices.filter((pi) => isInRange(pi.issue_date));
     }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-    // Preload vendors and profiles into lookup maps
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -227,10 +245,12 @@ router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) =>
       orders = orders.filter((po) => isInRange(po.proforma_date ?? po.created_at));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
+    // Preload lookup maps in parallel to avoid N+1 GetItem calls
+    const [allCustomers, allVendors, allProfiles] = await Promise.all([
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+    ]);
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
@@ -462,12 +482,14 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
       advances = advances.filter((a) => isInRange(a.advance_date));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
+    // Preload lookup maps in parallel — previously sequential (sum of five scans).
+    const [allInvoices, allPurchaseInvoices, allPurchaseOrders, allCustomers, allVendors] = await Promise.all([
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+    ]);
     const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
     const poMap = new Map(allPurchaseOrders.map((p: any) => [p.id, p]));
@@ -529,9 +551,11 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
       expenses = expenses.filter((e: any) => isInRange(e.expense_date));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+    // Preload lookup maps in parallel — previously sequential.
+    const [allInvoices, allPurchaseInvoices] = await Promise.all([
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
     const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
     const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
 

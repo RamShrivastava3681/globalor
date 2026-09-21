@@ -245,6 +245,29 @@
    BASE LAYER
    ============================================================ */
 @layer base {
+  /* Native controls (date pickers, native <select> popups, autofill,
+     scrollbars) follow the resolved theme. Without this, dark mode renders
+     LIGHT browser widgets inside dark UI — e.g. white calendar popups on
+     the 46 date inputs across forms. */
+  :root {
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  /* Dark-mode autofill otherwise paints opaque light-yellow over dark inputs. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  textarea:-webkit-autofill:hover,
+  textarea:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--color-card) inset;
+    transition: background-color 9999s ease-out;
+  }
+
   * {
     border-color: var(--color-border);
   }

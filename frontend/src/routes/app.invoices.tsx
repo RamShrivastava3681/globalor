@@ -62,18 +62,21 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
 
-  // All invoices query for dashboard stats
+  // Compact stats query for the dashboard tab + review-all-drafts. The old
+  // call fetched the fully-enriched invoice list (5 backend scans + documents
+  // and line items per row); /invoices/stats scans only the invoices table
+  // and returns the handful of fields the dashboard actually uses.
   const allInvoicesQ = useQuery({
-    queryKey: ["invoices", "all"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    queryKey: ["invoices", "stats"],
+    queryFn: async () => (await api.get<any[]>("/invoices/stats")) ?? [],
   });
   const allInvoices = allInvoicesQ.data ?? [];
 
-  // Dashboard stats
+  // Dashboard stats (same shape as before — stats rows keep amount/status fields)
   const dashboardStats = useMemo(() => {
     const inv = allInvoices;
     const total = inv.length;
-    const totalAmount = inv.reduce((s: number, i: any) => s + Number(i.amount), 0);
+    const totalAmount = inv.reduce((s: number, i: any) => s + Number(i.amount ?? 0), 0);
     const draft = inv.filter((i: any) => i.status === "draft");
     const draftAmount = draft.reduce((s: number, i: any) => s + Number(i.amount), 0);
     const submitted = inv.filter((i: any) => i.status === "submitted");
@@ -763,8 +766,8 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const customers = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.customer_id && inv.customer?.name) {
-        map.set(inv.customer_id, { id: inv.customer_id, name: inv.customer.name });
+      if (inv.customer_id && inv.customer_name) {
+        map.set(inv.customer_id, { id: inv.customer_id, name: inv.customer_name });
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -842,7 +845,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const topCustomers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.customer?.name || "Unknown";
+      const name = inv.customer_name || inv.customer?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);

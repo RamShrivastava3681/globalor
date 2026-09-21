@@ -155,6 +155,7 @@ function AppLayout() {
           <aside
             className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#e5ebf2] bg-white transition-[width] duration-200 ease-linear md:flex dark:bg-sidebar dark:border-sidebar-border ${sidebarWidth}`}
             style={{ boxShadow: "4px 0 24px -12px rgba(10,34,57,0.18)" }}
+            data-slot="sidebar-aside"
           >
             <AppSidebar
               collapsed={collapsed}
@@ -164,7 +165,7 @@ function AppLayout() {
             />
             {/* Super-admin company switcher (preserved function, below nav) */}
             {isSuperAdmin && !collapsed && (
-              <div className="relative border-t border-[#e5ebf2] px-3 py-2">
+              <div className="relative border-t border-[#e5ebf2] px-3 py-2 dark:border-sidebar-border">
                 <button
                   onClick={(e) => { e.stopPropagation(); setCompanyDropdownOpen(!companyDropdownOpen); }}
                   className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/40 px-3 py-2 text-left text-xs transition-colors hover:bg-sidebar-accent/70"
@@ -208,13 +209,13 @@ function AppLayout() {
 
           <main className="flex min-w-0 flex-1 flex-col">
             {/* Mobile top navbar */}
-            <div className="flex h-14 flex-none items-center justify-between border-b border-border bg-white px-3 md:hidden">
+            <div className="flex h-14 flex-none items-center justify-between border-b border-border bg-white px-3 md:hidden dark:bg-sidebar">
               <SheetTrigger asChild>
                 <button className="rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Open navigation menu">
                   <Menu className="h-5 w-5" />
                 </button>
               </SheetTrigger>
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0067c2] text-sm font-bold text-white">W</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0067c2] text-sm font-bold text-white dark:bg-sidebar-primary dark:text-sidebar-primary-foreground">W</span>
               <div className="flex items-center gap-1">
                 <Link to="/app/alerts" className="relative rounded-lg p-2 text-muted-foreground hover:bg-accent" aria-label="Alerts">
                   <BellRing className="h-5 w-5" />

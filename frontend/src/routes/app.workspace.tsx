@@ -59,7 +59,7 @@ function WorkspacePage() {
         <PageHeader eyebrow="Workspace" title="Their workspace" description={`Read-only activity overview (viewing ${viewAsUserId}).`} />
         <div className="mt-4 flex gap-1.5 rounded-xl border border-border bg-card p-1.5">
           {(["mine", "theirs"] as const).map((m) => (
-            <button key={m} onClick={() => setMode(m)} className={cn("flex-1 rounded-lg px-3 py-2 text-[13px] font-medium", mode === m ? "bg-white shadow-card" : "text-muted-foreground")}>
+            <button key={m} onClick={() => setMode(m)} className={cn("flex-1 rounded-lg px-3 py-2 text-[13px] font-medium", mode === m ? "bg-white shadow-card dark:bg-card dark:text-foreground" : "text-muted-foreground")}>
               {m === "mine" ? "Their workspace" : "Activity overview"}
             </button>
           ))}
@@ -94,7 +94,7 @@ function WorkspacePage() {
             key={t.id}
             onClick={() => { setTab(t.id); setFormOpen(false); }}
             aria-pressed={tab === t.id}
-            className={cn("inline-flex min-w-max flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium", tab === t.id ? "bg-white shadow-card" : "text-muted-foreground hover:text-foreground")}
+            className={cn("inline-flex min-w-max flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium", tab === t.id ? "bg-white shadow-card dark:bg-card dark:text-foreground" : "text-muted-foreground hover:text-foreground")}
           >
             <t.icon className="h-4 w-4" /> {t.label}
           </button>

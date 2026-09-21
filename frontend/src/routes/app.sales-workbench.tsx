@@ -136,7 +136,7 @@ function SalesWorkbenchPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="lg:col-span-3">
-                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Sales work items" subtitle="Orders, proformas, invoices and credit notes needing action." onAction={openItemBelow} />}
+                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Sales work items" subtitle="Orders, proformas, invoices and credit notes needing action." onAction={openItemBelow} partyLabel="Customers" />}
               </div>
               <SectionCard title="Needs attention" action={<button onClick={() => setSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
                 {focus.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">All clear</p> : (

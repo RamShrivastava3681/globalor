@@ -389,11 +389,18 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
   const avgPayDays = payDays.length > 0 ? Math.round(payDays.reduce((a, b) => a + b, 0) / payDays.length) : null;
 
   const [filter, setFilter] = useState<string>("all");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const filtered = invoices.filter((i: any) => {
     if (filter === "open") return i.status !== "paid" && i.status !== "rejected";
     if (filter === "closed") return i.status === "paid";
     return true;
   });
+  const searched = invoiceSearch.trim()
+    ? filtered.filter((i: any) =>
+        [i.invoice_number, i.po_number, i.status]
+          .some((v) => String(v ?? "").toLowerCase().includes(invoiceSearch.trim().toLowerCase())),
+      )
+    : filtered;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
@@ -436,8 +443,8 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
           {/* Filter */}
           <FilterBar
             searchPlaceholder="Search invoices…"
-            searchValue=""
-            onSearchChange={() => {}}
+            searchValue={invoiceSearch}
+            onSearchChange={setInvoiceSearch}
             statusOptions={[
               { label: "All", value: "all" },
               { label: "Open", value: "open" },
@@ -446,7 +453,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
             statusValue={filter}
             onStatusChange={(v) => setFilter(v)}
           />
-          <div className="mt-2 text-[10px] text-muted-foreground">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</div>
+          <div className="mt-2 text-[10px] text-muted-foreground">{searched.length} invoice{searched.length !== 1 ? "s" : ""}</div>
 
           {/* Invoices table */}
           <div className="rounded-lg border border-border bg-background/40 overflow-x-auto">
@@ -463,7 +470,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inv: any) => (
+                {searched.map((inv: any) => (
                   <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
                     <td className="px-4 py-2.5 font-mono text-xs text-primary">{inv.invoice_number}</td>
                     <td className="px-4 py-2.5 text-right num font-medium">{fmtMoney(inv.amount)}</td>
@@ -479,7 +486,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
                     </td>
                   </tr>
                 ))}
-                {filtered.length === 0 && (
+                {searched.length === 0 && (
                   <tr><td colSpan={7} className="p-6 text-center text-xs text-muted-foreground">No invoices match.</td></tr>
                 )}
               </tbody>

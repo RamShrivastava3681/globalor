@@ -207,7 +207,7 @@ export function ProformasPage({ embedded = false }: { embedded?: boolean } = {})
         </div>
 
         <FilterBar
-          searchPlaceholder="Search proformas by number, PO, counterparty…"
+          searchPlaceholder={tab === "sales" ? "Search proformas by number, PO, customer…" : tab === "purchase" ? "Search proformas by number, PO, supplier…" : "Search proformas by number, PO, counterparty…"}
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           statusOptions={[
@@ -252,7 +252,7 @@ export function ProformasPage({ embedded = false }: { embedded?: boolean } = {})
                     <th className="px-5 py-2 text-left font-normal">Proforma</th>
                     <th className="px-5 py-2 text-left font-normal">PO #</th>
                     <th className="px-5 py-2 text-left font-normal">Client</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-left font-normal">{tab === "sales" ? "Customer" : tab === "purchase" ? "Supplier" : "Counterparty"}</th>
                     <th className="px-5 py-2 text-left font-normal">Side</th>
                     <th className="px-5 py-2 text-right font-normal">Advance amount</th>
                     <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>

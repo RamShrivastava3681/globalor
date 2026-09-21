@@ -135,7 +135,7 @@ function ProcurementWorkbenchPage() {
             </div>
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="lg:col-span-3">
-                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Procurement work items" subtitle="Orders, invoices and receipts needing action." onAction={openItemBelow} />}
+                {loading ? <TableSkeleton rows={6} cols={7} /> : <WorkItemsTable items={items} title="Procurement work items" subtitle="Orders, invoices and receipts needing action." onAction={openItemBelow} partyLabel="Suppliers" />}
               </div>
               <SectionCard title="Needs attention" action={<button onClick={() => setSection("activity")} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View all <ArrowRight className="h-3 w-3" /></button>}>
                 {items.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">All clear</p> : (

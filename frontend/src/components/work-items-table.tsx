@@ -18,6 +18,7 @@ export function WorkItemsTable({
   subtitle,
   onAction,
   actionLabel,
+  partyLabel = "Counterparty",
 }: {
   items: WorkItem[];
   viewAllTo?: string;
@@ -26,6 +27,8 @@ export function WorkItemsTable({
   /** When provided, row actions stay on the page (switch sub-tab below) instead of redirecting via Link. */
   onAction?: (item: WorkItem) => void;
   actionLabel?: string;
+  /** Column header for the counterparty column — e.g. "Customers" on the sales workbench. */
+  partyLabel?: string;
 }) {
   const [page, setPage] = useState(1);
   const perPage = 15;
@@ -70,7 +73,7 @@ export function WorkItemsTable({
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground">
                   <th className="px-4 py-2.5">Document</th>
-                  <th className="px-4 py-2.5">Counterparty</th>
+                  <th className="px-4 py-2.5">{partyLabel}</th>
                   <th className="px-4 py-2.5 text-right">Value</th>
                   <th className="px-4 py-2.5">Current Status</th>
                   <th className="px-4 py-2.5">Next Step</th>

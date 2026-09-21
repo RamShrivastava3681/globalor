@@ -89,7 +89,7 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
       { id: "main", label: "MAIN", entries: pick(["Dashboard", "My Queue", "Checker"]) },
       { id: "sales", label: "SALES & CUSTOMERS", entries: pick(["Sales"]) },
       { id: "proc", label: "PROCUREMENT & SUPPLIERS", entries: pick(["Procurement"]) },
-      { id: "prod", label: "PRODUCTS & INVENTORY", entries: pick(["Product Catalogue", "Warehouse Control"]) },
+      { id: "prod", label: "PRODUCTS & INVENTORY", entries: pick(["Product Catalogue", "Warehouse Control", "Logistics"]) },
       { id: "fin", label: "FINANCE", entries: pick(["Finance"]) },
       { id: "rep", label: "REPORTS & SYSTEM", entries: pick(["Reports"]) },
     ];
@@ -147,7 +147,9 @@ export function AppSidebar({
     cn(
       "group relative flex h-10 w-full items-center gap-3 rounded-[10px] px-3 text-[13.5px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       collapsed && "justify-center px-0",
-      active ? "bg-[#e9f3fe] text-[#0067c2]" : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0e1b2c]",
+      active
+        ? "bg-[#e9f3fe] text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary"
+        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0e1b2c] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-accent-foreground",
     );
 
   const renderBadge = (n?: number, label?: string) => {
@@ -166,8 +168,8 @@ export function AppSidebar({
     <div className="flex h-full w-full flex-col bg-white dark:bg-sidebar">
       {/* 2.1 Brand header */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0067c2]">
-          <span className="text-[17px] font-bold text-white">W</span>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0067c2] dark:bg-sidebar-primary">
+          <span className="text-[17px] font-bold text-white dark:text-sidebar-primary-foreground">W</span>
         </span>
         {!collapsed && (
           <>
@@ -175,7 +177,7 @@ export function AppSidebar({
               <span className="block truncate text-[16px] font-bold tracking-tight text-[#0e1b2c] dark:text-sidebar-accent-foreground">
                 Whizunik
               </span>
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.24em] text-[#64748b]">
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.24em] text-[#64748b] dark:text-muted-foreground">
                 Command
               </span>
             </span>
@@ -183,7 +185,7 @@ export function AppSidebar({
               <button
                 onClick={onToggleCollapse}
                 aria-label="Collapse sidebar"
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9]"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
               >
                 <ChevronsLeft className="h-4 w-4" strokeWidth={1.8} />
               </button>
@@ -196,7 +198,7 @@ export function AppSidebar({
           <button
             onClick={onToggleCollapse}
             aria-label="Expand sidebar"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
           >
             <ChevronsRight className="h-4 w-4" strokeWidth={1.8} />
           </button>
@@ -226,7 +228,7 @@ export function AppSidebar({
                       <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[#0067c2]" />
                     )}
                     <Icon
-                      className={cn("h-5 w-5 shrink-0", active ? "text-[#0067c2]" : "text-[#64748b]")}
+                      className={cn("h-5 w-5 shrink-0", active ? "text-[#0067c2] dark:text-sidebar-primary" : "text-[#64748b] dark:text-muted-foreground")}
                       strokeWidth={1.8}
                     />
                     {!collapsed && <span className="truncate">{e.label}</span>}
@@ -249,7 +251,7 @@ export function AppSidebar({
                       <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[#0067c2]" />
                     )}
                     <Settings
-                      className={cn("h-5 w-5 shrink-0", systemActive ? "text-[#0067c2]" : "text-[#64748b]")}
+                      className={cn("h-5 w-5 shrink-0", systemActive ? "text-[#0067c2] dark:text-sidebar-primary" : "text-[#64748b] dark:text-muted-foreground")}
                       strokeWidth={1.8}
                     />
                     {!collapsed && (
@@ -263,7 +265,7 @@ export function AppSidebar({
                     )}
                   </button>
                   {systemOpen && !collapsed && (
-                    <div className="mt-1 ml-4 border-l border-[#e5ebf2] pl-3">
+                    <div className="mt-1 ml-4 border-l border-[#e5ebf2] pl-3 dark:border-sidebar-border">
                       {systemVisible.map((c) => {
                         const active = isActive(c.to);
                         const CIcon = c.icon;
@@ -276,7 +278,9 @@ export function AppSidebar({
                             aria-current={active ? "page" : undefined}
                             className={cn(
                               "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                              active ? "bg-[#e9f3fe] text-[#0067c2]" : "text-[#334155] hover:bg-[#f1f5f9]",
+                              active
+                                ? "bg-[#e9f3fe] text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary"
+                                : "text-[#334155] hover:bg-[#f1f5f9] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent",
                             )}
                           >
                             <CIcon className="h-4 w-4 shrink-0" strokeWidth={1.8} />

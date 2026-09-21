@@ -6,10 +6,12 @@ export const getRouter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // Cache data for 2 minutes — prevents re-fetch on navigation
-        staleTime: 2 * 60 * 1000,
-        // Keep unused cache for 5 minutes
-        gcTime: 5 * 60 * 1000,
+        // Cache data for 5 minutes — prevents re-fetch on navigation and
+        // makes back-and-forth between workbenches feel instant.
+        staleTime: 5 * 60 * 1000,
+        // Keep unused cache for 30 minutes, so revisiting a page within a
+        // session renders instantly from cache while a background refresh runs.
+        gcTime: 30 * 60 * 1000,
         // Don't refetch on window focus by default (dashboard sets its own)
         refetchOnWindowFocus: false,
         // Don't refetch on mount if data is still fresh

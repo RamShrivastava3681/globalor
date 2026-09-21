@@ -182,13 +182,13 @@ export function WarehousePanel() {
   return (
     <div className="space-y-4">
       {/* Panel header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white px-4 py-3.5 shadow-card md:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white px-4 py-3.5 shadow-card md:px-5 dark:bg-card">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-primary/20 bg-primary/10">
             <Warehouse className="h-5 w-5 text-primary" strokeWidth={1.8} />
           </span>
           <span className="min-w-0">
-            <span className="block font-display text-[20px] font-semibold tracking-tight text-[#0f1f38]">Warehouse Workbench</span>
+            <span className="block font-display text-[20px] font-semibold tracking-tight text-[#0f1f38] dark:text-foreground">Warehouse Workbench</span>
             <span className="block text-[13px] text-muted-foreground">Manage physical stock flow from receiving to dispatch</span>
           </span>
         </div>

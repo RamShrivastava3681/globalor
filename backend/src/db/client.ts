@@ -1,4 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import https from "node:https";
 import {
   DynamoDBDocumentClient,
   PutCommand,
@@ -25,6 +27,15 @@ export const ddbClient = new DynamoDBClient({
     secretAccessKey: config.aws.secretAccessKey,
   },
   endpoint: config.aws.dynamoDbEndpoint,
+  // Reuse TCP/TLS connections instead of opening a new HTTPS handshake per
+  // request. Parallel scans especially benefit — the default handler caps
+  // socket creation and pays a fresh TLS round-trip (~100ms+) each time.
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: new https.Agent({
+      keepAlive: true,
+      maxSockets: 50,
+    }),
+  }),
 });
 
 const docClient = DynamoDBDocumentClient.from(ddbClient);

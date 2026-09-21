@@ -27,7 +27,7 @@ export function WorkbenchHeader({
           <Icon className="h-5 w-5 text-primary" strokeWidth={1.8} />
         </span>
         <span className="min-w-0">
-          <span className="block truncate font-display text-[20px] font-semibold tracking-tight text-[#0f1f38]">
+          <span className="block truncate font-display text-[20px] font-semibold tracking-tight text-[#0f1f38] dark:text-foreground">
             {title}
           </span>
           {subtitle && <span className="block truncate text-[13px] text-muted-foreground">{subtitle}</span>}
@@ -89,7 +89,7 @@ export const NavTabs = WorkbenchTabs;
 
 /* ── KpiTint: tinted KPI ── */
 const TINT_CLS: Record<string, string> = {
-  blue: "border-primary/25 bg-[#eef7ff]",
+  blue: "border-primary/25 bg-[#eef7ff] dark:bg-primary/10",
   amber: "border-warning/30 bg-warning/10",
   red: "border-destructive/30 bg-destructive/10",
   green: "border-success/30 bg-success/10",

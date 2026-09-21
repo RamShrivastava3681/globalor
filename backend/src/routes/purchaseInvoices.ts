@@ -26,14 +26,26 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-
-    // Preload all vendors, profiles, customers, and invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const allSalesInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    // Run all table scans in parallel — previously sequential, so response
+    // time was the SUM of five full-table scans.
+    let invoices: PurchaseInvoice[];
+    let allVendors: Vendor[];
+    let allProfiles: Profile[];
+    let allCustomers: Customer[];
+    let allSalesInvoices: any[];
+    [
+      invoices,
+      allVendors,
+      allProfiles,
+      allCustomers,
+      allSalesInvoices,
+    ] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+    ]);
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
@@ -144,6 +156,39 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
     );
   } catch (err) {
     console.error("Get purchase invoices mini error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/purchase-invoices/stats ──
+// Compact aggregates for the purchases dashboard + "review all drafts". Scans
+// ONLY the purchase-invoices + vendors tables (the enriched GET / also scans
+// profiles, customers and all sales invoices) and returns small rows — the
+// dashboard needs status/amount/date/vendor-name, not lines or linked sales.
+// Must stay registered before "/:id".
+router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const [invoices, allVendors] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+    ]);
+    const vendorNameById = new Map(allVendors.map((v) => [v.id, v.name] as const));
+
+    const rows = invoices.map((pi) => ({
+      id: pi.id,
+      invoice_number: pi.invoice_number,
+      amount: Number(pi.amount) || 0,
+      amount_received: Number((pi as any).amount_received) || 0,
+      status: pi.status,
+      issue_date: pi.issue_date ?? null,
+      due_date: (pi as any).due_date ?? null,
+      created_at: (pi as any).created_at ?? null,
+      vendor_id: (pi as any).vendor_id ?? null,
+      vendor_name: (pi as any).vendor_id ? vendorNameById.get((pi as any).vendor_id) ?? "Unknown" : "Unknown",
+    }));
+    res.json(rows);
+  } catch (err) {
+    console.error("Get purchase invoice stats error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

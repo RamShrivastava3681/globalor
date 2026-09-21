@@ -97,7 +97,7 @@ export function AppTopbar({ alertCount = 0 }: { alertCount?: number }) {
       <header className="flex h-16 items-center justify-between rounded-2xl border border-[#e5ebf2] bg-white px-4 shadow-[0_8px_28px_-12px_rgba(10,34,57,0.18)] dark:bg-sidebar dark:border-sidebar-border">
         <div className="flex min-w-0 items-center">
           {page && (
-            <span className="hidden h-9 items-center gap-2 rounded-[10px] bg-[#eef7ff] px-3 text-[13px] font-semibold text-[#0067c2] lg:inline-flex">
+            <span className="hidden h-9 items-center gap-2 rounded-[10px] bg-[#eef7ff] px-3 text-[13px] font-semibold text-[#0067c2] lg:inline-flex dark:bg-sidebar-accent dark:text-sidebar-primary">
               <page.icon className="h-4 w-4" strokeWidth={1.8} />
               {page.label}
             </span>
@@ -136,12 +136,12 @@ export function AppTopbar({ alertCount = 0 }: { alertCount?: number }) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <span className="mx-2 h-6 w-px bg-[#e5ebf2]" aria-hidden />
+          <span className="mx-2 h-6 w-px bg-[#e5ebf2] dark:bg-sidebar-border" aria-hidden />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2 rounded-lg py-1 pl-1 pr-1.5 transition-colors hover:bg-accent" aria-label="Account menu">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#eef7ff] text-sm font-bold text-[#0067c2]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#eef7ff] text-sm font-bold text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary">
                   {initial}
                 </span>
                 <span className="hidden max-w-[110px] truncate text-sm font-medium text-foreground xl:block">{namePrefix}</span>
