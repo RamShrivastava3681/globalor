@@ -14,7 +14,7 @@ import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilte
 import { generateId, nowISO } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
-import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
+import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Supplier, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
@@ -30,23 +30,32 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     // time was the SUM of five full-table scans.
     let invoices: PurchaseInvoice[];
     let allVendors: Vendor[];
+    let allSuppliers: Supplier[];
     let allProfiles: Profile[];
     let allCustomers: Customer[];
     let allSalesInvoices: any[];
     [
       invoices,
       allVendors,
+      allSuppliers,
       allProfiles,
       allCustomers,
       allSalesInvoices,
     ] = await Promise.all([
       scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
       scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Supplier>(TABLES.SUPPLIERS, getCompanyFilter(req.user!)),
       scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
       scanCustomersMerged(getCompanyFilter(req.user!) as any),
       scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
     ]);
-    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    const vendorMap = new Map<string, Vendor>(allVendors.map((v) => [v.id, v]));
+    // Suppliers created via /api/suppliers are valid procurement counterparties
+    // too (PO dropdown merges both tables). Fall back to them so a PI whose
+    // vendor_id points at the suppliers table still resolves a display name.
+    for (const s of allSuppliers) {
+      if (!vendorMap.has(s.id)) vendorMap.set(s.id, { id: s.id, name: s.company_name } as Vendor);
+    }
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const salesInvMap = new Map(allSalesInvoices.map((si) => [si.id, si]));
@@ -168,11 +177,15 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
 // Must stay registered before "/:id".
 router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const [invoices, allVendors] = await Promise.all([
+    const [invoices, allVendors, allSuppliers] = await Promise.all([
       scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
       scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Supplier>(TABLES.SUPPLIERS, getCompanyFilter(req.user!)),
     ]);
     const vendorNameById = new Map(allVendors.map((v) => [v.id, v.name] as const));
+    for (const s of allSuppliers) {
+      if (!vendorNameById.has(s.id)) vendorNameById.set(s.id, s.company_name);
+    }
 
     const rows = invoices.map((pi) => ({
       id: pi.id,
@@ -199,7 +212,14 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     const invoice = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
 
-    const vendor = invoice.vendor_id ? await getItem(TABLES.VENDORS, { id: invoice.vendor_id }) as Vendor | undefined : undefined;
+    let vendor: Vendor | undefined;
+    if (invoice.vendor_id) {
+      vendor = (await getItem(TABLES.VENDORS, { id: invoice.vendor_id }) as Vendor | undefined) ?? undefined;
+      if (!vendor) {
+        const supplier = (await getItem(TABLES.SUPPLIERS, { id: invoice.vendor_id }).catch(() => null)) as Supplier | null;
+        if (supplier) vendor = { ...supplier, name: supplier.company_name } as unknown as Vendor;
+      }
+    }
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
 
     // Enrich linked sales invoices
@@ -395,8 +415,12 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       }
     }
 
-    // Create activity alert
-    const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
+    // Create activity alert (vendors table first, suppliers table as fallback)
+    let vendor: Vendor | undefined = ((await getItem(TABLES.VENDORS, { id: parsed.vendor_id }).catch(() => null)) as Vendor | null) ?? undefined;
+    if (!vendor) {
+      const supplierForAlert = (await getItem(TABLES.SUPPLIERS, { id: parsed.vendor_id }).catch(() => null)) as Supplier | null;
+      if (supplierForAlert) vendor = { name: supplierForAlert.company_name } as Vendor;
+    }
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,

@@ -39,6 +39,10 @@ export function VendorsPage() {
     onSuccess: () => {
       toast.success("Supplier removed");
       qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["suppliers"] });
+      qc.invalidateQueries({ queryKey: ["pi-for-vendors"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -177,7 +181,13 @@ export function VendorsPage() {
         <AddVendorModal
           editing={editing}
           onClose={() => { setOpen(false); setEditing(null); }}
-          onCreated={() => qc.invalidateQueries({ queryKey: ["vendors"] })}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ["vendors"] });
+            qc.invalidateQueries({ queryKey: ["vendors-min"] });
+            qc.invalidateQueries({ queryKey: ["supplier-options"] });
+            qc.invalidateQueries({ queryKey: ["suppliers"] });
+            qc.invalidateQueries({ queryKey: ["pi-for-vendors"] });
+          }}
         />
       )}
 

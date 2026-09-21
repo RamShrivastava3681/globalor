@@ -148,7 +148,20 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
-    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+    queryFn: async () => {
+      // Procurement counterparties live in two tables: /vendors (name) and
+      // /suppliers (company_name). Merge both so suppliers onboarded from
+      // either page appear in the purchase-invoice dropdown.
+      const [vendors, suppliers] = await Promise.all([
+        api.get<any[]>("/vendors").catch(() => []),
+        api.get<any[]>("/suppliers").catch(() => []),
+      ]);
+      const merged = [
+        ...((vendors ?? []).map((v: any) => ({ ...v, name: v.name }))),
+        ...((suppliers ?? []).map((s: any) => ({ ...s, name: s.company_name ?? s.name }))),
+      ];
+      return merged.sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    },
   });
 
   const salesQ = useQuery({
@@ -1071,7 +1084,17 @@ function CreatePurchaseView({ onExitCreate }: { onExitCreate?: () => void }) {
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
-    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+    queryFn: async () => {
+      const [vendors, suppliers] = await Promise.all([
+        api.get<any[]>("/vendors").catch(() => []),
+        api.get<any[]>("/suppliers").catch(() => []),
+      ]);
+      const merged = [
+        ...((vendors ?? []).map((v: any) => ({ ...v, name: v.name }))),
+        ...((suppliers ?? []).map((s: any) => ({ ...s, name: s.company_name ?? s.name }))),
+      ];
+      return merged.sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    },
   });
 
   if (!canCreate) {

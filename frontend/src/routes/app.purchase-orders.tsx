@@ -421,7 +421,7 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
       return [
         ...(suppliers ?? []).map((s) => ({ id: s.id, name: s.company_name })),
         ...(vendors ?? []).map((v) => ({ id: v.id, name: v.name })),
-      ] as SupplierOption[];
+      ].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""))) as SupplierOption[];
     },
   });
   const lastPricesQ = useQuery({

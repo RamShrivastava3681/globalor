@@ -108,6 +108,12 @@ export function SuppliersPage() {
     onSuccess: () => {
       toast.success(editing ? "Supplier updated" : "Supplier onboarded");
       qc.invalidateQueries({ queryKey: ["suppliers"] });
+      // Procurement dropdowns cache merged supplier+vendor lists under
+      // different keys with a 5-min staleTime — bust them so the new
+      // supplier appears immediately in POs and purchase invoices.
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
@@ -122,6 +128,9 @@ export function SuppliersPage() {
     onSuccess: () => {
       toast.success("Supplier removed");
       qc.invalidateQueries({ queryKey: ["suppliers"] });
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
