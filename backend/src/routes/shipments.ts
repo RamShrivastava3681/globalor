@@ -320,6 +320,12 @@ router.post("/", requireAuth, requireWriteAccess("logistics"), async (req: AuthR
     return;
   }
   const chargeable = Math.max(Number(b.actual_weight ?? 0), Number(b.volumetric_weight ?? 0));
+  const pickupWindow =
+    b.pickup_window ??
+    ([b.pickup_window_from, b.pickup_window_to].filter(Boolean).length
+      ? [b.pickup_window_from ?? "", b.pickup_window_to ?? ""].join(" → ")
+      : null);
+  const freightStatus = b.freight_payment_status ?? "unbilled";
 
   const shipment: Shipment = {
     id: generateId(),
@@ -335,7 +341,9 @@ router.post("/", requireAuth, requireWriteAccess("logistics"), async (req: AuthR
     sales_channel: b.sales_channel ?? null,
     status: "draft",
     pickup: pickup as Shipment["pickup"],
-    pickup_window: b.pickup_window ?? null,
+    pickup_window: pickupWindow,
+    pickup_window_from: b.pickup_window_from ?? null,
+    pickup_window_to: b.pickup_window_to ?? null,
     delivery: delivery as Shipment["delivery"],
     requested_delivery_date: b.requested_delivery_date ?? prefill.requested_delivery_date ?? null,
     mode: b.mode ?? "road",
@@ -357,31 +365,33 @@ router.post("/", requireAuth, requireWriteAccess("logistics"), async (req: AuthR
     dangerous_goods: b.dangerous_goods ?? false,
     insurance_required: b.insurance_required ?? false,
     handling_notes: b.handling_notes ?? null,
+    internal_notes: b.internal_notes ?? null,
     freight_payment: b.freight_payment ?? "prepaid",
     estimated_freight: b.estimated_freight ?? prefill.estimated_freight ?? 0,
-    quoted_freight: 0,
+    quoted_freight: b.quoted_freight ?? 0,
     booked_freight: 0,
-    final_freight: 0,
-    fuel_surcharge: 0,
-    insurance_charge: 0,
-    other_charges: 0,
+    final_freight: b.final_freight ?? 0,
+    fuel_surcharge: b.fuel_surcharge ?? 0,
+    insurance_charge: b.insurance_charge ?? 0,
+    other_charges: b.other_charges ?? 0,
     total_freight: b.estimated_freight ?? prefill.estimated_freight ?? 0,
     cost_centre: b.cost_centre ?? null,
-    freight_invoice_id: null,
-    freight_payment_status: null,
-    provider_id: null,
+    freight_invoice_id: b.freight_invoice_id ?? null,
+    freight_supplier: b.freight_supplier ?? null,
+    freight_payment_status: freightStatus,
+    provider_id: b.provider_id ?? null,
     provider_name: null,
-    carrier_name: null,
-    service_level: null,
-    tracking_number: null,
-    container_number: null,
-    vehicle_number: null,
-    driver_name: null,
-    driver_mobile: null,
-    transporter_id: null,
-    booking_reference: null,
-    expected_pickup_date: null,
-    expected_delivery_date: null,
+    carrier_name: b.carrier_name ?? null,
+    service_level: b.service_level ?? null,
+    tracking_number: b.tracking_number ?? null,
+    container_number: b.container_number ?? null,
+    vehicle_number: b.vehicle_number ?? null,
+    driver_name: b.driver_name ?? null,
+    driver_mobile: b.driver_mobile ?? null,
+    transporter_id: b.transporter_id ?? null,
+    booking_reference: b.booking_reference ?? null,
+    expected_pickup_date: b.expected_pickup_date ?? null,
+    expected_delivery_date: b.expected_delivery_date ?? null,
     actual_pickup_at: null,
     actual_delivery_at: null,
     eway: {
@@ -409,6 +419,15 @@ router.post("/", requireAuth, requireWriteAccess("logistics"), async (req: AuthR
     updated_by: req.user!.id,
     updated_at: now,
   };
+
+  // Resolve provider display name when a preferred provider is chosen at creation.
+  // Status stays "draft" — workflow still requires Request quotes → Confirm booking.
+  if (shipment.provider_id) {
+    try {
+      const prov = (await getItem(TABLES.LOGISTICS_PROVIDERS, { id: shipment.provider_id })) as any;
+      if (prov) shipment.provider_name = prov.provider_name ?? null;
+    } catch { /* best-effort */ }
+  }
 
   await putItem(TABLES.SHIPMENTS, shipment as any);
   await writeShipmentAudit({
@@ -481,11 +500,15 @@ router.patch("/:id", requireAuth, requireWriteAccess("logistics"), async (req: A
   }
   const allowed = new Set([
     "priority", "owner_id", "business_unit", "sales_channel", "pickup", "pickup_window",
+    "pickup_window_from", "pickup_window_to",
     "delivery", "requested_delivery_date", "mode", "service_type", "package_count",
     "actual_weight", "volumetric_weight", "length_cm", "width_cm", "height_cm",
     "package_unit", "package_unit_count", "declared_value", "currency",
     "goods_description", "hs_code", "dangerous_goods", "insurance_required",
-    "handling_notes", "freight_payment", "estimated_freight", "cost_centre",
+    "handling_notes", "internal_notes", "freight_payment", "estimated_freight", "cost_centre",
+    "freight_invoice_id", "freight_supplier", "freight_payment_status",
+    "provider_id", "carrier_name", "service_level", "tracking_number", "booking_reference",
+    "container_number",
     "eway", "cross_border", "vehicle_number", "driver_name", "driver_mobile",
     "transporter_id", "expected_pickup_date", "expected_delivery_date",
     "goods_receipt_id", ...FREIGHT_FIELDS,

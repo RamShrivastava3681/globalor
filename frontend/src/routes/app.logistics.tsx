@@ -331,6 +331,18 @@ function ModeIconLegend() {
 
 // ── Create dialog ──
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="col-span-2 pt-3 text-sm font-semibold text-foreground">{children}</h3>;
+}
+
+const LINKED_DOC_OPTIONS = [
+  { value: "manual", label: "Manual shipment (no linked document)" },
+  { value: "goods_purchase_order", label: "Approved purchase order → inbound" },
+  { value: "goods_dispatch", label: "Confirmed dispatch → outbound" },
+  { value: "sales_invoice", label: "Approved sales invoice → outbound" },
+  { value: "purchase_invoice", label: "Purchase invoice → inbound" },
+];
+
 function CreateDialog({ fromType, fromId, onClose, onCreated }: {
   fromType?: string; fromId?: string; onClose: () => void; onCreated: (id: string) => void;
 }) {
@@ -344,11 +356,31 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
     border: "domestic",
     currency: "USD",
     freight_payment: "prepaid",
+    freight_payment_status: "unbilled",
+    package_unit: "cartons",
+    package_count: "1",
+    actual_weight: "0",
+    volumetric_weight: "0",
+    declared_value: "0",
+    estimated_freight: "0",
+    quoted_freight: "0",
+    final_freight: "0",
+    fuel_surcharge: "0",
+    insurance_charge: "0",
+    other_charges: "0",
+    dangerous_goods: "no",
+    insurance_required: "no",
     pickup_name: "", delivery_name: "",
+    provider_id: "",
   });
   const [prefillNote, setPrefillNote] = useState<string | null>(null);
-  const [crossBorder, setCrossBorder] = useState(false);
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  const providersQ = useQuery({
+    queryKey: ["logistics-providers"],
+    queryFn: () => logisticsApi.providers(),
+    retry: false,
+  });
+  const providers: any[] = providersQ.data ?? [];
 
   useEffect(() => {
     if (!fromType || !fromId || fromType === "manual") return;
@@ -359,6 +391,7 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
           shipment_type: prefill.shipment_type ?? f.shipment_type,
           pickup_name: prefill.pickup?.name ?? "",
           delivery_name: prefill.delivery?.name ?? "",
+          delivery_contact: prefill.delivery?.contact_person ?? "",
           delivery_address: prefill.delivery?.address ?? "",
           requested_delivery_date: prefill.requested_delivery_date ?? "",
           goods_description: prefill.goods_description ?? "",
@@ -366,44 +399,101 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
           estimated_freight: prefill.estimated_freight ?? "",
           delivery_challan_number: prefill.eway?.delivery_challan_number ?? "",
         }));
-        setPrefillNote(`Pre-filled from ${linked_doc_no ?? fromType}.`);
+        setPrefillNote(`Pre-filled from ${linked_doc_no ?? fromType}. Buyer/supplier, items, quantities, addresses and values pulled automatically.`);
       })
       .catch((e: any) => setPrefillNote(e.message ?? "Pre-fill failed."));
   }, [fromType, fromId]);
+
+  const chargeable = Math.max(Number(form.actual_weight || 0), Number(form.volumetric_weight || 0));
 
   const createM = useMutation({
     mutationFn: () =>
       logisticsApi.create({
         shipment_type: form.shipment_type,
-        linked_doc_type: form.linked_doc_id ? form.linked_doc_type : "manual",
+        linked_doc_type: form.linked_doc_id && form.linked_doc_type !== "manual" ? form.linked_doc_type : "manual",
         linked_doc_id: form.linked_doc_id || undefined,
         priority: form.priority,
+        business_unit: form.business_unit || undefined,
+        sales_channel: form.sales_channel || undefined,
         mode: form.mode,
         service_type: form.service_type,
         border: form.border,
         currency: form.currency,
         freight_payment: form.freight_payment,
-        pickup: { name: form.pickup_name, city: form.pickup_city || undefined, postal_code: form.pickup_postal || undefined, address: form.pickup_address || undefined },
-        delivery: { name: form.delivery_name, city: form.delivery_city || undefined, postal_code: form.delivery_postal || undefined, address: form.delivery_address || undefined },
+        pickup: {
+          name: form.pickup_name,
+          contact_person: form.pickup_contact || undefined,
+          mobile: form.pickup_mobile || undefined,
+          email: form.pickup_email || undefined,
+          address: form.pickup_address || undefined,
+          city: form.pickup_city || undefined,
+          state: form.pickup_state || undefined,
+          country: form.pickup_country || undefined,
+          postal_code: form.pickup_postal || undefined,
+          tax_id: form.pickup_tax || undefined,
+        },
+        pickup_window_from: form.pickup_window_from || undefined,
+        pickup_window_to: form.pickup_window_to || undefined,
+        delivery: {
+          name: form.delivery_name,
+          contact_person: form.delivery_contact || undefined,
+          mobile: form.delivery_mobile || undefined,
+          email: form.delivery_email || undefined,
+          address: form.delivery_address || undefined,
+          city: form.delivery_city || undefined,
+          state: form.delivery_state || undefined,
+          country: form.delivery_country || undefined,
+          postal_code: form.delivery_postal || undefined,
+          tax_id: form.delivery_tax || undefined,
+        },
         requested_delivery_date: form.requested_delivery_date || undefined,
+        package_unit: form.package_unit || undefined,
         package_count: num(form.package_count) ?? 0,
+        package_unit_count: num(form.package_count) ?? 0,
         actual_weight: num(form.actual_weight) ?? 0,
         volumetric_weight: num(form.volumetric_weight) ?? 0,
+        length_cm: num(form.length_cm) ?? undefined,
+        width_cm: num(form.width_cm) ?? undefined,
+        height_cm: num(form.height_cm) ?? undefined,
         declared_value: num(form.declared_value) ?? 0,
         goods_description: form.goods_description || undefined,
         hs_code: form.hs_code || undefined,
-        insurance_required: !!form.insurance_required,
-        dangerous_goods: !!form.dangerous_goods,
+        insurance_required: form.insurance_required === "yes",
+        dangerous_goods: form.dangerous_goods === "yes",
         handling_notes: form.handling_notes || undefined,
+        internal_notes: form.internal_notes || undefined,
         estimated_freight: num(form.estimated_freight) ?? 0,
+        quoted_freight: num(form.quoted_freight) ?? 0,
+        final_freight: num(form.final_freight) ?? 0,
+        fuel_surcharge: num(form.fuel_surcharge) ?? 0,
+        insurance_charge: num(form.insurance_charge) ?? 0,
+        other_charges: num(form.other_charges) ?? 0,
+        freight_invoice_id: form.freight_invoice_id || undefined,
+        freight_supplier: form.freight_supplier || undefined,
+        freight_payment_status: form.freight_payment_status || undefined,
         cost_centre: form.cost_centre || undefined,
+        provider_id: form.provider_id || undefined,
+        carrier_name: form.carrier_name || undefined,
+        service_level: form.service_level || undefined,
+        tracking_number: form.tracking_number || undefined,
+        booking_reference: form.booking_reference || undefined,
+        container_number: form.container_number || undefined,
+        vehicle_number: form.vehicle_number || undefined,
+        transporter_id: form.transporter_id || undefined,
+        driver_name: form.driver_name || undefined,
+        driver_mobile: form.driver_mobile || undefined,
+        expected_pickup_date: form.expected_pickup_date || undefined,
+        expected_delivery_date: form.expected_delivery_date || undefined,
         eway: {
           eway_bill_number: form.eway_bill_number || undefined,
+          eway_bill_date: form.eway_bill_date || undefined,
+          eway_validity: form.eway_validity || undefined,
+          transporter_id: form.transporter_id || undefined,
           vehicle_number: form.vehicle_number || undefined,
           lr_number: form.lr_number || undefined,
           delivery_challan_number: form.delivery_challan_number || undefined,
         },
-        ...(crossBorder ? {
+        ...(form.border === "cross_border" ? {
           cross_border: {
             incoterms: form.incoterms || undefined,
             origin_country: form.origin_country || undefined,
@@ -414,7 +504,7 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
         } : {}),
       }),
     onSuccess: (s) => {
-      toast.success(`Shipment ${s.shipment_number} created — booking freight will not move stock.`);
+      toast.success(`Shipment ${s.shipment_number} created as draft — Request quotes, then Confirm booking. No stock moved.`);
       onCreated(s.id);
     },
     onError: (e: any) => toast.error(e.message ?? "Create failed"),
@@ -423,43 +513,143 @@ function CreateDialog({ fromType, fromId, onClose, onCreated }: {
   const sel = (k: string, options: string[]) => (
     <Select value={form[k]} onValueChange={(v) => set(k, v)}>
       <SelectTrigger><SelectValue /></SelectTrigger>
-      <SelectContent>{options.map((o) => <SelectItem key={o} value={o}>{o.replace("_", " ")}</SelectItem>)}</SelectContent>
+      <SelectContent>{options.map((o) => <SelectItem key={o} value={o}>{o.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
+    </Select>
+  );
+  const yesNo = (k: string) => (
+    <Select value={form[k] ?? "no"} onValueChange={(v) => set(k, v)}>
+      <SelectTrigger><SelectValue /></SelectTrigger>
+      <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
     </Select>
   );
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader><DialogTitle>New shipment</DialogTitle></DialogHeader>
         {prefillNote && <div className="rounded-lg bg-muted px-3 py-2 text-xs">{prefillNote}</div>}
+        <div className="rounded-lg border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+          Draft → Request quotes → Confirm booking → Track → POD &amp; carrier-bill link. Booking, pickup and delivery never move stock — GRN / confirmed dispatch govern inventory.
+        </div>
         <div className="grid grid-cols-2 gap-3">
+          {/* ── Basics ── */}
+          <SectionTitle>Shipment</SectionTitle>
           <Field label="Shipment type">{sel("shipment_type", ["inbound", "outbound", "transfer", "return"])}</Field>
           <Field label="Priority">{sel("priority", ["normal", "urgent", "critical"])}</Field>
+          <Field label="Linked document" span>
+            <Select value={form.linked_doc_type} onValueChange={(v) => set("linked_doc_type", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{LINKED_DOC_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          {form.linked_doc_type !== "manual" && (
+            <Field label="Linked document ID" span>
+              <Input value={form.linked_doc_id ?? ""} onChange={(e) => set("linked_doc_id", e.target.value)} placeholder="Paste approved PO / dispatch / invoice ID" />
+            </Field>
+          )}
+          <Field label="Business unit"><Input value={form.business_unit ?? ""} onChange={(e) => set("business_unit", e.target.value)} /></Field>
+          <Field label="Sales channel"><Input value={form.sales_channel ?? ""} onChange={(e) => set("sales_channel", e.target.value)} /></Field>
+
+          {/* ── Pickup ── */}
+          <SectionTitle>Pickup / sender</SectionTitle>
           <Field label="Pickup party *"><Input value={form.pickup_name ?? ""} onChange={(e) => set("pickup_name", e.target.value)} placeholder="Supplier / warehouse" /></Field>
+          <Field label="Contact person"><Input value={form.pickup_contact ?? ""} onChange={(e) => set("pickup_contact", e.target.value)} /></Field>
+          <Field label="Mobile"><Input value={form.pickup_mobile ?? ""} onChange={(e) => set("pickup_mobile", e.target.value)} /></Field>
+          <Field label="Email"><Input value={form.pickup_email ?? ""} onChange={(e) => set("pickup_email", e.target.value)} /></Field>
+          <Field label="Address" span><Input value={form.pickup_address ?? ""} onChange={(e) => set("pickup_address", e.target.value)} /></Field>
+          <Field label="City"><Input value={form.pickup_city ?? ""} onChange={(e) => set("pickup_city", e.target.value)} /></Field>
+          <Field label="State"><Input value={form.pickup_state ?? ""} onChange={(e) => set("pickup_state", e.target.value)} /></Field>
+          <Field label="Country"><Input value={form.pickup_country ?? ""} onChange={(e) => set("pickup_country", e.target.value)} /></Field>
+          <Field label="PIN / postal"><Input value={form.pickup_postal ?? ""} onChange={(e) => set("pickup_postal", e.target.value)} /></Field>
+          <Field label="Tax ID / GSTIN"><Input value={form.pickup_tax ?? ""} onChange={(e) => set("pickup_tax", e.target.value)} /></Field>
+          <Field label="Pickup window from"><Input type="datetime-local" value={form.pickup_window_from ?? ""} onChange={(e) => set("pickup_window_from", e.target.value)} /></Field>
+          <Field label="Pickup window to"><Input type="datetime-local" value={form.pickup_window_to ?? ""} onChange={(e) => set("pickup_window_to", e.target.value)} /></Field>
+
+          {/* ── Delivery ── */}
+          <SectionTitle>Delivery / consignee</SectionTitle>
           <Field label="Consignee *"><Input value={form.delivery_name ?? ""} onChange={(e) => set("delivery_name", e.target.value)} placeholder="Warehouse / customer" /></Field>
-          <Field label="Pickup city / PIN"><Input value={form.pickup_city ?? ""} onChange={(e) => set("pickup_city", e.target.value)} placeholder="City" /></Field>
-          <Field label="Delivery city / PIN"><Input value={form.delivery_city ?? ""} onChange={(e) => set("delivery_city", e.target.value)} placeholder="City" /></Field>
+          <Field label="Contact person"><Input value={form.delivery_contact ?? ""} onChange={(e) => set("delivery_contact", e.target.value)} /></Field>
+          <Field label="Mobile"><Input value={form.delivery_mobile ?? ""} onChange={(e) => set("delivery_mobile", e.target.value)} /></Field>
+          <Field label="Email"><Input value={form.delivery_email ?? ""} onChange={(e) => set("delivery_email", e.target.value)} /></Field>
+          <Field label="Address" span><Input value={form.delivery_address ?? ""} onChange={(e) => set("delivery_address", e.target.value)} /></Field>
+          <Field label="City"><Input value={form.delivery_city ?? ""} onChange={(e) => set("delivery_city", e.target.value)} /></Field>
+          <Field label="State"><Input value={form.delivery_state ?? ""} onChange={(e) => set("delivery_state", e.target.value)} /></Field>
+          <Field label="Country"><Input value={form.delivery_country ?? ""} onChange={(e) => set("delivery_country", e.target.value)} /></Field>
+          <Field label="PIN / postal"><Input value={form.delivery_postal ?? ""} onChange={(e) => set("delivery_postal", e.target.value)} /></Field>
+          <Field label="Consignee GSTIN"><Input value={form.delivery_tax ?? ""} onChange={(e) => set("delivery_tax", e.target.value)} /></Field>
+          <Field label="Requested delivery date"><Input type="date" value={form.requested_delivery_date ?? ""} onChange={(e) => set("requested_delivery_date", e.target.value)} /></Field>
+
+          {/* ── Cargo ── */}
+          <SectionTitle>Cargo</SectionTitle>
           <Field label="Mode">{sel("mode", ["road", "air", "sea", "rail", "courier"])}</Field>
-          <Field label="Service">{sel("service_type", ["standard", "express", "surface", "air", "freight", "container"])}</Field>
-          <Field label="Border">{sel("border", ["domestic", "cross_border"])}</Field>
-          <Field label="Freight payment">{sel("freight_payment", ["prepaid", "to_pay", "collect", "third_party"])}</Field>
-          <Field label="Packages"><Input type="number" min={0} value={form.package_count ?? ""} onChange={(e) => set("package_count", e.target.value)} /></Field>
+          <Field label="Service type">{sel("service_type", ["standard", "express", "surface", "air", "freight", "container"])}</Field>
+          <Field label="Scope">{sel("border", ["domestic", "cross_border"])}</Field>
+          <Field label="Package unit">{sel("package_unit", ["cartons", "boxes", "pallets", "bags", "drums", "rolls", "pieces"])}</Field>
+          <Field label="Package count"><Input type="number" min={0} value={form.package_count ?? ""} onChange={(e) => set("package_count", e.target.value)} /></Field>
           <Field label="Actual weight (kg)"><Input type="number" min={0} value={form.actual_weight ?? ""} onChange={(e) => set("actual_weight", e.target.value)} /></Field>
           <Field label="Volumetric weight (kg)"><Input type="number" min={0} value={form.volumetric_weight ?? ""} onChange={(e) => set("volumetric_weight", e.target.value)} /></Field>
-          <Field label="Declared value"><Input type="number" min={0} value={form.declared_value ?? ""} onChange={(e) => set("declared_value", e.target.value)} /></Field>
-          <Field label="Goods description" span><Textarea value={form.goods_description ?? ""} onChange={(e) => set("goods_description", e.target.value)} rows={2} /></Field>
+          <Field label="Chargeable weight (kg)"><Input value={String(chargeable)} disabled /></Field>
+          <Field label="Length (cm)"><Input type="number" min={0} value={form.length_cm ?? ""} onChange={(e) => set("length_cm", e.target.value)} /></Field>
+          <Field label="Width (cm)"><Input type="number" min={0} value={form.width_cm ?? ""} onChange={(e) => set("width_cm", e.target.value)} /></Field>
+          <Field label="Height (cm)"><Input type="number" min={0} value={form.height_cm ?? ""} onChange={(e) => set("height_cm", e.target.value)} /></Field>
+          <Field label="Declared goods value"><Input type="number" min={0} value={form.declared_value ?? ""} onChange={(e) => set("declared_value", e.target.value)} /></Field>
+          <Field label="Currency">{sel("currency", ["USD", "INR", "EUR", "GBP", "AED", "SAR"])}</Field>
           <Field label="HSN / HS code"><Input value={form.hs_code ?? ""} onChange={(e) => set("hs_code", e.target.value)} /></Field>
-          <Field label="Estimated freight"><Input type="number" min={0} value={form.estimated_freight ?? ""} onChange={(e) => set("estimated_freight", e.target.value)} /></Field>
-          <Field label="Requested delivery"><Input type="date" value={form.requested_delivery_date ?? ""} onChange={(e) => set("requested_delivery_date", e.target.value)} /></Field>
-          <Field label="e-Way Bill no."><Input value={form.eway_bill_number ?? ""} onChange={(e) => set("eway_bill_number", e.target.value)} /></Field>
-          <Field label="Vehicle / LR no."><Input value={form.vehicle_number ?? ""} onChange={(e) => set("vehicle_number", e.target.value)} placeholder="Vehicle no." /></Field>
+          <Field label="Product description" span><Textarea value={form.goods_description ?? ""} onChange={(e) => set("goods_description", e.target.value)} rows={2} /></Field>
+          <Field label="Dangerous goods">{yesNo("dangerous_goods")}</Field>
+          <Field label="Insurance required">{yesNo("insurance_required")}</Field>
+          <Field label="Special handling instructions" span><Textarea value={form.handling_notes ?? ""} onChange={(e) => set("handling_notes", e.target.value)} rows={2} /></Field>
+
+          {/* ── Commercial ── */}
+          <SectionTitle>Commercial</SectionTitle>
+          <Field label="Freight payment">{sel("freight_payment", ["prepaid", "to_pay", "collect", "third_party"])}</Field>
           <Field label="Cost centre"><Input value={form.cost_centre ?? ""} onChange={(e) => set("cost_centre", e.target.value)} /></Field>
-          <Field label="Delivery address" span><Input value={form.delivery_address ?? ""} onChange={(e) => set("delivery_address", e.target.value)} /></Field>
+          <Field label="Estimated freight"><Input type="number" min={0} value={form.estimated_freight ?? ""} onChange={(e) => set("estimated_freight", e.target.value)} /></Field>
+          <Field label="Quoted freight"><Input type="number" min={0} value={form.quoted_freight ?? ""} onChange={(e) => set("quoted_freight", e.target.value)} /></Field>
+          <Field label="Final billed freight"><Input type="number" min={0} value={form.final_freight ?? ""} onChange={(e) => set("final_freight", e.target.value)} /></Field>
+          <Field label="Fuel surcharge"><Input type="number" min={0} value={form.fuel_surcharge ?? ""} onChange={(e) => set("fuel_surcharge", e.target.value)} /></Field>
+          <Field label="Insurance charge"><Input type="number" min={0} value={form.insurance_charge ?? ""} onChange={(e) => set("insurance_charge", e.target.value)} /></Field>
+          <Field label="Other charges"><Input type="number" min={0} value={form.other_charges ?? ""} onChange={(e) => set("other_charges", e.target.value)} /></Field>
+          <Field label="Freight invoice reference"><Input value={form.freight_invoice_id ?? ""} onChange={(e) => set("freight_invoice_id", e.target.value)} /></Field>
+          <Field label="Freight supplier"><Input value={form.freight_supplier ?? ""} onChange={(e) => set("freight_supplier", e.target.value)} /></Field>
+          <Field label="Freight payment status">{sel("freight_payment_status", ["unbilled", "partial", "billed", "paid"])}</Field>
+
+          {/* ── Carrier ── */}
+          <SectionTitle>Carrier</SectionTitle>
+          <Field label="Logistics provider" span>
+            <Select value={form.provider_id || "none"} onValueChange={(v) => set("provider_id", v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">—</SelectItem>
+                {providers.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.provider_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Carrier / transporter"><Input value={form.carrier_name ?? ""} onChange={(e) => set("carrier_name", e.target.value)} /></Field>
+          <Field label="Service level"><Input value={form.service_level ?? ""} onChange={(e) => set("service_level", e.target.value)} /></Field>
+          <Field label="Tracking / AWB / LR / BL number"><Input value={form.tracking_number ?? ""} onChange={(e) => set("tracking_number", e.target.value)} /></Field>
+          <Field label="Booking reference"><Input value={form.booking_reference ?? ""} onChange={(e) => set("booking_reference", e.target.value)} /></Field>
+          <Field label="Container number"><Input value={form.container_number ?? ""} onChange={(e) => set("container_number", e.target.value)} /></Field>
+          <Field label="Vehicle number"><Input value={form.vehicle_number ?? ""} onChange={(e) => set("vehicle_number", e.target.value)} /></Field>
+          <Field label="Transporter ID"><Input value={form.transporter_id ?? ""} onChange={(e) => set("transporter_id", e.target.value)} /></Field>
+          <Field label="Driver name"><Input value={form.driver_name ?? ""} onChange={(e) => set("driver_name", e.target.value)} /></Field>
+          <Field label="Driver mobile"><Input value={form.driver_mobile ?? ""} onChange={(e) => set("driver_mobile", e.target.value)} /></Field>
+          <Field label="Expected pickup date"><Input type="date" value={form.expected_pickup_date ?? ""} onChange={(e) => set("expected_pickup_date", e.target.value)} /></Field>
+          <Field label="Expected delivery date"><Input type="date" value={form.expected_delivery_date ?? ""} onChange={(e) => set("expected_delivery_date", e.target.value)} /></Field>
+
+          {/* ── Compliance ── */}
+          <SectionTitle>Domestic compliance</SectionTitle>
+          <Field label="e-Way bill number"><Input value={form.eway_bill_number ?? ""} onChange={(e) => set("eway_bill_number", e.target.value)} /></Field>
+          <Field label="e-Way bill date"><Input type="date" value={form.eway_bill_date ?? ""} onChange={(e) => set("eway_bill_date", e.target.value)} /></Field>
+          <Field label="Valid until"><Input type="date" value={form.eway_validity ?? ""} onChange={(e) => set("eway_validity", e.target.value)} /></Field>
+          <Field label="LR / GR number"><Input value={form.lr_number ?? ""} onChange={(e) => set("lr_number", e.target.value)} /></Field>
+          <Field label="Delivery challan number"><Input value={form.delivery_challan_number ?? ""} onChange={(e) => set("delivery_challan_number", e.target.value)} /></Field>
+
+          {/* ── Notes ── */}
+          <SectionTitle>Notes</SectionTitle>
+          <Field label="Internal notes" span><Textarea value={form.internal_notes ?? ""} onChange={(e) => set("internal_notes", e.target.value)} rows={2} /></Field>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={crossBorder} onChange={(e) => setCrossBorder(e.target.checked)} /> Cross-border shipment
-        </label>
-        {crossBorder && (
+        {form.border === "cross_border" && (
           <div className="grid grid-cols-2 gap-3 rounded-lg border p-3">
             <Field label="Incoterms"><Input value={form.incoterms ?? ""} onChange={(e) => set("incoterms", e.target.value)} placeholder="EXW / FOB / CIF / DDP" /></Field>
             <Field label="Customs broker"><Input value={form.customs_broker ?? ""} onChange={(e) => set("customs_broker", e.target.value)} /></Field>

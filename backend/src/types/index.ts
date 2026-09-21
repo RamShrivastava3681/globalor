@@ -1223,6 +1223,8 @@ export interface Shipment {
   // Parties
   pickup: ShipmentParty;
   pickup_window: string | null;
+  pickup_window_from: string | null;
+  pickup_window_to: string | null;
   delivery: ShipmentParty;
   requested_delivery_date: string | null;
   // Cargo
@@ -1245,6 +1247,7 @@ export interface Shipment {
   dangerous_goods: boolean;
   insurance_required: boolean;
   handling_notes: string | null;
+  internal_notes: string | null;
   // Commercial — booking creates NO payable; linkage only
   freight_payment: FreightPayment;
   estimated_freight: number;
@@ -1257,6 +1260,7 @@ export interface Shipment {
   total_freight: number;
   cost_centre: string | null;
   freight_invoice_id: string | null;
+  freight_supplier: string | null;
   freight_payment_status: string | null;
   // Carrier
   provider_id: string | null;
