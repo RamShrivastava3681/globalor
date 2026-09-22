@@ -45,3 +45,21 @@ export function fmtDateTime(d: string | null | undefined) {
 export function daysBetween(a: string, b: string = new Date().toISOString()) {
   return Math.floor((new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24));
 }
+
+/**
+ * Effective due date for a sales invoice — always returns a visible date.
+ * Falls back to issue_date + payment_terms_days (default 30) when due_date
+ * is missing, so the due date is never blank in list/detail/PDF views.
+ */
+export function getEffectiveDueDate(
+  inv: { due_date?: string | null; issue_date?: string | null; payment_terms_days?: number | string | null },
+): string | null {
+  if (inv?.due_date) return inv.due_date;
+  const base = inv?.issue_date;
+  if (!base) return null;
+  const terms = Number(inv?.payment_terms_days) > 0 ? Number(inv.payment_terms_days) : 30;
+  const d = new Date(base);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + terms);
+  return d.toISOString().slice(0, 10);
+}

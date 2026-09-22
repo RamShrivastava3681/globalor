@@ -1,8 +1,8 @@
 import { ReactNode } from "react";
 import { AnimatedMoney, AnimatedNumber } from "@/components/animated-number";
-import { fmtMoney, fmtDate, fmtDateTime, daysBetween } from "@/lib/format";
+import { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate } from "@/lib/format";
 
-export { fmtMoney, fmtDate, fmtDateTime, daysBetween };
+export { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate };
 
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: string; actions?: ReactNode }) {
   return (

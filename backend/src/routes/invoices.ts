@@ -563,6 +563,13 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
     const fromAgreed = round2(advanceDeducted - fromReceived);
 
     // 5. Create the invoice — `amount` is the NET receivable (what funding reads).
+    // Due date is mandatory: always visible as issue_date + payment terms (default 30).
+    const fromSoTerms = Number(parsed.payment_terms_days) > 0 ? Number(parsed.payment_terms_days) : 30;
+    const fromSoDueDate = parsed.due_date || (() => {
+      const d = new Date(parsed.issue_date);
+      d.setDate(d.getDate() + fromSoTerms);
+      return d.toISOString().slice(0, 10);
+    })();
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
@@ -575,7 +582,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       fee_rate: 0,
       amount_received: null,
       issue_date: parsed.issue_date,
-      due_date: parsed.due_date || null,
+      due_date: fromSoDueDate,
       paid_date: null,
       receipt_date: null,
       advance_received_date: null,
@@ -595,7 +602,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       po_date: parsed.po_date || null,
       purchase_invoice_ids: [],
       purchase_order_id: null,
-      payment_terms_days: parsed.payment_terms_days,
+      payment_terms_days: fromSoTerms,
       bl_date: null,
       due_date_source: "invoice",
       has_contractual_due_date: false,
@@ -726,15 +733,14 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     // Look up the customer to infer company_id for super admins (who have company_id = null)
     const customer = await getCustomerById(parsed.customer_id);
 
-    const termsDays = parsed.payment_terms_days;
-    const dueDate = parsed.due_date !== null
-      ? (parsed.due_date || (() => {
-          const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
-          const d = new Date(base);
-          d.setDate(d.getDate() + termsDays);
-          return d.toISOString().slice(0, 10);
-        })())
-      : null;
+    // Due date is mandatory — never null. Always issue_date + terms (default 30).
+    const termsDays = Number(parsed.payment_terms_days) > 0 ? Number(parsed.payment_terms_days) : 30;
+    const dueDate = parsed.due_date || (() => {
+      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+      const d = new Date(base);
+      d.setDate(d.getDate() + termsDays);
+      return d.toISOString().slice(0, 10);
+    })();
 
     const invoice: Invoice = {
       id,
@@ -768,7 +774,7 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       po_date: parsed.po_date || null,
       purchase_invoice_ids: parsed.purchase_invoice_ids || [],
       purchase_order_id: null,
-      payment_terms_days: parsed.payment_terms_days,
+      payment_terms_days: termsDays,
       bl_date: parsed.bl_date || null,
       due_date_source: parsed.due_date_source,
       has_contractual_due_date: parsed.has_contractual_due_date,
@@ -934,6 +940,25 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
     const updates: Record<string, unknown> = { ...req.body, updated_at: nowISO() };
     delete updates.id;
     delete updates.created_at;
+
+    // Guard: due date must stay visible. If caller clears due_date, recompute
+    // from issue_date + terms instead of saving null.
+    if (updates.due_date == null || updates.due_date === "") {
+      const existing = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+      const issue = (updates.issue_date as string) ?? existing?.issue_date;
+      const rawTerms = (updates.payment_terms_days as number) ?? existing?.payment_terms_days ?? 30;
+      const terms = Number(rawTerms) > 0 ? Number(rawTerms) : 30;
+      if (issue) {
+        const d = new Date(issue);
+        d.setDate(d.getDate() + terms);
+        updates.due_date = d.toISOString().slice(0, 10);
+      } else {
+        delete updates.due_date;
+      }
+    }
+    if (updates.payment_terms_days != null && !(Number(updates.payment_terms_days) > 0)) {
+      updates.payment_terms_days = 30;
+    }
 
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Invoice not found" }); return; }
