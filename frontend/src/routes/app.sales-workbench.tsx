@@ -50,16 +50,19 @@ function SalesWorkbenchPage() {
   const awaitingAcceptance = sos.filter((s: any) => s.status === "draft").length;
   const advancesPending = advs.filter((a: any) => ["pending", "unpaid", "partial"].includes(String(a.status ?? "pending"))).length;
   const invoicesApproval = invs.filter((i: any) => ["pending", "submitted", "pending_review"].includes(i.status)).length;
-  const readyDispatch = sos.filter((s: any) => s.status === "confirmed").length;
+  const readyDispatch = sos.filter((s: any) => ["approved", "confirmed"].includes(s.status)).length;
 
   const items: WorkItem[] = useMemo(() => {
     const q = query.trim().toLowerCase();
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const list: (WorkItem & { fam: string })[] = [
-      ...sos.filter((s: any) => ["draft", "confirmed"].includes(s.status)).map((s: any) => ({
+      ...sos.filter((s: any) => !["cancelled", "fully_dispatched"].includes(s.status)).map((s: any) => ({
         fam: "orders", id: `so-${s.id}`, docNumber: s.so_number, docKind: "Sales order",
         counterparty: s.customer_name ?? "—", value: Number(s.grand_total ?? 0), status: s.status,
-        nextStep: s.status === "draft" ? "Send for customer acceptance" : "Confirm advance & dispatch",
+        nextStep: s.status === "draft" ? "Send to warehouse for approval"
+          : s.status === "pending_warehouse_approval" ? "Awaiting warehouse sign-off"
+          : s.status === "pending_checker_approval" ? "Awaiting checker approval"
+          : "Dispatch & invoice",
         owner: "Sales", dueDate: s.expected_delivery_date ?? s.created_at, overdue: false,
         priority: "normal" as const, actionLabel: "Open", openTo: "/app/sales-orders",
       })),

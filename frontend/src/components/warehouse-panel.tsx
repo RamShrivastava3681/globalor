@@ -89,13 +89,11 @@ export function WarehousePanel() {
 
   const [pill, setPill] = useState<"overview" | "pending" | "ready" | "dispatches" | "movements">("overview");
   const [pipeOverrides, setPipeOverrides] = useState<Record<string, Stage>>(() => loadJSON(PIPE_KEY, {}));
-  const [approvals, setApprovals] = useState<Record<string, string>>(() => loadJSON(APPROVAL_KEY, {}));
   const [verifySO, setVerifySO] = useState<SO | null>(null);
   const [transportDSP, setTransportDSP] = useState<DSP | null>(null);
   const [carrierEdit, setCarrierEdit] = useState<string | null>(null);
 
   useEffect(() => saveJSON(PIPE_KEY, pipeOverrides), [pipeOverrides]);
-  useEffect(() => saveJSON(APPROVAL_KEY, approvals), [approvals]);
 
   const sosQ = useQuery({ queryKey: ["goods_so"], queryFn: async () => (await api.get<SO[]>("/goods-sales-orders")) ?? [] });
   const dspsQ = useQuery({ queryKey: ["goods_dsp"], queryFn: async () => (await api.get<DSP[]>("/goods-dispatches")) ?? [] });
@@ -125,16 +123,27 @@ export function WarehousePanel() {
   }, [openDsps, pipeOverrides]);
 
   const pendingSOs = useMemo(
-    () => sos.filter((s) => ["draft", "confirmed"].includes(s.status) && s.status !== "cancelled" && (approvals[s.id] ?? "pending") !== "approved"),
-    [sos, approvals],
+    () => sos.filter((s) => s.status === "pending_warehouse_approval"),
+    [sos],
   );
-  const readyOrders = useMemo(() => sos.filter((s) => s.status === "confirmed" && (approvals[s.id] ?? "pending") === "approved"), [sos, approvals]);
-  // Orders confirmed but awaiting warehouse sign-off still show in pending; checker-confirmed heuristic: confirmed status
-  const checkerConfirmed = useMemo(() => sos.filter((s) => s.status === "confirmed"), [sos]);
+  const readyOrders = useMemo(() => sos.filter((s) => s.status === "approved" || s.status === "confirmed" || s.status === "partially_dispatched"), [sos]);
+  const checkerConfirmed = useMemo(() => sos.filter((s) => s.status === "pending_checker_approval"), [sos]);
   const approvedInvoices = useMemo(
     () => (invsQ.data ?? []).filter((i: any) => ["approved", "confirmed", "sent"].includes(i.status)).slice(0, 25),
     [invsQ.data],
   );
+
+  // Warehouse sign-off is now a real workflow step: orders land here via the
+  // sales-order page's "Send for approval", and approving forwards them to
+  // the checker — the final gate before dispatch/invoicing.
+  const warehouseApproveMut = useMutation({
+    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => { await api.post(`/goods-sales-orders/${id}/warehouse-approve`, { comments: notes || null }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); },
+  });
+  const warehouseRejectMut = useMutation({
+    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => { await api.post(`/goods-sales-orders/${id}/warehouse-reject`, { comments: notes || null }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); },
+  });
 
   const confirmMut = useMutation({
     mutationFn: async (id: string) => { await api.post(`/goods-dispatches/${id}/confirm`, {}); },
@@ -285,7 +294,7 @@ export function WarehousePanel() {
               action={<span className="text-xs text-muted-foreground">{pendingSOs.length} pending</span>}
             >
               {pendingSOs.length === 0 ? (
-                <EmptyState icon={ClipboardCheck} title="No pending sign-offs" hint="All sales orders are cleared by the warehouse." />
+                <EmptyState icon={ClipboardCheck} title="No pending sign-offs" hint="Orders sent for approval from the Sales Orders page land here." />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[900px] text-sm">
@@ -293,20 +302,13 @@ export function WarehousePanel() {
                       <tr className="text-left text-[11px] uppercase tracking-widest text-muted-foreground">
                         <th className="px-3 py-2">Order</th><th className="px-3 py-2">Buyer</th>
                         <th className="px-3 py-2">Ordered</th><th className="px-3 py-2">Expected</th>
-                        <th className="px-3 py-2 text-right">Value</th><th className="px-3 py-2">Commercial</th>
+                        <th className="px-3 py-2 text-right">Value</th><th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Warehouse</th><th className="px-3 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
                       {pendingSOs.map((s) => {
-                        const wh = approvals[s.id] ?? "pending";
-                        const whPill = wh === "approved"
-                          ? <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-success">Approved</span>
-                          : wh === "rejected"
-                            ? <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-destructive">Rejected</span>
-                            : wh === "on_hold"
-                              ? <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-warning">On hold</span>
-                              : <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Pending</span>;
+                        const whPill = <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-warning">Awaiting review</span>;
                         return (
                           <tr key={s.id}>
                             <td className="px-3 py-2.5 font-mono text-[13px]">{s.so_number}</td>
@@ -318,7 +320,7 @@ export function WarehousePanel() {
                             <td className="px-3 py-2.5">{whPill}</td>
                             <td className="px-3 py-2.5">
                               <div className="flex justify-end gap-1.5">
-                                {canWrite && wh === "pending" ? (
+                                {canWrite ? (
                                   <>
                                     <button onClick={() => setVerifySO(s)} className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-primary-hover">Approve</button>
                                     <button onClick={() => setVerifySO(s)} className="h-8 rounded-lg border border-border px-3 text-xs font-semibold hover:bg-accent">Reject</button>
@@ -333,7 +335,7 @@ export function WarehousePanel() {
                   </table>
                 </div>
               )}
-              <FooterBanner>Warehouse approval sends the order to the Checker. Dispatch notes cannot be created until both approvals are complete.</FooterBanner>
+              <FooterBanner>Warehouse approval sends the order to the Checker. Dispatch and invoicing stay blocked until the checker approves.</FooterBanner>
             </SectionCard>
           )}
 
@@ -544,15 +546,18 @@ export function WarehousePanel() {
           stockRows={stockRows}
           onClose={() => setVerifySO(null)}
           onApprove={(notes) => {
-            setApprovals((p) => ({ ...p, [verifySO.id]: "approved" }));
+            warehouseApproveMut.mutate({ id: verifySO.id, notes }, {
+              onSuccess: () => toast.success(`Order ${verifySO.so_number} approved — sent to Checker`),
+              onError: () => toast.error("Warehouse approval failed"),
+            });
             setVerifySO(null);
-            toast.success(`Order approved — sent to Checker${notes ? "" : ""}`);
           }}
           onReject={(notes) => {
-            setApprovals((p) => ({ ...p, [verifySO.id]: "rejected" }));
+            warehouseRejectMut.mutate({ id: verifySO.id, notes }, {
+              onSuccess: () => toast.success("Order rejected — returned to Sales as draft"),
+              onError: () => toast.error("Warehouse rejection failed"),
+            });
             setVerifySO(null);
-            toast.success("Order rejected — returned to Sales review");
-            void notes;
           }}
         />
       )}

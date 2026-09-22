@@ -351,6 +351,7 @@ export interface PurchaseOrder {
 // ── Goods Purchase Orders (goods PO — distinct from the proforma table) ──
 export type GoodsPurchaseOrderStatus =
   | "draft"
+  | "pending_approval"
   | "approved"
   | "sent"
   | "partially_received"
@@ -402,9 +403,19 @@ export interface GoodsPurchaseOrder {
   subtotal: number;
   gst_total: number;
   grand_total: number;
-  manual_status: "draft" | "approved" | "sent" | "cancelled";
+  manual_status: "draft" | "pending_approval" | "approved" | "sent" | "cancelled";
   status: GoodsPurchaseOrderStatus;
   documents: DocMeta[];
+  /** Checker review trail (maker–checker gate). */
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  /** Client notification (informational only — NOT a gate for GRN/logistics for now). */
+  sent_to_client_at?: string | null;
+  client_status?: "pending" | "approved" | "rejected" | null;
+  client_responded_at?: string | null;
   /** Source supplier proforma this PO was converted from (Phase 8 wiring). */
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
@@ -466,7 +477,16 @@ export interface GoodsReceipt {
 }
 
 // ── Goods Sales Orders (SO — the commitment, never touches stock) ──
-export type GoodsSalesOrderStatus = "draft" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
+// `confirmed` is legacy-only (pre approval-chain data); it stays dispatchable/invoicable.
+export type GoodsSalesOrderStatus =
+  | "draft"
+  | "pending_warehouse_approval"
+  | "pending_checker_approval"
+  | "approved"
+  | "confirmed"
+  | "partially_dispatched"
+  | "fully_dispatched"
+  | "cancelled";
 
 export interface GoodsSalesOrderLine {
   product_id: string | null;
@@ -487,7 +507,8 @@ export interface GoodsSalesOrderLine {
 /**
  * The sales commitment. An SO never touches stock — only a confirmed dispatch
  * creates stock-out. Status derives from `manual_status` + dispatches:
- * draft → confirmed → (partially_dispatched) → fully_dispatched | cancelled.
+ * draft → pending_warehouse_approval → pending_checker_approval → approved
+ * → (partially_dispatched) → fully_dispatched | cancelled.
  */
 export interface GoodsSalesOrder {
   id: string;
@@ -520,9 +541,19 @@ export interface GoodsSalesOrder {
   gst_total: number;
   freight: number | null;
   grand_total: number;
-  manual_status: "draft" | "confirmed" | "cancelled";
+  manual_status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "cancelled";
   status: GoodsSalesOrderStatus;
   documents: DocMeta[];
+  /** Approval trail — warehouse sign-off (step 1 of the maker–checker gate). */
+  warehouse_review_comments?: string | null;
+  warehouse_reviewed_by?: string | null;
+  warehouse_reviewed_at?: string | null;
+  /** Approval trail — checker review (step 2; approving releases the order). */
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
   /** Source customer proforma this SO was converted from (Phase 8 wiring). */
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;

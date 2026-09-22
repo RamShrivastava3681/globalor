@@ -63,8 +63,9 @@ function ProcurementWorkbenchPage() {
       ...pos.filter((p: any) => !["cancelled"].includes(p.status)).map((p: any) => ({
         fam: "orders", id: `po-${p.id}`, docNumber: p.po_number ?? p.id.slice(0, 8), docKind: "Purchase order",
         counterparty: p.supplier_name ?? "—", value: Number(p.grand_total ?? p.total ?? 0), status: p.status ?? "draft",
-        nextStep: "Approve purchase order", owner: "Procurement", dueDate: p.expected_date ?? p.created_at,
-        overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/purchase-orders",
+        nextStep: p.status === "draft" ? "Send to checker" : p.status === "pending_approval" ? "Awaiting checker approval" : "Receive goods",
+        owner: p.status === "pending_approval" ? "Checker" : "Procurement", dueDate: p.expected_date ?? p.created_at,
+        overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: p.status === "pending_approval" ? "/app/checker" : "/app/purchase-orders",
       })),
       ...pinvs.filter((p: any) => !["paid", "rejected"].includes(p.status)).map((p: any) => ({
         fam: "invoices", id: `pi-${p.id}`, docNumber: p.invoice_number ?? p.id.slice(0, 8), docKind: "Purchase invoice",

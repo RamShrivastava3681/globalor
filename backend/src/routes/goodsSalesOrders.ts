@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, requireRole, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
@@ -37,6 +37,11 @@ function matchExistingLine(
 async function buildCustomerMap(companyId: string | null): Promise<Map<string, Customer>> {
   const customers = await scanCustomersMerged(getCompanyFilter({ company_id: companyId }) as any);
   return new Map(customers.map((d) => [d.id, d]));
+}
+
+/** True when the actor can approve sales orders (checker gate). */
+function isApprover(roles: string[]): boolean {
+  return roles.includes("factor_admin") || roles.includes("checker");
 }
 
 // ── Validation ──
@@ -183,6 +188,14 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       grand_total,
       manual_status: "draft",
       status: "draft",
+      warehouse_review_comments: null,
+      warehouse_reviewed_by: null,
+      warehouse_reviewed_at: null,
+      review_comments: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      approved_by: null,
+      approved_at: null,
       documents: [],
       created_by: req.user!.id,
       created_at: now,
@@ -223,8 +236,12 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), asyn
       res.status(404).json({ error: "Sales order not found" });
       return;
     }
-    if (existing.manual_status !== "draft" && existing.manual_status !== "confirmed") {
-      res.status(400).json({ error: `Sales orders can only be edited while draft or confirmed (current: ${existing.status})` });
+    if (existing.manual_status === "pending_warehouse_approval" || existing.manual_status === "pending_checker_approval") {
+      res.status(400).json({ error: "This sales order is awaiting approval and cannot be edited — ask the warehouse or checker to reject it back to draft" });
+      return;
+    }
+    if (existing.manual_status !== "draft" && existing.manual_status !== "approved") {
+      res.status(400).json({ error: `Sales orders can only be edited while draft or approved (current: ${existing.status})` });
       return;
     }
 
@@ -312,7 +329,211 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), asyn
   }
 });
 
-// ── POST /api/goods-sales-orders/:id/confirm ── (draft → confirmed — maker action)
+// ── POST /api/goods-sales-orders/:id/submit ── (maker sends draft to the warehouse)
+router.post("/:id/submit", requireAuth, requireWriteAccess("goods-sales-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (existing.manual_status !== "draft") {
+      res.status(400).json({ error: `Only draft sales orders can be sent for warehouse approval (current: ${existing.status})` });
+      return;
+    }
+    const updated = await updateItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }, {
+      manual_status: "pending_warehouse_approval",
+      status: "pending_warehouse_approval",
+      warehouse_review_comments: null,
+      warehouse_reviewed_by: null,
+      warehouse_reviewed_at: null,
+      review_comments: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      approved_by: null,
+      approved_at: null,
+      updated_at: nowISO(),
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "sales_order_created",
+      severity: "info",
+      message: `Sales order ${existing.so_number} sent to warehouse for approval`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Submit goods sales order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-sales-orders/:id/warehouse-approve ── (warehouse sign-off, step 1)
+router.post("/:id/warehouse-approve", requireAuth, requireAnyWriteAccess("goods-sales-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_warehouse_approval") {
+      res.status(400).json({ error: `Only sales orders awaiting warehouse approval can be signed off (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }, {
+      manual_status: "pending_checker_approval",
+      status: "pending_checker_approval",
+      warehouse_review_comments: null,
+      warehouse_reviewed_by: req.user!.id,
+      warehouse_reviewed_at: now,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "sales_order_created",
+      severity: "info",
+      message: `Sales order ${existing.so_number} approved by warehouse — sent to checker for final approval`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Warehouse-approve goods sales order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-sales-orders/:id/warehouse-reject ── (warehouse sends back to draft)
+router.post("/:id/warehouse-reject", requireAuth, requireAnyWriteAccess("goods-sales-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    const { comments } = req.body ?? {};
+    const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_warehouse_approval") {
+      res.status(400).json({ error: `Only sales orders awaiting warehouse approval can be rejected (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }, {
+      manual_status: "draft",
+      status: "draft",
+      warehouse_review_comments: comments ? String(comments).slice(0, 2000) : null,
+      warehouse_reviewed_by: req.user!.id,
+      warehouse_reviewed_at: now,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "sales_order_created",
+      severity: "warning",
+      message: `Sales order ${existing.so_number} rejected by warehouse — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Warehouse-reject goods sales order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-sales-orders/:id/approve ── (checker only, step 2 — releases the order)
+// Approving the SO is the final gate: dispatch and invoicing unblock immediately.
+router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-sales-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isApprover(req.user!.roles)) {
+      res.status(403).json({ error: "Only a checker or admin can approve sales orders" });
+      return;
+    }
+    const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_checker_approval" && existing.manual_status !== "draft" && existing.manual_status !== "pending_warehouse_approval") {
+      res.status(400).json({ error: `Only sales orders awaiting review can be approved (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }, {
+      manual_status: "approved",
+      status: "approved",
+      review_comments: null,
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      approved_by: req.user!.id,
+      approved_at: now,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "sales_order_created",
+      severity: "info",
+      message: `Sales order ${existing.so_number} approved by checker — goods can now be dispatched or invoiced`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Approve goods sales order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-sales-orders/:id/reject ── (checker sends back to draft)
+router.post("/:id/reject", requireAuth, requireAnyWriteAccess("goods-sales-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isApprover(req.user!.roles)) {
+      res.status(403).json({ error: "Only a checker or admin can reject sales orders" });
+      return;
+    }
+    const { comments } = req.body ?? {};
+    const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Sales order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Sales order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_checker_approval") {
+      res.status(400).json({ error: `Only sales orders awaiting checker review can be rejected (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }, {
+      manual_status: "draft",
+      status: "draft",
+      review_comments: comments ? String(comments).slice(0, 2000) : null,
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "sales_order_created",
+      severity: "warning",
+      message: `Sales order ${existing.so_number} rejected by checker — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Reject goods sales order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-sales-orders/:id/confirm ── (legacy: draft → confirmed)
+// Kept for orders created before the approval chain so old drafts are never
+// stranded; new orders go through submit → warehouse → checker → approved.
 router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-sales-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
@@ -348,6 +569,10 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-sales-orders")
     }
     if (existing.status === "cancelled") {
       res.status(400).json({ error: "Sales order is already cancelled" });
+      return;
+    }
+    if (existing.status === "fully_dispatched") {
+      res.status(400).json({ error: "Cannot cancel a fully dispatched sales order" });
       return;
     }
     const dispatched = existing.lines.reduce((s, l) => s + Number(l.dispatched_qty || 0), 0);

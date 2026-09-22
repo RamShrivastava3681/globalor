@@ -8,7 +8,7 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
@@ -346,8 +346,12 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
       res.status(404).json({ error: "Purchase order not found" });
       return;
     }
+    if (existing.manual_status === "pending_approval") {
+      res.status(400).json({ error: "This purchase order is awaiting checker review and cannot be edited — ask the checker to reject it back to draft" });
+      return;
+    }
     if (existing.manual_status !== "draft" && existing.manual_status !== "approved") {
-      res.status(400).json({ error: `Purchase orders can only be edited while draft or approved (current: ${existing.status})` });
+      res.status(400).json({ error: `Purchase orders can only be edited while draft (current: ${existing.status})` });
       return;
     }
 
@@ -423,8 +427,47 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
   }
 });
 
-// ── POST /api/goods-purchase-orders/:id/approve ── (checker/admin only)
-router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
+// ── POST /api/goods-purchase-orders/:id/submit ── (maker sends draft to checker)
+router.post("/:id/submit", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Purchase order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Purchase order not found" });
+      return;
+    }
+    if (existing.manual_status !== "draft") {
+      res.status(400).json({ error: `Only draft purchase orders can be sent for approval (current: ${existing.status})` });
+      return;
+    }
+    const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
+      manual_status: "pending_approval",
+      status: "pending_approval",
+      review_comments: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      updated_at: nowISO(),
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "info",
+      message: `Purchase order ${existing.po_number} sent to checker for approval`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Submit goods purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-purchase-orders/:id/approve ── (checker only, via checker desk)
+// Approval ALSO marks the order sent (to supplier/client) so the next flow
+// (GRN receive, logistics ship) unblocks immediately. Client approval is
+// informational only for now — it never gates receiving.
+router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-purchase-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
   try {
     if (!isApprover(req.user!.roles)) {
       res.status(403).json({ error: "Only a checker or admin can approve purchase orders" });
@@ -436,15 +479,50 @@ router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orde
       res.status(404).json({ error: "Purchase order not found" });
       return;
     }
-    if (existing.manual_status !== "draft") {
-      res.status(400).json({ error: `Only draft purchase orders can be approved (current: ${existing.status})` });
+    if (existing.manual_status !== "pending_approval" && existing.manual_status !== "draft") {
+      res.status(400).json({ error: `Only purchase orders awaiting review can be approved (current: ${existing.status})` });
       return;
     }
+    const now = nowISO();
     const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
-      manual_status: "approved",
-      status: "approved",
-      updated_at: nowISO(),
+      manual_status: "sent",
+      status: "sent",
+      approved_by: req.user!.id,
+      approved_at: now,
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      review_comments: null,
+      sent_to_client_at: now,
+      client_status: "pending",
+      updated_at: now,
     });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "info",
+      message: `Purchase order ${existing.po_number} approved by checker and sent — goods can now be received`,
+      created_by: req.user!.id,
+    });
+    // Fire-and-forget client/supplier notification — email failure never rolls back approval.
+    try {
+      const { sendPurchaseOrderEmail } = await import("../utils/email.js");
+      const { getCustomerById } = await import("../utils/customers.js");
+      const billTo = existing.bill_to_customer_id ? await getCustomerById(existing.bill_to_customer_id).catch(() => null) : null;
+      const shipTo = existing.ship_to_customer_id ? await getCustomerById(existing.ship_to_customer_id).catch(() => null) : null;
+      const to = (billTo as any)?.contact_email ?? (shipTo as any)?.contact_email ?? null;
+      if (to) {
+        sendPurchaseOrderEmail({
+          to,
+          customerName: existing.bill_to_customer_name ?? existing.ship_to_customer_name ?? "Customer",
+          poNumber: existing.po_number,
+          amount: existing.grand_total,
+          companyName: req.user!.email,
+        });
+      }
+    } catch (e) {
+      console.error("   ⚠️ PO client notification failed (approval kept):", e);
+    }
     res.json(updated);
   } catch (err) {
     console.error("Approve goods purchase order error:", err);
@@ -452,7 +530,51 @@ router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orde
   }
 });
 
-// ── POST /api/goods-purchase-orders/:id/send ──
+// ── POST /api/goods-purchase-orders/:id/reject ── (checker sends back to draft)
+router.post("/:id/reject", requireAuth, requireAnyWriteAccess("goods-purchase-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isApprover(req.user!.roles)) {
+      res.status(403).json({ error: "Only a checker or admin can reject purchase orders" });
+      return;
+    }
+    const { comments } = req.body ?? {};
+    const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Purchase order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Purchase order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_approval") {
+      res.status(400).json({ error: `Only purchase orders awaiting review can be rejected (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
+      manual_status: "draft",
+      status: "draft",
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      review_comments: comments ? String(comments).slice(0, 2000) : null,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "warning",
+      message: `Purchase order ${existing.po_number} rejected by checker — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
+      created_by: req.user!.id,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Reject goods purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-purchase-orders/:id/send ── (legacy: approved → sent)
+// New flow auto-sends on checker approval, so this only serves POs that were
+// approved before the maker–checker gate. Kept to avoid stranding them.
 router.post("/:id/send", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;

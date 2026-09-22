@@ -6,7 +6,7 @@ import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, Ban, Truck, Pencil, Package, Wallet, Building2, Boxes, Link2, Quote,
+  Plus, X, Loader2, Trash2, CheckCircle2, Ban, Truck, Pencil, Package, Wallet, Building2, Boxes, Link2, Quote, Send, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { addressOptionsFor, defaultAddressFor } from "@/lib/customerAddresses";
@@ -52,12 +52,20 @@ type SO = {
   total_discount: number;
   gst_total: number;
   grand_total: number;
-  manual_status: "draft" | "confirmed" | "cancelled";
-  status: "draft" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
+  manual_status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "cancelled";
+  status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
   linked_quotation_id?: string | null;
   linked_quotation_number?: string | null;
+  warehouse_review_comments?: string | null;
+  warehouse_reviewed_by?: string | null;
+  warehouse_reviewed_at?: string | null;
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
   created_at: string;
 };
 
@@ -83,11 +91,17 @@ type ProductOpt = { id: string; name: string; sku: string; barcode: string | nul
 
 const STATUS_META: Record<SO["status"], { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "border-warning/40 bg-warning/10 text-warning" },
-  confirmed: { label: "Confirmed", cls: "border-primary/40 bg-primary/10 text-primary" },
+  pending_warehouse_approval: { label: "Awaiting warehouse", cls: "border-warning/40 bg-warning/10 text-warning" },
+  pending_checker_approval: { label: "Awaiting checker", cls: "border-info/40 bg-info/10 text-info" },
+  approved: { label: "Approved", cls: "border-primary/40 bg-primary/10 text-primary" },
+  confirmed: { label: "Confirmed (legacy)", cls: "border-primary/40 bg-primary/10 text-primary" },
   partially_dispatched: { label: "Partially dispatched", cls: "border-info/40 bg-info/10 text-info" },
   fully_dispatched: { label: "Fully dispatched", cls: "border-success/40 bg-success/10 text-success" },
   cancelled: { label: "Cancelled", cls: "border-border bg-muted text-muted-foreground line-through" },
 };
+
+/** Orders cleared for dispatch / invoicing (approval chain complete). */
+const RELEASED = new Set(["approved", "confirmed", "partially_dispatched", "fully_dispatched"]);
 
 const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
 const GST_OPTIONS = ["0", "5", "12", "18", "28"];
@@ -132,18 +146,20 @@ export function SalesOrdersPage() {
   }, [sos, statusFilter, searchQuery, sortField, sortOrder]);
 
   const stats = useMemo(() => {
-    const openValue = sos.filter((s) => s.status === "confirmed" || s.status === "partially_dispatched").reduce((s, o) => s + o.grand_total, 0);
+    const openValue = sos.filter((s) => RELEASED.has(s.status) && s.status !== "fully_dispatched").reduce((s, o) => s + o.grand_total, 0);
     return {
       total: sos.length,
-      awaiting: sos.filter((s) => s.status === "draft").length,
+      awaiting: sos.filter((s) => s.status === "draft" || s.status === "pending_warehouse_approval" || s.status === "pending_checker_approval").length,
       openValue,
       dispatched: sos.filter((s) => s.status === "fully_dispatched").length,
     };
   }, [sos]);
 
-  const confirm = useMutation({
-    mutationFn: async (id: string) => { await api.post(`/goods-sales-orders/${id}/confirm`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order confirmed — goods can now be dispatched"); },
+  // Maker action: send a draft to the warehouse. Approval happens on the
+  // warehouse desk (step 1) and the checker desk (step 2) — never here.
+  const submit = useMutation({
+    mutationFn: async (id: string) => { await api.post(`/goods-sales-orders/${id}/submit`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order sent to warehouse for approval"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
   const cancel = useMutation({
@@ -162,7 +178,7 @@ export function SalesOrdersPage() {
       <PageHeader
         eyebrow="Sales"
         title="Sales orders"
-        description="A sales order is a commitment, never a stock event. Only a confirmed dispatch note reduces inventory. Confirm the order, then dispatch goods."
+        description="Create → send to warehouse → checker approves → dispatch or invoice. A sales order is a commitment, never a stock event — only a confirmed dispatch note reduces inventory."
         actions={
           canEdit ? (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -177,8 +193,8 @@ export function SalesOrdersPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={<Package className="h-4 w-4 text-primary" />} label="Total SOs" value={String(stats.total)} />
-          <StatTile icon={<CheckCircle2 className="h-4 w-4 text-warning" />} label="Awaiting confirmation" value={String(stats.awaiting)}
-            hint={stats.awaiting > 0 ? "Drafts — not yet committed" : "None pending"} />
+          <StatTile icon={<CheckCircle2 className="h-4 w-4 text-warning" />} label="Awaiting approval" value={String(stats.awaiting)}
+            hint={stats.awaiting > 0 ? "Draft or awaiting warehouse / checker" : "None pending"} />
           <StatTile icon={<Wallet className="h-4 w-4 text-muted-foreground" />} label="Open order value" value={fmtMoney(stats.openValue)} />
           <StatTile icon={<Boxes className="h-4 w-4 text-success" />} label="Fully dispatched" value={String(stats.dispatched)} />
         </div>
@@ -190,7 +206,9 @@ export function SalesOrdersPage() {
           statusOptions={[
             { label: "All statuses", value: "all" },
             { label: "Draft", value: "draft" },
-            { label: "Confirmed", value: "confirmed" },
+            { label: "Awaiting warehouse", value: "pending_warehouse_approval" },
+            { label: "Awaiting checker", value: "pending_checker_approval" },
+            { label: "Approved", value: "approved" },
             { label: "Partially dispatched", value: "partially_dispatched" },
             { label: "Fully dispatched", value: "fully_dispatched" },
             { label: "Cancelled", value: "cancelled" },
@@ -248,9 +266,9 @@ export function SalesOrdersPage() {
                       <td className="px-5 py-3 text-right">
                         {canEdit && so.status === "draft" && (
                           <div className="flex items-center justify-end gap-1.5">
-                            <button onClick={() => confirm.mutate(so.id)} disabled={confirm.isPending}
+                            <button onClick={() => submit.mutate(so.id)} disabled={submit.isPending}
                               className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
-                              <CheckCircle2 className="h-3 w-3" /> Confirm
+                              <Send className="h-3 w-3" /> Send for approval
                             </button>
                             <button onClick={() => { if (window.confirm(`Delete draft ${so.so_number}?`)) remove.mutate(so.id); }}
                               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
@@ -258,13 +276,31 @@ export function SalesOrdersPage() {
                             </button>
                           </div>
                         )}
-                        {(so.status === "confirmed" || so.status === "partially_dispatched") && (
-                          <Link to="/app/dispatches" search={{ so: so.id }}
-                            className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
-                            <Truck className="h-3 w-3" /> Dispatch goods
-                          </Link>
+                        {so.status === "pending_warehouse_approval" && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
+                            <Clock className="h-3 w-3" /> Awaiting warehouse
+                          </span>
                         )}
-                        {(so.status === "draft" || so.status === "confirmed") && canEdit && (
+                        {so.status === "pending_checker_approval" && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-info/40 px-2 py-1 text-[11px] text-info">
+                            <Clock className="h-3 w-3" /> Awaiting checker
+                          </span>
+                        )}
+                        {RELEASED.has(so.status) && so.status !== "fully_dispatched" && (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Link to="/app/dispatches" search={{ so: so.id }}
+                              className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
+                              <Truck className="h-3 w-3" /> Dispatch goods
+                            </Link>
+                            {canEdit && (
+                              <Link to="/app/invoices" search={{ tab: "invoices", createFromSo: so.id }}
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
+                                <Wallet className="h-3 w-3" /> Create invoice
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                        {(so.status === "draft" || RELEASED.has(so.status)) && canEdit && (
                           <button onClick={() => { if (window.confirm(`Cancel ${so.so_number}?`)) cancel.mutate(so.id); }}
                             className="ml-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
                             <Ban className="h-3 w-3" />
@@ -337,6 +373,20 @@ function SODetailModal({ so, onClose }: { so: SO; onClose: () => void }) {
             <Detail label="Expected delivery">{so.expected_delivery_date ? fmtDate(so.expected_delivery_date) : "—"}</Detail>
           </div>
           {so.notes && <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{so.notes}</p>}
+          {(so.warehouse_review_comments || so.review_comments) && (
+            <div className="space-y-1.5">
+              {so.warehouse_review_comments && (
+                <p className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+                  <span className="font-semibold uppercase tracking-wider">Warehouse rejection:</span> {so.warehouse_review_comments}
+                </p>
+              )}
+              {so.review_comments && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  <span className="font-semibold uppercase tracking-wider">Checker rejection:</span> {so.review_comments}
+                </p>
+              )}
+            </div>
+          )}
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs uppercase tracking-widest text-muted-foreground">
@@ -531,7 +581,7 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods_so"] });
-      toast.success("Sales order created — confirm it before dispatching");
+      toast.success("Sales order created — send it to the warehouse for approval");
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),

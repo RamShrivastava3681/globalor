@@ -360,7 +360,7 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
     queryFn: async () => (await api.get<{ rows: LiveStockRow[] }>("/stock-movements/summary")) ?? { rows: [] },
   });
 
-  const dispatchableSos = (sosQ.data ?? []).filter((s) => s.status === "confirmed" || s.status === "partially_dispatched");
+  const dispatchableSos = (sosQ.data ?? []).filter((s) => ["approved", "confirmed", "partially_dispatched"].includes(s.status));
   const so = soDetailQ.data;
   const stockRows = stockQ.data?.rows ?? [];
 
@@ -469,7 +469,7 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
           <div className="grid gap-3 md:grid-cols-2">
             <L label="Sales order *" full>
               <select className="inp" value={soId} onChange={(e) => { setSoId(e.target.value); setLines([]); }}>
-                <option value="">Pick a confirmed sales order…</option>
+                <option value="">Pick an approved sales order…</option>
                 {dispatchableSos.map((s) => (
                   <option key={s.id} value={s.id}>{s.so_number} — {s.customer_name ?? "customer"} ({s.status.replace("_", " ")})</option>
                 ))}

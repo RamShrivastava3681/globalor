@@ -509,7 +509,7 @@ function NewGRNModal({ preselectPo, canOverride, onClose }: { preselectPo?: stri
 
           {!poId && (
             <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Pick a purchase order that has been <strong>sent</strong> or is <strong>partially received</strong>. Drafts and unapproved POs cannot receive goods.
+              Pick a purchase order that has been <strong>sent</strong> (checker-approved) or is <strong>partially received</strong>. Drafts and orders awaiting checker approval cannot receive goods.
             </p>
           )}
 

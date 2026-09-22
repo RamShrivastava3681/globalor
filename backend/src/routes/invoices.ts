@@ -429,7 +429,8 @@ const fromSoSchema = z.object({
   lines: z.array(fromSoLineSchema).min(1, "Add at least one line"),
 });
 
-const CONFIRMED_SO_STATUSES = ["confirmed", "partially_dispatched", "fully_dispatched"];
+// Legacy "confirmed" is kept so pre-approval-chain SOs stay invoicable.
+const CONFIRMED_SO_STATUSES = ["approved", "confirmed", "partially_dispatched", "fully_dispatched"];
 
 router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
@@ -446,7 +447,10 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       return;
     }
     if (!CONFIRMED_SO_STATUSES.includes(so.status)) {
-      res.status(400).json({ error: `Only confirmed sales orders can be invoiced (current: ${so.status})` });
+      const awaiting = so.status === "pending_warehouse_approval" ? "warehouse" : so.status === "pending_checker_approval" ? "checker" : null;
+      res.status(400).json({ error: awaiting
+        ? `Sales order ${so.so_number} is awaiting ${awaiting} approval — invoicing unblocks once approved`
+        : `Only approved sales orders can be invoiced (current: ${so.status})` });
       return;
     }
     if (!so.customer_id) {

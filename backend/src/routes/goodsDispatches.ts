@@ -160,7 +160,11 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       return;
     }
     if (so.status === "draft") {
-      res.status(400).json({ error: "Confirm the sales order before dispatching goods" });
+      res.status(400).json({ error: "Send the sales order for approval before dispatching goods" });
+      return;
+    }
+    if (so.status === "pending_warehouse_approval" || so.status === "pending_checker_approval") {
+      res.status(400).json({ error: `Sales order ${so.so_number} is awaiting approval (${so.status === "pending_warehouse_approval" ? "warehouse" : "checker"}) — dispatch unblocks once approved` });
       return;
     }
     if (so.status === "fully_dispatched") {
@@ -267,7 +271,11 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-sales-orders"
       return;
     }
     if (so.status === "draft") {
-      res.status(400).json({ error: "Confirm the sales order before dispatching goods" });
+      res.status(400).json({ error: "Send the sales order for approval before dispatching goods" });
+      return;
+    }
+    if (so.status === "pending_warehouse_approval" || so.status === "pending_checker_approval") {
+      res.status(400).json({ error: `Sales order ${so.so_number} is awaiting approval (${so.status === "pending_warehouse_approval" ? "warehouse" : "checker"}) — dispatch unblocks once approved` });
       return;
     }
     if (so.status === "fully_dispatched") {

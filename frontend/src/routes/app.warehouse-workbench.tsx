@@ -50,7 +50,7 @@ function WarehouseWorkbenchPage() {
   const dsps = dspsQ.data ?? [];
   const loading = sosQ.isLoading || grnsQ.isLoading || dspsQ.isLoading;
 
-  const soAwaiting = sos.filter((s: any) => ["draft", "confirmed"].includes(s.status)).length;
+  const soAwaiting = sos.filter((s: any) => s.status === "pending_warehouse_approval" || s.status === "pending_checker_approval").length;
   const grnPending = grns.filter((g: any) => ["draft", "pending"].includes(g.status)).length;
   const dspActive = dsps.filter((d: any) => !["delivered", "cancelled", "returned"].includes(d.status)).length;
 
@@ -85,7 +85,7 @@ function WarehouseWorkbenchPage() {
   }, [grns, dsps, filter, query]);
 
   const signOffs = useMemo(
-    () => sos.filter((s: any) => ["draft", "confirmed"].includes(s.status)).slice(0, 5),
+    () => sos.filter((s: any) => ["pending_warehouse_approval", "pending_checker_approval"].includes(s.status)).slice(0, 5),
     [sos],
   );
 

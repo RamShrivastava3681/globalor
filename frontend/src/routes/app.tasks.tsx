@@ -259,11 +259,44 @@ async function buildSyntheticQueue(meEmail: string, meId: string): Promise<Task[
       push(
         baseTask(d, {
           workflow_type: "sales_order",
-          stage: "confirm",
+          stage: "submit",
           doc_type: "sales_order",
           owner_role: "sales",
-          required_action: `Confirm sales order ${n}`,
-          next_action: "Prepare dispatch",
+          required_action: `Send sales order ${n} to warehouse`,
+          next_action: "Warehouse approval",
+        }),
+      );
+    } else if (st === "pending_warehouse_approval") {
+      push(
+        baseTask(d, {
+          workflow_type: "sales_order",
+          stage: "warehouse_approve",
+          doc_type: "sales_order",
+          owner_role: "warehouse",
+          required_action: `Approve sales order ${n} (warehouse)`,
+          next_action: "Checker approval",
+        }),
+      );
+    } else if (st === "pending_checker_approval") {
+      push(
+        baseTask(d, {
+          workflow_type: "sales_order",
+          stage: "checker_approve",
+          doc_type: "sales_order",
+          owner_role: "checker",
+          required_action: `Approve sales order ${n} (checker)`,
+          next_action: "Dispatch & invoice",
+        }),
+      );
+    } else if (st === "approved" || st === "confirmed") {
+      push(
+        baseTask(d, {
+          workflow_type: "sales_order",
+          stage: "dispatch_invoice",
+          doc_type: "sales_order",
+          owner_role: "sales",
+          required_action: `Dispatch or invoice ${n}`,
+          next_action: "Create tax invoice",
         }),
       );
     } else {
@@ -286,11 +319,22 @@ async function buildSyntheticQueue(meEmail: string, meId: string): Promise<Task[
       push(
         baseTask(d, {
           workflow_type: "purchase_order",
-          stage: "approve",
+          stage: "submit",
           doc_type: "purchase_order",
           owner_role: "purchase",
-          required_action: `Approve purchase order ${n}`,
-          next_action: "Send to supplier",
+          required_action: `Send purchase order ${n} to checker`,
+          next_action: "Checker approval",
+        }),
+      );
+    } else if (st === "pending_approval" || st === "pendingapproval") {
+      push(
+        baseTask(d, {
+          workflow_type: "purchase_order",
+          stage: "approve",
+          doc_type: "purchase_order",
+          owner_role: "checker",
+          required_action: `Approve purchase order ${n} (checker)`,
+          next_action: "Auto-sent — receive goods",
         }),
       );
     } else if (st === "partially_received" || st === "partiallyreceived") {
@@ -539,10 +583,14 @@ function actionLabel(stage: string): string {
 function resolveTaskRoute(t: Task): { to: string; search: Record<string, string> } {
   const stage = t.stage.toLowerCase();
   const id = t.doc_id;
-  if (t.workflow_type === "sales_order" && stage.includes("create_invoice"))
-    return { to: "/app/invoices", search: { createFromSo: id } };
-  if (t.workflow_type === "sales_order" && stage.includes("create_proforma"))
-    return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
+  if (t.workflow_type === "sales_order") {
+    if (stage.includes("submit") || stage.includes("warehouse") || stage.includes("checker"))
+      return { to: "/app/sales-orders", search: {} };
+    if (stage.includes("dispatch_invoice") || stage.includes("create_invoice"))
+      return { to: "/app/invoices", search: { createFromSo: id } };
+    if (stage.includes("create_proforma"))
+      return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
+  }
   if (
     t.workflow_type === "sales_invoice" &&
     (stage.includes("record_utr") || stage.includes("await_payment"))

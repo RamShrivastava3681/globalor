@@ -49,8 +49,8 @@ type PO = {
   subtotal: number;
   gst_total: number;
   grand_total: number;
-  manual_status: "draft" | "approved" | "sent" | "cancelled";
-  status: "draft" | "approved" | "sent" | "partially_received" | "fully_received" | "cancelled";
+  manual_status: "draft" | "pending_approval" | "approved" | "sent" | "cancelled";
+  status: "draft" | "pending_approval" | "approved" | "sent" | "partially_received" | "fully_received" | "cancelled";
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
   created_at: string;
@@ -61,6 +61,7 @@ type ProductOpt = { id: string; name: string; sku: string; barcode: string | nul
 
 const STATUS_META: Record<PO["status"], { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "border-warning/40 bg-warning/10 text-warning" },
+  pending_approval: { label: "Awaiting checker", cls: "border-warning/40 bg-warning/10 text-warning" },
   approved: { label: "Approved", cls: "border-primary/40 bg-primary/10 text-primary" },
   sent: { label: "Sent", cls: "border-primary/40 bg-primary/10 text-primary" },
   partially_received: { label: "Partially received", cls: "border-info/40 bg-info/10 text-info" },
@@ -72,9 +73,8 @@ const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
 const GST_OPTIONS = ["0", "5", "12", "18", "28"];
 
 export function PurchaseOrdersPage() {
-  const { user, isAdmin, isChecker, canWrite } = useAuth();
+  const { user, canWrite } = useAuth();
   const canEdit = canWrite("goods-purchase-orders");
-  const canApprove = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<PO | null>(null);
@@ -115,17 +115,20 @@ export function PurchaseOrdersPage() {
     const openValue = pos.filter((p) => p.status === "sent" || p.status === "partially_received").reduce((s, p) => s + p.grand_total, 0);
     return {
       total: pos.length,
-      awaiting: pos.filter((p) => p.status === "draft" || p.status === "approved").length,
+      awaiting: pos.filter((p) => p.status === "draft" || p.status === "pending_approval" || p.status === "approved").length,
       openValue,
       received: pos.filter((p) => p.status === "fully_received").length,
     };
   }, [pos]);
 
-  const approve = useMutation({
-    mutationFn: async (id: string) => { await api.post(`/goods-purchase-orders/${id}/approve`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_po"] }); toast.success("Purchase order approved"); },
+  // Maker action: send a draft to the checker. Approval itself happens ONLY
+  // on the checker desk — never on this screen.
+  const submit = useMutation({
+    mutationFn: async (id: string) => { await api.post(`/goods-purchase-orders/${id}/submit`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_po"] }); toast.success("Purchase order sent to checker for approval"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+  // Legacy: POs approved before the maker–checker gate still need a manual send.
   const send = useMutation({
     mutationFn: async (id: string) => { await api.post(`/goods-purchase-orders/${id}/send`); },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_po"] }); toast.success("Purchase order marked sent — goods can now be received"); },
@@ -147,7 +150,7 @@ export function PurchaseOrdersPage() {
       <PageHeader
         eyebrow="Procurement"
         title="Purchase orders"
-        description="A purchase order is a commitment, never a stock event. Only a confirmed GRN (goods receipt) creates stock-in. Approve → send → receive."
+        description="A purchase order is a commitment, never a stock event. Create → send to checker → checker approves & sends → receive."
         actions={
           canEdit ? (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -175,6 +178,7 @@ export function PurchaseOrdersPage() {
           statusOptions={[
             { label: "All statuses", value: "all" },
             { label: "Draft", value: "draft" },
+            { label: "Awaiting checker", value: "pending_approval" },
             { label: "Approved", value: "approved" },
             { label: "Sent", value: "sent" },
             { label: "Partially received", value: "partially_received" },
@@ -234,20 +238,24 @@ export function PurchaseOrdersPage() {
                       <td className="px-5 py-3 text-right">
                         {canEdit && po.status === "draft" && (
                           <div className="flex items-center justify-end gap-1.5">
-                            {canApprove && (
-                              <button onClick={() => approve.mutate(po.id)} disabled={approve.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
-                                <CheckCircle2 className="h-3 w-3" /> Approve
-                              </button>
-                            )}
+                            <button onClick={() => submit.mutate(po.id)} disabled={submit.isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
+                              <Send className="h-3 w-3" /> Send for approval
+                            </button>
                             <button onClick={() => { if (window.confirm(`Delete draft ${po.po_number}?`)) remove.mutate(po.id); }}
                               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
                               <Trash2 className="h-3 w-3" />
                             </button>
                           </div>
                         )}
+                        {po.status === "pending_approval" && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
+                            <CheckCircle2 className="h-3 w-3" /> Awaiting checker
+                          </span>
+                        )}
                         {canEdit && po.status === "approved" && (
                           <button onClick={() => send.mutate(po.id)} disabled={send.isPending}
+                            title="Legacy order approved before the checker gate — mark it sent to unblock receiving"
                             className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
                             <Send className="h-3 w-3" /> Mark sent
                           </button>

@@ -98,7 +98,7 @@ export function StockAllocationPanel() {
   if (soQ.isLoading || stQ.isLoading) return <TableSkeleton rows={6} cols={8} />;
   const stock = new Map<string, number>();
   for (const r of (stQ.data as any)?.rows ?? []) stock.set(r.sku, (stock.get(r.sku) ?? 0) + r.quantity);
-  const lines = (soQ.data ?? []).filter((s: any) => ["draft", "confirmed"].includes(s.status)).flatMap((s: any) => (s.lines ?? []).map((l: any) => ({ so: s.so_number, ...l }))).slice(0, 20);
+  const lines = (soQ.data ?? []).filter((s: any) => ["approved", "confirmed", "partially_dispatched"].includes(s.status)).flatMap((s: any) => (s.lines ?? []).map((l: any) => ({ so: s.so_number, ...l }))).slice(0, 20);
   return (
     <SectionCard title="Allocation board" subtitle="Open order lines vs on-hand stock">
       {lines.length === 0 ? <EmptyState icon={Boxes} title="Nothing to allocate" /> : (

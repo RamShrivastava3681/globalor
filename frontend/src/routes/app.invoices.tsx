@@ -22,16 +22,17 @@ import {
 } from "recharts";
 
 export const Route = createFileRoute("/app/invoices")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string; createFromSo?: string } => ({
     tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
+    createFromSo: (search.createFromSo as string) || undefined,
   }),
   component: InvoicesPage,
 });
 
 export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromSo?: string } });
   const routeTab = (routerSearch as any)?.tab as string | undefined;
   const routeView = (routerSearch as any)?.view as string | undefined;
   const [localTab, setLocalTab] = useState<string | null>(null);
@@ -688,7 +689,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
 
-      {soInvoiceOpen && <CreateFromSoModal onClose={() => setSoInvoiceOpen(false)} />}
+      {soInvoiceOpen && <CreateFromSoModal presetSoId={(routerSearch as any)?.createFromSo} onClose={() => setSoInvoiceOpen(false)} />}
 
       {paymentTarget && (
         <RecordPaymentModal
@@ -3020,12 +3021,12 @@ function MassImportModal({ onClose, customers }: { onClose: () => void; customer
 // the backend computes the advance deduction from received advances on the
 // linked customer proforma. The invoice NEVER reduces stock.
 
-function CreateFromSoModal({ onClose }: { onClose: () => void }) {
+function CreateFromSoModal({ onClose, presetSoId }: { onClose: () => void; presetSoId?: string }) {
   const qc = useQueryClient();
   const { canWrite } = useAuth();
   const canCreate = canWrite("invoices");
 
-  const [soId, setSoId] = useState("");
+  const [soId, setSoId] = useState(presetSoId ?? "");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState("");
   const [termsDays, setTermsDays] = useState("30");
@@ -3043,7 +3044,7 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
 
   const invoicable = useMemo(() => {
     const list = (soQ.data ?? []).filter((so: any) =>
-      ["confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id
+      ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id
     );
     return list.sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || ""));
   }, [soQ.data]);
@@ -3069,6 +3070,20 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
   const updateLine = (idx: number, patch: Partial<{ quantity: string; unit_price: string; discount_pct: string; gst_rate: string }>) => {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   };
+
+  // Deep-link support (tasks page routes here with createFromSo): once the
+  // SO list resolves, auto-pick the preset order and prefill the lines.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current || !presetSoId || soId || soQ.isLoading) return;
+    const so = invoicable.find((s: any) => s.id === presetSoId);
+    if (so) {
+      presetAppliedRef.current = true;
+      pickSo(so.id);
+    } else if (!soQ.isLoading) {
+      presetAppliedRef.current = true; // not invoicable / missing — stop retrying
+    }
+  }, [presetSoId, soId, soQ.isLoading, invoicable]);
 
   // Received advances on the linked customer proforma — the backend deducts
   // the higher of this and grand total × advance rate, so the preview must too.
@@ -3162,7 +3177,7 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
             {invoicable.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">No confirmed sales orders with a customer yet. Confirm an SO on the Sales Orders page first.</p>
+              <p className="mt-1 text-xs text-muted-foreground">No approved sales orders with a customer yet. Send an SO for approval — it becomes invoicable once the checker approves it.</p>
             )}
           </Field>
 
