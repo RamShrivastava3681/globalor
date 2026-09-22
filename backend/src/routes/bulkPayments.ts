@@ -12,7 +12,7 @@ import { requireAuth, requireAnyWriteAccess, getCompanyFilter, type AuthRequest 
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
-import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -260,6 +260,15 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     }
 
     // ── 5. Create payment record with remaining balance ──
+    // Denormalize the customer name so history never shows "Unknown" even if the
+    // master record is later deleted or lives under a different company scope.
+    let denormCustomerName: string | undefined;
+    try {
+      const custHit = await getCustomerById(parsed.customer_id).catch(() => undefined);
+      denormCustomerName = custHit?.name ?? undefined;
+    } catch {
+      denormCustomerName = undefined;
+    }
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
@@ -275,7 +284,8 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       mode: parsed.mode,
       created_at: now,
       updated_at: now,
-    };
+      ...(denormCustomerName ? { customer_name: denormCustomerName } : {}),
+    } as PaymentRecord;
     await putItem(TABLES.PAYMENTS, paymentRecord as any);
 
     // ── 6. Consume old remaining balances ──
@@ -343,32 +353,172 @@ router.get("/balance/:customerId", requireAuth, async (req: AuthRequest, res: Re
 // Returns payment records enriched with customer names, optionally filtered by customer_id.
 router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const customerId = req.query.customer_id as string | undefined;
+    const customerId = (req.query.customer_id as string | undefined)?.trim() || undefined;
 
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!));
 
-    // Filter by customer if specified
+    // Filter by customer if specified (match raw id as well as vendor_/supplier_-prefixed variants
+    // so old records stored without a prefix are still found).
     let filtered = payments;
     if (customerId) {
-      filtered = payments.filter((p) => p.customer_id === customerId);
+      const stripped = customerId.replace(/^(vendor_|supplier_)/, "");
+      const variants = new Set([customerId, stripped, `vendor_${stripped}`, `supplier_${stripped}`]);
+      filtered = payments.filter((p) => {
+        const pid = (p.customer_id ?? "").trim();
+        if (variants.has(pid)) return true;
+        const pStripped = pid.replace(/^(vendor_|supplier_)/, "");
+        if (pStripped && variants.has(pStripped)) return true;
+        // Legacy rows may only carry debtor_id (import script writes both, but be defensive)
+        const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
+        if (did && variants.has(did)) return true;
+        return false;
+      });
     }
 
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with party names (customers/debtors + vendors)
-    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
-    const customerMap = new Map(allCustomers.map((d) => [d.id, d.name]));
-    const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));
-    // Keep legacy supplier prefix for backward compatibility with old records
-    const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, getCompanyFilter(req.user!));
-    const supplierMap = new Map(allSuppliers.map((s) => [`supplier_${s.id}`, s.company_name]));
+    // Enrich with party names (customers/debtors + vendors).
+    // Company-scoped scans can miss rows imported with a null/mismatched company_id,
+    // and old rows may store raw ids without the vendor_/supplier_ prefix — so resolve
+    // defensively across direct, stripped, and cross-table lookups.
+    const companyFilter = getCompanyFilter(req.user!);
+    const [allCustomers, allVendors, allSuppliers] = await Promise.all([
+      scanCustomersMerged(companyFilter as any),
+      scanTable<{ id: string; name: string }>(TABLES.VENDORS, companyFilter),
+      scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, companyFilter),
+    ]);
+    const customerById = new Map(allCustomers.map((d) => [String(d.id).trim(), d.name]));
+    const vendorById = new Map(allVendors.map((v) => [String(v.id).trim(), v.name]));
+    const supplierById = new Map(allSuppliers.map((s) => [String(s.id).trim(), s.company_name]));
 
-    const enriched = filtered.map((p) => ({
-      ...p,
-      customer_name: customerMap.get(p.customer_id) ?? vendorMap.get(p.customer_id) ?? supplierMap.get(p.customer_id) ?? "Unknown",
-    }));
+    const resolveName = (rawId: string | null | undefined): string | undefined => {
+      const pid = (rawId ?? "").trim();
+      if (!pid) return undefined;
+      // 1. Direct hits (new rows: raw customer id, or vendor_<id> for purchase rows)
+      if (customerById.has(pid)) return customerById.get(pid);
+      if (vendorById.has(pid.replace(/^vendor_/, "")) && pid.startsWith("vendor_")) {
+        return vendorById.get(pid.replace(/^vendor_/, ""));
+      }
+      if (supplierById.has(pid.replace(/^supplier_/, "")) && pid.startsWith("supplier_")) {
+        return supplierById.get(pid.replace(/^supplier_/, ""));
+      }
+      const stripped = pid.replace(/^(vendor_|supplier_)/, "");
+      // 2. Cross-table fallback: raw vendor/supplier ids stored without a prefix (legacy rows)
+      if (vendorById.has(stripped)) return vendorById.get(stripped);
+      if (supplierById.has(stripped)) return supplierById.get(stripped);
+      if (customerById.has(stripped)) return customerById.get(stripped);
+      return undefined;
+    };
+
+    // Company-mismatch fallback: for ids still unresolved, try an unscoped direct
+    // lookup (imported rows may carry company_id null while masters are company-scoped).
+    const unresolvedIds = new Set<string>();
+    for (const p of filtered) {
+      const stored = ((p as any).customer_name ?? "").trim();
+      if (stored && stored !== "Unknown") continue;
+      if (!resolveName(p.customer_id) && !resolveName((p as any).debtor_id)) {
+        const pid = (p.customer_id ?? "").trim();
+        if (pid) unresolvedIds.add(pid);
+      }
+    }
+    const fallbackNames = new Map<string, string>();
+    if (unresolvedIds.size > 0) {
+      await Promise.all([...unresolvedIds].map(async (pid) => {
+        const stripped = pid.replace(/^(vendor_|supplier_)/, "");
+        try {
+          // Try debtors/customers first (sales rows store raw customer ids)
+          const [fromDebtors, fromCustomers] = await Promise.all([
+            getItem(TABLES.DEBTORS, { id: pid }).catch(() => null) as Promise<any>,
+            getItem(TABLES.CUSTOMERS, { id: pid }).catch(() => null) as Promise<any>,
+          ]);
+          const hit = fromDebtors ?? fromCustomers;
+          if (hit?.name) {
+            fallbackNames.set(pid, hit.name);
+            return;
+          }
+          // Try vendor/supplier by stripped id (purchase rows, legacy raw ids)
+          const [fromVendor, fromSupplier, fromVendorRaw, fromSupplierRaw] = await Promise.all([
+            getItem(TABLES.VENDORS, { id: stripped }).catch(() => null) as Promise<any>,
+            getItem(TABLES.SUPPLIERS, { id: stripped }).catch(() => null) as Promise<any>,
+            pid !== stripped ? getItem(TABLES.VENDORS, { id: pid }).catch(() => null) as Promise<any> : Promise.resolve(null),
+            pid !== stripped ? getItem(TABLES.SUPPLIERS, { id: pid }).catch(() => null) as Promise<any> : Promise.resolve(null),
+          ]);
+          const vHit = fromVendor ?? fromVendorRaw;
+          if (vHit?.name) {
+            fallbackNames.set(pid, vHit.name);
+            return;
+          }
+          const sHit = fromSupplier ?? fromSupplierRaw;
+          if (sHit?.company_name) {
+            fallbackNames.set(pid, sHit.company_name);
+          }
+        } catch {
+          // Best-effort only — leave unresolved for the invoice fallback below
+        }
+      }));
+    }
+
+    // Invoice fallback: if the party master was deleted, derive the name from the
+    // first closed/partial invoice linked to the payment.
+    const invoiceIdsNeeded = new Set<string>();
+    for (const p of filtered) {
+      const stored = ((p as any).customer_name ?? "").trim();
+      if (stored && stored !== "Unknown") continue;
+      if (resolveName(p.customer_id) || resolveName((p as any).debtor_id) || fallbackNames.has((p.customer_id ?? "").trim())) continue;
+      const firstClosed = (p.closed_invoices ?? [])[0]?.id;
+      const firstPartial = ((p as any).partial_invoices ?? [])[0]?.id;
+      const invId = firstClosed ?? firstPartial;
+      if (invId) invoiceIdsNeeded.add(invId);
+    }
+    const invoiceNames = new Map<string, string>();
+    if (invoiceIdsNeeded.size > 0) {
+      const [salesById, purchaseById] = await Promise.all([
+        Promise.all([...invoiceIdsNeeded].map((id) => getItem(TABLES.INVOICES, { id }).catch(() => null) as Promise<any>)),
+        Promise.all([...invoiceIdsNeeded].map((id) => getItem(TABLES.PURCHASE_INVOICES, { id }).catch(() => null) as Promise<any>)),
+      ]);
+      const salesList = salesById.filter(Boolean);
+      const purchaseList = purchaseById.filter(Boolean);
+      // Resolve party names for the found invoices in bulk
+      const [invCustomers, invVendors] = await Promise.all([
+        scanCustomersMerged(companyFilter as any).catch(() => [] as any[]),
+        scanTable<{ id: string; name: string }>(TABLES.VENDORS, companyFilter).catch(() => [] as any[]),
+      ]);
+      const invCustomerMap = new Map(invCustomers.map((d: any) => [String(d.id).trim(), d.name]));
+      const invVendorMap = new Map(invVendors.map((v: any) => [String(v.id).trim(), v.name]));
+      for (const inv of salesList) {
+        const partyId = String(inv.customer_id ?? inv.debtor_id ?? "").trim();
+        const nm = (partyId && invCustomerMap.get(partyId)) || inv.customer_name || inv.debtor_name || undefined;
+        if (nm) invoiceNames.set(inv.id, nm);
+      }
+      for (const inv of purchaseList) {
+        const vid = String(inv.vendor_id ?? inv.supplier_id ?? "").trim();
+        const nm = (vid && invVendorMap.get(vid)) || inv.vendor_name || inv.supplier_name || undefined;
+        if (nm) invoiceNames.set(inv.id, nm);
+      }
+    }
+
+    const enriched = filtered.map((p) => {
+      const stored = ((p as any).customer_name ?? "").trim();
+      const pid = (p.customer_id ?? "").trim();
+      const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
+      const firstClosed = (p.closed_invoices ?? [])[0]?.id;
+      const firstPartial = ((p as any).partial_invoices ?? [])[0]?.id;
+      const invFallback = (firstClosed && invoiceNames.get(firstClosed))
+        ?? (firstPartial && invoiceNames.get(firstPartial))
+        ?? undefined;
+      const customer_name = (stored && stored !== "Unknown" ? stored : undefined)
+        ?? resolveName(pid)
+        ?? (did ? resolveName(did) : undefined)
+        ?? fallbackNames.get(pid)
+        ?? (did ? fallbackNames.get(did) : undefined)
+        ?? invFallback
+        ?? "Unknown";
+      return {
+        ...p,
+        customer_name,
+      };
+    });
 
     // Calculate totals
     const totalRemaining = enriched.reduce((s, p) => s + Number(p.remaining), 0);
@@ -775,6 +925,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     }
 
     // ── 6. Create payment record with remaining balance ──
+    // Denormalize the vendor name so history never shows "Unknown".
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
@@ -790,7 +941,8 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       mode: parsed.mode,
       created_at: now,
       updated_at: now,
-    };
+      customer_name: vendor.name,
+    } as PaymentRecord;
     await putItem(TABLES.PAYMENTS, paymentRecord as any);
 
     // ── 7. Consume old remaining balances ──

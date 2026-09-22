@@ -403,6 +403,35 @@ export function BulkPaymentsPage() {
   const selectedSupplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
   const selectedPartyName = isSupplier ? selectedSupplier?.name : selectedCustomer?.name;
 
+  // Client-side fallback so history never shows "Unknown" when the backend
+  // couldn't resolve the master (deleted party, prefix mismatch, etc.).
+  const partyNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of customersQ.data ?? []) {
+      if (c?.id) map.set(String(c.id), c.name);
+    }
+    for (const s of suppliersQ.data ?? []) {
+      if (!s?.id) continue;
+      map.set(String(s.id), s.name);
+      map.set(`vendor_${s.id}`, s.name);
+      map.set(`supplier_${s.id}`, s.name);
+    }
+    return map;
+  }, [customersQ.data, suppliersQ.data]);
+
+  const resolveHistoryName = useCallback(
+    (p: PaymentHistoryRecord): string => {
+      const backendName = (p.customer_name ?? "").trim();
+      if (backendName && backendName.toLowerCase() !== "unknown") return p.customer_name;
+      const pid = (p.customer_id ?? "").trim();
+      if (pid && partyNameMap.has(pid)) return partyNameMap.get(pid)!;
+      const stripped = pid.replace(/^(vendor_|supplier_)/, "");
+      if (stripped && partyNameMap.has(stripped)) return partyNameMap.get(stripped)!;
+      return p.customer_name || "Unknown";
+    },
+    [partyNameMap],
+  );
+
   // ── Handlers ──
   const resetSelections = () => {
     setSelectedInvoiceIds(new Set());
@@ -1208,7 +1237,7 @@ export function BulkPaymentsPage() {
                       {(historyQ.data?.payments ?? []).map((p) => (
                         <HistoryRow
                           key={p.id}
-                          payment={p}
+                          payment={{ ...p, customer_name: resolveHistoryName(p) }}
                           onReversed={() => {
                             qc.invalidateQueries({ queryKey: ["bulk-payment-history"] });
                             qc.invalidateQueries({ queryKey: ["bulk-payment-balance"] });
@@ -1260,7 +1289,7 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
     }
   };
 
-  const isSupplierPayment = payment.customer_id?.startsWith("supplier_");
+  const isSupplierPayment = payment.customer_id?.startsWith("supplier_") || payment.customer_id?.startsWith("vendor_");
 
   return (
     <>
@@ -1291,7 +1320,7 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
           </span>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{payment.invoices_closed}</td>
-        <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{payment.credit_note_ids.length || "—"}</td>
+        <td className="px-5 py-3 text-right font-mono text-xs text-muted-foreground">{(payment.credit_note_ids ?? []).length || "—"}</td>
         <td className="px-5 py-3 text-center">
           <button
             onClick={() => setConfirmOpen(true)}
@@ -1318,8 +1347,8 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
               </p>
               <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
                 <li>{payment.invoices_closed} invoice{payment.invoices_closed !== 1 ? "s" : ""} will be reopened</li>
-                {payment.credit_note_ids.length > 0 && (
-                  <li>{payment.credit_note_ids.length} credit note{payment.credit_note_ids.length !== 1 ? "s" : ""} will be restored to approved</li>
+                {(payment.credit_note_ids ?? []).length > 0 && (
+                  <li>{(payment.credit_note_ids ?? []).length} credit note{(payment.credit_note_ids ?? []).length !== 1 ? "s" : ""} will be restored to approved</li>
                 )}
                 {payment.remaining > 0 && (
                   <li>Remaining balance of {fmtMoney(payment.remaining)} will be removed</li>

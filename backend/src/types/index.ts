@@ -1052,6 +1052,8 @@ export interface PaymentRecord {
   client_id: string;
   company_id: string | null;
   customer_id: string;
+  /** Denormalized party name (customer or vendor) — prevents "Unknown" in history. */
+  customer_name?: string;
   amount: number;
   payment_date: string;
   remaining: number;
