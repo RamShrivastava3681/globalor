@@ -351,42 +351,27 @@ router.get("/balance/:customerId", requireAuth, async (req: AuthRequest, res: Re
 
 // ── GET /api/bulk-payments/history ──
 // Returns payment records enriched with customer names, optionally filtered by customer_id.
+//
+// Legacy context: the display-only import wrote the OLD Dynamo `debtor_id` into
+// `customer_id`/`debtor_id`, while live invoices + the customer master now use
+// NEW `customer_id`s (sales re-imports generate fresh ids). Old invoice ids stored
+// inside `closed_invoices`/`partial_invoices` are equally stale. The one stable
+// key across both eras is `invoice_number`, so resolution + filtering fall back
+// to an invoice-number → current-party mapping (majority vote across the
+// payment's linked invoices).
 router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const customerId = (req.query.customer_id as string | undefined)?.trim() || undefined;
 
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!));
 
-    // Filter by customer if specified (match raw id as well as vendor_/supplier_-prefixed variants
-    // so old records stored without a prefix are still found).
-    let filtered = payments;
-    if (customerId) {
-      const stripped = customerId.replace(/^(vendor_|supplier_)/, "");
-      const variants = new Set([customerId, stripped, `vendor_${stripped}`, `supplier_${stripped}`]);
-      filtered = payments.filter((p) => {
-        const pid = (p.customer_id ?? "").trim();
-        if (variants.has(pid)) return true;
-        const pStripped = pid.replace(/^(vendor_|supplier_)/, "");
-        if (pStripped && variants.has(pStripped)) return true;
-        // Legacy rows may only carry debtor_id (import script writes both, but be defensive)
-        const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
-        if (did && variants.has(did)) return true;
-        return false;
-      });
-    }
-
-    // Sort by created_at descending (most recent first)
-    filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-
-    // Enrich with party names (customers/debtors + vendors).
-    // Company-scoped scans can miss rows imported with a null/mismatched company_id,
-    // and old rows may store raw ids without the vendor_/supplier_ prefix — so resolve
-    // defensively across direct, stripped, and cross-table lookups.
     const companyFilter = getCompanyFilter(req.user!);
-    const [allCustomers, allVendors, allSuppliers] = await Promise.all([
+    const [allCustomers, allVendors, allSuppliers, allSalesInvoices, allPurchaseInvoices] = await Promise.all([
       scanCustomersMerged(companyFilter as any),
       scanTable<{ id: string; name: string }>(TABLES.VENDORS, companyFilter),
       scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, companyFilter),
+      scanTable<Invoice>(TABLES.INVOICES, companyFilter).catch(() => [] as Invoice[]),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, companyFilter).catch(() => [] as PurchaseInvoice[]),
     ]);
     const customerById = new Map(allCustomers.map((d) => [String(d.id).trim(), d.name]));
     const vendorById = new Map(allVendors.map((v) => [String(v.id).trim(), v.name]));
@@ -411,13 +396,134 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
       return undefined;
     };
 
+    // ── Stable cross-era maps: invoice_number (lower-trimmed) → current party ──
+    // Old payment rows carry old debtor/invoice ids, but invoice_numbers survive
+    // sales re-imports (which mint fresh customer + invoice ids).
+    const normNum = (n: unknown) => String(n ?? "").trim().toLowerCase();
+    const salesNumToParty = new Map<string, string>();
+    const salesNumToName = new Map<string, string>();
+    const salesIdToParty = new Map<string, string>();
+    for (const inv of allSalesInvoices) {
+      const partyId = String((inv as any).customer_id ?? (inv as any).debtor_id ?? "").trim();
+      const key = normNum((inv as any).invoice_number);
+      if (inv.id && partyId) salesIdToParty.set(String(inv.id).trim(), partyId);
+      if (!key || !partyId) continue;
+      if (!salesNumToParty.has(key)) {
+        salesNumToParty.set(key, partyId);
+        salesNumToName.set(key, customerById.get(partyId) ?? (inv as any).customer_name ?? (inv as any).debtor_name ?? "");
+      }
+    }
+    const purchaseNumToParty = new Map<string, string>();
+    const purchaseNumToName = new Map<string, string>();
+    const purchaseIdToParty = new Map<string, string>();
+    for (const inv of allPurchaseInvoices) {
+      const partyId = String((inv as any).vendor_id ?? (inv as any).supplier_id ?? "").trim();
+      const key = normNum((inv as any).invoice_number);
+      if (inv.id && partyId) purchaseIdToParty.set(String(inv.id).trim(), partyId);
+      if (!key || !partyId) continue;
+      if (!purchaseNumToParty.has(key)) {
+        purchaseNumToParty.set(key, partyId);
+        purchaseNumToName.set(key, vendorById.get(partyId) ?? (inv as any).vendor_name ?? (inv as any).supplier_name ?? "");
+      }
+    }
+
+    const paymentInvoiceEntries = (p: PaymentRecord): Array<{ id: string; invoice_number: string }> => ([
+      ...((p.closed_invoices ?? []) as Array<any>),
+      ...(((p as any).partial_invoices ?? []) as Array<any>),
+    ]).map((e) => ({ id: String(e?.id ?? "").trim(), invoice_number: String(e?.invoice_number ?? "").trim() }));
+
+    // Majority vote across the payment's linked invoices → current party id + name.
+    // Returns the current `customer_id` (raw customer id, or `vendor_<id>` for AP rows)
+    // so both display and `?customer_id=` filtering work for remapped rows.
+    const resolveViaInvoices = (p: PaymentRecord): { partyId?: string; name?: string } => {
+      const isAP = (p.customer_id ?? "").trim().startsWith("vendor_")
+        || (p.customer_id ?? "").trim().startsWith("supplier_");
+      const votes = new Map<string, { count: number; name?: string }>();
+      for (const e of paymentInvoiceEntries(p)) {
+        // a) linked invoice id still matches a live invoice (new rows, or un-reimported eras)
+        const liveParty = salesIdToParty.get(e.id) ?? purchaseIdToParty.get(e.id);
+        if (liveParty) {
+          const nm = resolveName(liveParty)
+            ?? salesNumToName.get(normNum(e.invoice_number))
+            ?? purchaseNumToName.get(normNum(e.invoice_number));
+          const key = isAP && !/^(vendor_|supplier_)/.test(liveParty) && purchaseIdToParty.get(e.id)
+            ? `vendor_${liveParty}` : liveParty;
+          const v = votes.get(key) ?? { count: 0, name: nm };
+          v.count += 1;
+          if (!v.name && nm) v.name = nm;
+          votes.set(key, v);
+          continue;
+        }
+        // b) stale id but invoice_number survives the re-import → current party
+        if (e.invoice_number) {
+          const nk = normNum(e.invoice_number);
+          const sp = !isAP ? salesNumToParty.get(nk) : undefined;
+          const pp = purchaseNumToParty.get(nk);
+          const party = sp ?? pp;
+          if (party) {
+            const nm = (!isAP ? salesNumToName.get(nk) : undefined)
+              ?? purchaseNumToName.get(nk)
+              ?? resolveName(party);
+            // Normalise AP keys to the `vendor_<id>` shape new rows use
+            const key = (pp && !/^(vendor_|supplier_)/.test(party)) ? `vendor_${party}` : party;
+            const v = votes.get(key) ?? { count: 0, name: nm || undefined };
+            v.count += 1;
+            if (!v.name && nm) v.name = nm;
+            votes.set(key, v);
+          }
+        }
+      }
+      let best: string | undefined;
+      let bestCount = 0;
+      for (const [k, v] of votes) {
+        if (v.count > bestCount) {
+          best = k;
+          bestCount = v.count;
+        }
+      }
+      if (!best) return {};
+      return { partyId: best, name: votes.get(best)?.name || resolveName(best) };
+    };
+
+    // Pre-resolve every payment once (used for both filtering + enrichment).
+    const resolvedByPayment = new Map<string, { partyId?: string; name?: string }>();
+    for (const p of payments) {
+      resolvedByPayment.set(p.id, resolveViaInvoices(p));
+    }
+
+    // Filter by customer if specified: match raw id variants (old + new), plus
+    // the invoice-number-resolved current party so old debtor_id rows show up
+    // when filtering by the NEW customer_id.
+    let filtered = payments;
+    if (customerId) {
+      const stripped = customerId.replace(/^(vendor_|supplier_)/, "");
+      const variants = new Set([customerId, stripped, `vendor_${stripped}`, `supplier_${stripped}`]);
+      const normVariant = (v: string) => v.trim();
+      filtered = payments.filter((p) => {
+        const pid = (p.customer_id ?? "").trim();
+        if (variants.has(pid)) return true;
+        const pStripped = pid.replace(/^(vendor_|supplier_)/, "");
+        if (pStripped && variants.has(pStripped)) return true;
+        // Legacy rows may only carry debtor_id (import script writes both, but be defensive)
+        const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
+        if (did && (variants.has(did) || variants.has(did.replace(/^(vendor_|supplier_)/, "")))) return true;
+        // Cross-era match: old debtor_id row → current customer via invoice numbers
+        const resolved = resolvedByPayment.get(p.id)?.partyId ?? "";
+        if (resolved && (variants.has(normVariant(resolved)) || variants.has(normVariant(resolved.replace(/^(vendor_|supplier_)/, ""))))) return true;
+        return false;
+      });
+    }
+
+    // Sort by created_at descending (most recent first)
+    filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+
     // Company-mismatch fallback: for ids still unresolved, try an unscoped direct
     // lookup (imported rows may carry company_id null while masters are company-scoped).
     const unresolvedIds = new Set<string>();
     for (const p of filtered) {
       const stored = ((p as any).customer_name ?? "").trim();
       if (stored && stored !== "Unknown") continue;
-      if (!resolveName(p.customer_id) && !resolveName((p as any).debtor_id)) {
+      if (!resolveName(p.customer_id) && !resolveName((p as any).debtor_id) && !resolvedByPayment.get(p.id)?.name) {
         const pid = (p.customer_id ?? "").trim();
         if (pid) unresolvedIds.add(pid);
       }
@@ -459,13 +565,13 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
       }));
     }
 
-    // Invoice fallback: if the party master was deleted, derive the name from the
-    // first closed/partial invoice linked to the payment.
+    // Invoice fallback by live id: if the party master was deleted, derive the name
+    // from a still-matching live invoice id linked to the payment.
     const invoiceIdsNeeded = new Set<string>();
     for (const p of filtered) {
       const stored = ((p as any).customer_name ?? "").trim();
       if (stored && stored !== "Unknown") continue;
-      if (resolveName(p.customer_id) || resolveName((p as any).debtor_id) || fallbackNames.has((p.customer_id ?? "").trim())) continue;
+      if (resolveName(p.customer_id) || resolveName((p as any).debtor_id) || fallbackNames.has((p.customer_id ?? "").trim()) || resolvedByPayment.get(p.id)?.name) continue;
       const firstClosed = (p.closed_invoices ?? [])[0]?.id;
       const firstPartial = ((p as any).partial_invoices ?? [])[0]?.id;
       const invId = firstClosed ?? firstPartial;
@@ -480,12 +586,8 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
       const salesList = salesById.filter(Boolean);
       const purchaseList = purchaseById.filter(Boolean);
       // Resolve party names for the found invoices in bulk
-      const [invCustomers, invVendors] = await Promise.all([
-        scanCustomersMerged(companyFilter as any).catch(() => [] as any[]),
-        scanTable<{ id: string; name: string }>(TABLES.VENDORS, companyFilter).catch(() => [] as any[]),
-      ]);
-      const invCustomerMap = new Map(invCustomers.map((d: any) => [String(d.id).trim(), d.name]));
-      const invVendorMap = new Map(invVendors.map((v: any) => [String(v.id).trim(), v.name]));
+      const invCustomerMap = customerById;
+      const invVendorMap = vendorById;
       for (const inv of salesList) {
         const partyId = String(inv.customer_id ?? inv.debtor_id ?? "").trim();
         const nm = (partyId && invCustomerMap.get(partyId)) || inv.customer_name || inv.debtor_name || undefined;
@@ -507,16 +609,23 @@ router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
       const invFallback = (firstClosed && invoiceNames.get(firstClosed))
         ?? (firstPartial && invoiceNames.get(firstPartial))
         ?? undefined;
+      const viaInvoices = resolvedByPayment.get(p.id);
       const customer_name = (stored && stored !== "Unknown" ? stored : undefined)
         ?? resolveName(pid)
         ?? (did ? resolveName(did) : undefined)
         ?? fallbackNames.get(pid)
         ?? (did ? fallbackNames.get(did) : undefined)
+        ?? viaInvoices?.name
         ?? invFallback
         ?? "Unknown";
+      // Expose the resolved current party so the UI filter + future repairs can use it.
+      const resolved_customer_id = viaInvoices?.partyId && !resolveName(pid) && !resolveName(did)
+        ? viaInvoices.partyId
+        : undefined;
       return {
         ...p,
         customer_name,
+        ...(resolved_customer_id ? { resolved_customer_id } : {}),
       };
     });
 

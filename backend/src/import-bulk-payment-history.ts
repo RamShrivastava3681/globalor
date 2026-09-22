@@ -13,7 +13,8 @@
  *   npx tsx src/import-bulk-payment-history.ts "C:\Users\ramsh\Downloads\results (1).csv" [--dry-run]
  */
 import fs from "node:fs";
-import { getItem, putItem, TABLES } from "./db/client.js";
+import { getItem, putItem, scanTable, TABLES } from "./db/client.js";
+import { scanCustomersMerged } from "./utils/customers.js";
 
 const VALID_MODES = new Set(["manual", "fifo", "two_pass_fifo", "on_account"]);
 
@@ -119,9 +120,34 @@ async function main() {
   const rows = parseCsv(fs.readFileSync(filePath, "utf-8"));
   console.log(`   Rows in CSV: ${rows.length}`);
 
+  // Cross-era resolution: old `debtor_id`s no longer match the live customer master
+  // (sales re-imports mint fresh customer + invoice ids). Build
+  // invoice_number -> current customer maps once so imported rows store the NEW
+  // customer_id up front (legacy id preserved in `debtor_id`) + denormalized name.
+  const normNum = (n: unknown) => String(n ?? "").trim().toLowerCase();
+  const [liveCustomers, liveVendors, liveInvoices] = await Promise.all([
+    scanCustomersMerged(undefined as any).catch(() => [] as any[]),
+    scanTable<{ id: string; name: string }>(TABLES.VENDORS, undefined as any).catch(() => []),
+    scanTable<any>(TABLES.INVOICES, undefined as any).catch(() => []),
+  ]);
+  const liveCustomerById = new Map(liveCustomers.map((c: any) => [String(c.id).trim(), c.name]));
+  const liveVendorById = new Map(liveVendors.map((v: any) => [String(v.id).trim(), v.name]));
+  const invoiceNumToCustomer = new Map<string, { id: string; name: string }>();
+  for (const inv of liveInvoices) {
+    const key = normNum(inv.invoice_number);
+    const partyId = String(inv.customer_id ?? inv.debtor_id ?? "").trim();
+    if (!key || !partyId || invoiceNumToCustomer.has(key)) continue;
+    invoiceNumToCustomer.set(key, {
+      id: partyId,
+      name: liveCustomerById.get(partyId) ?? inv.customer_name ?? inv.debtor_name ?? "",
+    });
+  }
+  console.log(`   Live customers: ${liveCustomers.length} | invoices for remap: ${invoiceNumToCustomer.size}`);
+
   let inserted = 0;
   let skipped = 0;
   let errors = 0;
+  let remapped = 0;
 
   for (const [idx, row] of rows.entries()) {
     const id = (row.id ?? "").trim();
@@ -140,11 +166,44 @@ async function main() {
       const closedRaw = parseInvoiceList(row.closed_invoices ?? "");
       const partialRaw = parseInvoiceList(row.partial_invoices ?? "");
       const mode = VALID_MODES.has((row.mode ?? "").trim()) ? (row.mode.trim() as any) : "two_pass_fifo";
-      const customerId = (row.debtor_id ?? "").trim();
-      if (!customerId) {
+      const legacyDebtorId = (row.debtor_id ?? "").trim();
+      if (!legacyDebtorId) {
         errors++;
         console.log(`   ⚠️  Row ${idx + 1} (${id}): missing debtor_id, skipping.`);
         continue;
+      }
+
+      // Resolve legacy debtor_id -> current customer_id via invoice_number majority
+      // vote. Falls back to the legacy id when no live invoice matches (the
+      // history endpoint still resolves those at read time).
+      let customerId = legacyDebtorId;
+      let customerName: string | undefined;
+      if (!liveCustomerById.has(legacyDebtorId)) {
+        const votes = new Map<string, { count: number; name: string }>();
+        for (const e of [...closedRaw, ...partialRaw]) {
+          const hit = invoiceNumToCustomer.get(normNum(e.invoice_number));
+          if (!hit?.id) continue;
+          const v = votes.get(hit.id) ?? { count: 0, name: hit.name };
+          v.count += 1;
+          votes.set(hit.id, v);
+        }
+        let best: string | undefined;
+        let bestCount = 0;
+        for (const [k, v] of votes) {
+          if (v.count > bestCount) {
+            best = k;
+            bestCount = v.count;
+          }
+        }
+        if (best) {
+          customerId = best;
+          customerName = votes.get(best)?.name || liveCustomerById.get(best);
+          remapped++;
+        } else {
+          customerName = liveVendorById.get(legacyDebtorId);
+        }
+      } else {
+        customerName = liveCustomerById.get(legacyDebtorId);
       }
 
       const record: Record<string, unknown> = {
@@ -152,7 +211,8 @@ async function main() {
         client_id: (row.client_id ?? "").trim(),
         company_id: (row.company_id ?? "").trim() || null,
         customer_id: customerId,
-        debtor_id: customerId,
+        debtor_id: legacyDebtorId,
+        ...(customerName ? { customer_name: customerName } : {}),
         amount: Number(row.amount) || 0,
         payment_date: (row.payment_date ?? "").trim(),
         remaining: Number(row.remaining) || 0,
@@ -188,11 +248,12 @@ async function main() {
   }
 
   if (dryRun) {
-    console.log(`\n   DRY RUN — would insert ${inserted}, skip-existing ${skipped}, errors ${errors}. No changes written.`);
+    console.log(`\n   DRY RUN — would insert ${inserted}, skip-existing ${skipped}, errors ${errors}, remapped to current customer_id ${remapped}. No changes written.`);
     console.log("   NOTE: this import writes ONLY to PAYMENTS (history display). No invoices are closed.");
   } else {
-    console.log(`\n\n✅ Done — inserted ${inserted}, already-existed (skipped) ${skipped}, errors ${errors}.`);
+    console.log(`\n\n✅ Done — inserted ${inserted}, already-existed (skipped) ${skipped}, errors ${errors}, remapped ${remapped}.`);
     console.log("   Invoices were NOT touched (display-only history import).");
+    console.log("   Already-imported rows with stale debtor_ids: run npx tsx src/repair-bulk-payment-customers.ts [--dry-run] to remap them.");
   }
 }
 
