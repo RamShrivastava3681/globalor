@@ -87,13 +87,18 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
 
     const buckets: Bucket[] = [
       { id: "main", label: "MAIN", entries: pick(["Dashboard", "My Queue", "Checker"]) },
-      { id: "sales", label: "SALES & CUSTOMERS", entries: pick(["Sales"]) },
-      { id: "proc", label: "PROCUREMENT & SUPPLIERS", entries: pick(["Procurement"]) },
-      { id: "prod", label: "PRODUCTS & INVENTORY", entries: pick(["Product Catalogue", "Warehouse Control", "Logistics"]) },
-      { id: "fin", label: "FINANCE", entries: pick(["Finance"]) },
-      { id: "rep", label: "REPORTS & SYSTEM", entries: pick(["Reports"]) },
+      {
+        id: "operations",
+        label: "OPERATIONS",
+        entries: pick(["Sales", "Procurement", "Product Catalogue", "Warehouse Control", "Logistics"]),
+      },
+      { id: "finance", label: "FINANCE & INSIGHTS", entries: pick(["Finance", "Reports"]) },
+      // System is rendered as an expandable row inside ADMINISTRATION (see below).
+      { id: "admin", label: "ADMINISTRATION", entries: [] },
     ];
-    return buckets.filter((b) => b.entries.length > 0);
+    // Keep ADMINISTRATION visible when the System group itself is visible,
+    // even though it has no direct entries.
+    return buckets.filter((b) => b.entries.length > 0 || b.id === "admin");
   }, [has, isViewer, checkerCount, queueCount]);
 }
 
@@ -145,11 +150,11 @@ export function AppSidebar({
 
   const rowCls = (active: boolean) =>
     cn(
-      "group relative flex h-10 w-full items-center gap-3 rounded-[10px] px-3 text-[13.5px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      "group relative flex h-[44px] w-full items-center gap-3 rounded-lg px-3 text-[14px] tracking-[-0.005em] transition-[background-color,color] duration-150 ease-in-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       collapsed && "justify-center px-0",
       active
-        ? "bg-[#e9f3fe] text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary"
-        : "text-[#334155] hover:bg-[#f1f5f9] hover:text-[#0e1b2c] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-accent-foreground",
+        ? "bg-[#eaf1fd] font-medium text-[#0b5fc0] dark:bg-sidebar-accent dark:text-sidebar-primary"
+        : "font-normal text-[#1e2a3b] hover:bg-[#f2f6fb] hover:text-[#0e1b2c] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-accent-foreground",
     );
 
   const renderBadge = (n?: number, label?: string) => {
@@ -165,19 +170,19 @@ export function AppSidebar({
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-white dark:bg-sidebar">
-      {/* 2.1 Brand header */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0067c2] dark:bg-sidebar-primary">
-          <span className="text-[17px] font-bold text-white dark:text-sidebar-primary-foreground">W</span>
+    <div className="flex h-full w-full flex-col bg-white font-sans antialiased dark:bg-sidebar">
+      {/* Brand header — compact */}
+      <div className={cn("flex h-[60px] shrink-0 items-center gap-2.5 px-4", collapsed && "justify-center px-0")}>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#0b5fc0] dark:bg-sidebar-primary">
+          <span className="text-[15px] font-bold text-white dark:text-sidebar-primary-foreground">W</span>
         </span>
         {!collapsed && (
           <>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[16px] font-bold tracking-tight text-[#0e1b2c] dark:text-sidebar-accent-foreground">
+            <span className="min-w-0 flex-1 leading-none">
+              <span className="block truncate text-[15px] font-bold tracking-tight text-[#0f1f33] dark:text-sidebar-accent-foreground">
                 Whizunik
               </span>
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.24em] text-[#64748b] dark:text-muted-foreground">
+              <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.22em] text-[#8b95a7] dark:text-muted-foreground">
                 Command
               </span>
             </span>
@@ -185,116 +190,164 @@ export function AppSidebar({
               <button
                 onClick={onToggleCollapse}
                 aria-label="Collapse sidebar"
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#9aa6bb] transition-colors duration-150 hover:bg-[#f2f6fb] hover:text-[#1e2a3b] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
               >
-                <ChevronsLeft className="h-4 w-4" strokeWidth={1.8} />
+                <ChevronsLeft className="h-4 w-4" strokeWidth={2} />
               </button>
             )}
           </>
         )}
       </div>
       {collapsed && !hideCollapse && (
-        <div className="flex justify-center pb-1">
+        <div className="flex shrink-0 justify-center pb-2">
           <button
             onClick={onToggleCollapse}
             aria-label="Expand sidebar"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#64748b] transition-colors hover:bg-[#f1f5f9] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[#9aa6bb] transition-colors duration-150 hover:bg-[#f2f6fb] hover:text-[#1e2a3b] dark:text-muted-foreground dark:hover:bg-sidebar-accent"
           >
-            <ChevronsRight className="h-4 w-4" strokeWidth={1.8} />
+            <ChevronsRight className="h-4 w-4" strokeWidth={2} />
           </button>
         </div>
       )}
 
-      {/* 2.2 Nav region */}
-      <nav aria-label="Primary" className="flex-1 space-y-4 overflow-y-auto px-3 py-2">
-        {buckets.map((bucket) => (
-          <div key={bucket.id}>
-            <div className="flex flex-col gap-[2px]">
-              {bucket.entries.map((e) => {
-                const active = isActive(e.to);
-                const Icon = e.icon;
-                return (
-                  <Link
-                    key={e.to + e.label}
-                    to={e.to}
-                    search={preserveSearch as any}
-                    onClick={onNavigate}
-                    aria-current={active ? "page" : undefined}
-                    title={collapsed ? e.label : undefined}
-                    aria-label={e.label}
-                    className={rowCls(active)}
-                  >
-                    {active && (
-                      <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[#0067c2]" />
-                    )}
-                    <Icon
-                      className={cn("h-5 w-5 shrink-0", active ? "text-[#0067c2] dark:text-sidebar-primary" : "text-[#64748b] dark:text-muted-foreground")}
-                      strokeWidth={1.8}
-                    />
-                    {!collapsed && <span className="truncate">{e.label}</span>}
-                    {!collapsed ? renderBadge(e.badge, e.label) : renderBadge(e.badge, e.label)}
-                  </Link>
-                );
-              })}
-
-              {/* System group lives at the end of REPORTS & SYSTEM */}
-              {bucket.id === "rep" && systemVisible.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setSystemOpen((v) => !v)}
-                    aria-expanded={systemOpen}
-                    aria-label="System"
-                    title={collapsed ? "System" : undefined}
-                    className={rowCls(systemActive || systemOpen)}
-                  >
-                    {(systemActive || systemOpen) && (
-                      <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[#0067c2]" />
-                    )}
-                    <Settings
-                      className={cn("h-5 w-5 shrink-0", systemActive ? "text-[#0067c2] dark:text-sidebar-primary" : "text-[#64748b] dark:text-muted-foreground")}
-                      strokeWidth={1.8}
-                    />
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 text-left">System</span>
-                        <ChevronRight
-                          className={cn("h-4 w-4 transition-transform", systemOpen && "rotate-90")}
-                          strokeWidth={1.8}
+      {/* Nav region — 16px horizontal padding, 18px section rhythm */}
+      <nav aria-label="Primary" className={cn("flex-1 overflow-y-auto pt-1 pb-4", collapsed ? "px-3" : "px-4")}>
+        <div className="flex flex-col gap-[18px]">
+          {buckets.map((bucket) => {
+            if (bucket.id === "admin" && systemVisible.length === 0) return null;
+            return (
+              <section key={bucket.id} aria-label={bucket.label}>
+                {!collapsed && (
+                  <p className="mb-[7px] px-3 text-[11px] leading-4 font-semibold tracking-[0.08em] text-[#8b95a7] uppercase dark:text-muted-foreground">
+                    {bucket.label}
+                  </p>
+                )}
+                <div className="flex flex-col gap-[2px]">
+                  {bucket.entries.map((e) => {
+                    const active = isActive(e.to);
+                    const Icon = e.icon;
+                    return (
+                      <Link
+                        key={e.to + e.label}
+                        to={e.to}
+                        search={preserveSearch as any}
+                        onClick={onNavigate}
+                        aria-current={active ? "page" : undefined}
+                        title={collapsed ? e.label : undefined}
+                        aria-label={e.label}
+                        className={rowCls(active)}
+                      >
+                        {active && (
+                          <span
+                            aria-hidden
+                            className="absolute top-1/2 left-0 h-[18px] w-[3px] -translate-y-1/2 rounded-r-full bg-[#0b5fc0]"
+                          />
+                        )}
+                        <Icon
+                          className={cn(
+                            "h-[20px] w-[20px] shrink-0",
+                            active ? "text-[#0b5fc0] dark:text-sidebar-primary" : "text-[#687892] dark:text-muted-foreground",
+                          )}
+                          strokeWidth={2}
                         />
-                      </>
-                    )}
-                  </button>
-                  {systemOpen && !collapsed && (
-                    <div className="mt-1 ml-4 border-l border-[#e5ebf2] pl-3 dark:border-sidebar-border">
-                      {systemVisible.map((c) => {
-                        const active = isActive(c.to);
-                        const CIcon = c.icon;
-                        return (
-                          <Link
-                            key={c.to}
-                            to={c.to}
-                            search={preserveSearch as any}
-                            onClick={onNavigate}
-                            aria-current={active ? "page" : undefined}
-                            className={cn(
-                              "flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
-                              active
-                                ? "bg-[#e9f3fe] text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary"
-                                : "text-[#334155] hover:bg-[#f1f5f9] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent",
-                            )}
-                          >
-                            <CIcon className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-                            <span className="truncate">{c.label}</span>
-                          </Link>
-                        );
-                      })}
+                        {!collapsed && <span className="truncate">{e.label}</span>}
+                        {renderBadge(e.badge, e.label)}
+                      </Link>
+                    );
+                  })}
+
+                  {/* System — expandable row inside ADMINISTRATION */}
+                  {bucket.id === "admin" && systemVisible.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (collapsed) {
+                            onToggleCollapse();
+                            setSystemOpen(true);
+                            return;
+                          }
+                          setSystemOpen((v) => !v);
+                        }}
+                        aria-expanded={systemOpen}
+                        aria-label="System"
+                        title={collapsed ? "System" : undefined}
+                        className={cn(rowCls(systemActive), "cursor-pointer")}
+                      >
+                        {systemActive && (
+                          <span
+                            aria-hidden
+                            className="absolute top-1/2 left-0 h-[18px] w-[3px] -translate-y-1/2 rounded-r-full bg-[#0b5fc0]"
+                          />
+                        )}
+                        <Settings
+                          className={cn(
+                            "h-[20px] w-[20px] shrink-0",
+                            systemActive ? "text-[#0b5fc0] dark:text-sidebar-primary" : "text-[#687892] dark:text-muted-foreground",
+                          )}
+                          strokeWidth={2}
+                        />
+                        {!collapsed && (
+                          <>
+                            <span className="flex-1 truncate text-left">System</span>
+                            <ChevronRight
+                              className={cn(
+                                "h-4 w-4 shrink-0 text-[#9aa6bb] transition-transform duration-200 ease-in-out",
+                                systemOpen && "rotate-90",
+                              )}
+                              strokeWidth={2}
+                            />
+                          </>
+                        )}
+                      </button>
+                      {/* Smooth expand / collapse */}
+                      <div
+                        className={cn(
+                          "grid transition-[grid-template-rows] duration-200 ease-in-out",
+                          systemOpen && !collapsed ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                        )}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="mt-[2px] ml-[26px] flex flex-col gap-[2px] border-l border-[#e5ebf2] pl-3 dark:border-sidebar-border">
+                            {systemVisible.map((c) => {
+                              const active = isActive(c.to);
+                              const CIcon = c.icon;
+                              return (
+                                <Link
+                                  key={c.to}
+                                  to={c.to}
+                                  search={preserveSearch as any}
+                                  onClick={onNavigate}
+                                  aria-current={active ? "page" : undefined}
+                                  tabIndex={systemOpen && !collapsed ? 0 : -1}
+                                  className={cn(
+                                    "flex h-[38px] items-center gap-3 rounded-lg px-3 text-[13.5px] transition-[background-color,color] duration-150 ease-in-out",
+                                    active
+                                      ? "bg-[#eaf1fd] font-medium text-[#0b5fc0] dark:bg-sidebar-accent dark:text-sidebar-primary"
+                                      : "font-normal text-[#1e2a3b] hover:bg-[#f2f6fb] dark:text-sidebar-foreground dark:hover:bg-sidebar-accent",
+                                  )}
+                                >
+                                  <CIcon
+                                    className={cn(
+                                      "h-4 w-4 shrink-0",
+                                      active ? "text-[#0b5fc0]" : "text-[#687892]",
+                                    )}
+                                    strokeWidth={2}
+                                  />
+                                  <span className="truncate">{c.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-        ))}
+              </section>
+            );
+          })}
+        </div>
       </nav>
     </div>
   );

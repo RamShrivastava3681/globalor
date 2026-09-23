@@ -690,6 +690,7 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
                       <th className="px-4 py-2 text-left font-normal">Due</th>
                       <th className="px-4 py-2 text-left font-normal">Paid</th>
                       <th className="px-4 py-2 text-right font-normal">Payment days</th>
+                      <th className="px-4 py-2 text-right font-normal">Late days</th>
                       <th className="px-4 py-2 text-left font-normal">Status</th>
                     </tr>
                   </thead>
@@ -697,6 +698,11 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
                     {visibleInvoices.map((inv: any) => {
                       const paymentDays = inv.status === "paid" && inv.issue_date && inv.paid_date
                         ? daysBetween(inv.issue_date, inv.paid_date)
+                        : null;
+                      // Late days = days between due date and payment date (clamped at 0).
+                      // Prefer the stored value when the backend provides it.
+                      const lateDays = inv.status === "paid" && inv.due_date && inv.paid_date
+                        ? (inv.late_days != null ? Number(inv.late_days) : Math.max(0, daysBetween(inv.due_date, inv.paid_date)))
                         : null;
 
                       const isSelected = selectedIds.has(inv.id);
@@ -723,6 +729,9 @@ function CustomerDetailModal({ customer, invoices, onClose }: { customer: any; i
                           <td className="px-4 py-2.5 text-sm">{inv.status === "paid" ? fmtDate(inv.paid_date) : "—"}</td>
                           <td className={`px-4 py-2.5 text-right num ${paymentDays != null && paymentDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
                             {paymentDays != null ? `${paymentDays}d` : "—"}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right num ${lateDays != null && lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                            {lateDays != null ? `${lateDays}d` : "—"}
                           </td>
 
                           <td className="px-4 py-2.5"><StatusPill status={inv.status} /></td>

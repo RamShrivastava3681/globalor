@@ -133,14 +133,14 @@ function AppLayout() {
     { value: "system", label: "System", icon: Monitor },
   ];
 
-  const sidebarWidth = collapsed ? "w-[68px]" : "w-[260px]";
+  const sidebarWidth = collapsed ? "w-[68px]" : "w-[248px]";
 
   return (
     <>
       <CommandPalette items={paletteItems} />
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <div className="flex h-screen w-full overflow-hidden bg-[#f5f7fa] dark:bg-background">
-          <SheetContent side="left" className="w-[280px] p-0">
+          <SheetContent side="left" className="w-[272px] p-0">
             <AppSidebar
               collapsed={false}
               onToggleCollapse={() => {}}
@@ -151,10 +151,9 @@ function AppLayout() {
             />
           </SheetContent>
 
-          {/* Desktop Sidebar — sticky, 260px / 68px */}
+          {/* Desktop Sidebar — fixed left, compact 248px / 68px collapsed */}
           <aside
-            className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#e5ebf2] bg-white transition-[width] duration-200 ease-linear md:flex dark:bg-sidebar dark:border-sidebar-border ${sidebarWidth}`}
-            style={{ boxShadow: "4px 0 24px -12px rgba(10,34,57,0.18)" }}
+            className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#e5ebf2] bg-white transition-[width] duration-200 ease-in-out md:flex dark:bg-sidebar dark:border-sidebar-border ${sidebarWidth}`}
             data-slot="sidebar-aside"
           >
             <AppSidebar
