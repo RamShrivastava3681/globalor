@@ -549,8 +549,29 @@ router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-purchase-o
       message: `Purchase order ${existing.po_number} approved by checker and sent — goods can now be received`,
       created_by: req.user!.id,
     });
-    // My Queue: review tasks done → receive-goods task opens.
+     // My Queue: review tasks done → next task branches on payment_terms (Advance → proforma, else invoice) + GRN
     completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    const isAdv = String(existing.payment_terms ?? "").trim().toLowerCase() === "advance";
+    if (isAdv) {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "purchase_order", stage: "create_proforma", doc_type: "purchase_order",
+        doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+        doc_status: "sent", owner_role: "purchase",
+        required_action: `Create purchase proforma for ${existing.po_number} (advance terms)`,
+        next_action: "Send to checker", amount: existing.grand_total,
+        linked_docs: [{ type: "purchase_order", id: existing.id, number: existing.po_number }],
+      });
+    } else {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "purchase_order", stage: "create_invoice", doc_type: "purchase_order",
+        doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+        doc_status: "sent", owner_role: "purchase",
+        required_action: `Create purchase invoice for ${existing.po_number}`,
+        next_action: "Verify & pay", amount: existing.grand_total,
+        linked_docs: [{ type: "purchase_order", id: existing.id, number: existing.po_number }],
+      });
+    }
+    // GRN still available in parallel once sent
     ensureTask(existing.company_id, existing.client_id, {
       workflow_type: "purchase_order", stage: "await_goods", doc_type: "purchase_order",
       doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { TaskDetailDrawer } from "@/components/workflow/task-detail-drawer";
+import { CreateProformaModal, CreateInvoiceModal, PaymentModal } from "@/components/workflow/workflow-modals";
 
 export const Route = createFileRoute("/app/queue")({
   component: QueuePage,
@@ -87,6 +89,18 @@ export function QueuePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<"issue" | "due">("due");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  const [activeTab, setActiveTab] = useState<"workflow" | "funding">("workflow");
+  const [workflowFilter, setWorkflowFilter] = useState<"all" | "warehouse" | "checker" | "proforma" | "invoice" | "grn">("all");
+  const [detailTask, setDetailTask] = useState<any | null>(null);
+  const [proformaTask, setProformaTask] = useState<any | null>(null);
+  const [invoiceTask, setInvoiceTask] = useState<any | null>(null);
+  const [paymentTask, setPaymentTask] = useState<any | null>(null);
+  const workflowQ = useQuery({
+    queryKey: ["workflow-queue"],
+    queryFn: async () => (await api.get<any[]>("/workflow-tasks?status=open")) ?? [],
+    refetchInterval: 15000,
+  });
 
   // Payment history
   const [payHistoryOpen, setPayHistoryOpen] = useState(false);
@@ -355,11 +369,16 @@ export function QueuePage() {
               Treasury Desk
             </div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-foreground md:text-3xl">
-              Funding Queue
+              My Queue
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              Manage approved funding, settlements, advances, and incoming collections from one treasury workspace.
+              Workflow orchestrator — purchase and sales from order to GRN/dispatch with Advance branching. Funding queue below.
             </p>
+            <div className="mt-3 flex gap-2">
+              {(["workflow", "funding"] as const).map((t) => (
+                <button key={t} onClick={() => setActiveTab(t)} className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${activeTab === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{t === "workflow" ? "Workflow" : "Funding"}</button>
+              ))}
+            </div>
             <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
@@ -382,7 +401,10 @@ export function QueuePage() {
         </div>
       </section>
 
-      {isLoading ? (
+      {activeTab === "workflow" && (
+        <WorkflowPanel tasks={workflowQ.data ?? []} filter={workflowFilter} setFilter={setWorkflowFilter} onDetail={setDetailTask} onProforma={setProformaTask} onInvoice={setInvoiceTask} onPayment={setPaymentTask} />
+      )}
+      {activeTab === "funding" && (isLoading ? (
         <QueueSkeleton />
       ) : (
         <>
@@ -824,7 +846,12 @@ export function QueuePage() {
             </div>
           </section>
         </>
-      )}
+      ))}
+
+      {detailTask && <TaskDetailDrawer task={detailTask} onClose={() => setDetailTask(null)} />}
+      {proformaTask && <CreateProformaModal task={proformaTask} onClose={() => setProformaTask(null)} />}
+      {invoiceTask && <CreateInvoiceModal task={invoiceTask} onClose={() => setInvoiceTask(null)} />}
+      {paymentTask && <PaymentModal task={paymentTask} onClose={() => setPaymentTask(null)} />}
 
       {/* ═══════════════════════════════════════════════════════════════
          MODALS (all preserved exactly)
@@ -1507,6 +1534,83 @@ function MassImportPurchaseReceiptsModal({ purchasesData, onClose, onDone }: { p
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowPanel({ tasks, filter, setFilter, onDetail, onProforma, onInvoice, onPayment }: any) {
+  const qc = useQueryClient();
+  const approvePO = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-purchase-orders/${t.doc_id}/approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Purchase order approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const rejectPO = useMutation({
+    mutationFn: async ({ t, comments }: any) => { await api.post(`/goods-purchase-orders/${t.doc_id}/reject`, { comments }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Rejected"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const approveSOWh = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-sales-orders/${t.doc_id}/warehouse-approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Warehouse approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const approveSOChk = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-sales-orders/${t.doc_id}/approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Sales order approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const list = (tasks as any[]).filter((t) => {
+    if (filter === "all") return true;
+    if (filter === "warehouse") return t.owner_role === "warehouse";
+    if (filter === "checker") return t.owner_role === "checker";
+    if (filter === "proforma") return t.workflow_type === "proforma" || String(t.stage).includes("proforma");
+    if (filter === "invoice") return String(t.workflow_type).includes("invoice");
+    if (filter === "grn") return t.workflow_type === "grn" || String(t.stage).includes("grn");
+    return true;
+  });
+  const counts = {
+    warehouse: (tasks as any[]).filter((t) => t.owner_role === "warehouse").length,
+    checker: (tasks as any[]).filter((t) => t.owner_role === "checker").length,
+    proforma: (tasks as any[]).filter((t) => String(t.stage).includes("proforma")).length,
+    invoice: (tasks as any[]).filter((t) => String(t.workflow_type).includes("invoice")).length,
+  };
+  if (!tasks.length) return <div className="rounded-xl border border-border bg-card p-12 text-center"><div className="text-sm text-muted-foreground">No workflow tasks — all caught up. Create a PO or SO to see the queue.</div></div>;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {(["all","warehouse","checker","proforma","invoice","grn"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${filter===f ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{f}{f!=="all" ? ` (${(counts as any)[f] ?? 0})` : ` (${tasks.length})`}</button>
+        ))}
+      </div>
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
+          <thead><tr className="border-b border-border text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-4 py-2 text-left">Doc</th><th className="px-4 py-2 text-left">Counterparty</th><th className="px-4 py-2 text-left">Action</th><th className="px-4 py-2 text-left">Owner</th><th className="px-4 py-2 text-right">Amount</th><th className="px-4 py-2 text-right">Actions</th></tr></thead>
+          <tbody>
+            {list.map((t: any) => (
+              <tr key={t.id} className="border-b border-border/60 hover:bg-muted/30">
+                <td className="px-4 py-2"><button onClick={() => onDetail(t)} className="font-mono text-xs font-semibold text-primary hover:underline">{t.doc_number}</button><div className="text-[11px] text-muted-foreground">{t.workflow_type} · {t.stage}</div></td>
+                <td className="px-4 py-2 text-xs">{t.counterparty ?? "—"}</td>
+                <td className="px-4 py-2 text-xs">{t.required_action}</td>
+                <td className="px-4 py-2"><span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${t.owner_role==="checker" ? "border-warning/40 bg-warning/10 text-warning" : t.owner_role==="warehouse" ? "border-info/40 bg-info/10 text-info" : "border-border"}`}>{t.owner_role}</span></td>
+                <td className="px-4 py-2 text-right font-mono text-xs">{t.amount != null ? fmtMoney(t.amount) : "—"}</td>
+                <td className="px-4 py-2 text-right">
+                  <div className="flex justify-end gap-1.5 flex-wrap">
+                    <button onClick={() => onDetail(t)} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">View</button>
+                    {t.workflow_type==="purchase_order" && t.stage==="approve" && <><button onClick={() => approvePO.mutate(t)} disabled={approvePO.isPending} className="rounded-md bg-success px-2 py-1 text-xs font-medium text-white disabled:opacity-60">Approve</button><button onClick={() => { const c = prompt("Reject reason"); if (c !== null) rejectPO.mutate({t, comments: c}); }} className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive">Reject</button></>}
+                    {t.workflow_type==="sales_order" && t.stage==="warehouse_approve" && <button onClick={() => approveSOWh.mutate(t)} className="rounded-md bg-success px-2 py-1 text-xs text-white">Approve WH</button>}
+                    {t.workflow_type==="sales_order" && t.stage==="checker_approve" && <button onClick={() => approveSOChk.mutate(t)} className="rounded-md bg-success px-2 py-1 text-xs text-white">Approve Checker</button>}
+                    {String(t.stage)==="create_proforma" && <button onClick={() => onProforma(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Create Proforma</button>}
+                    {String(t.stage)==="create_invoice" && <button onClick={() => onInvoice(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Create Invoice</button>}
+                    {(String(t.stage)==="record_payment" || String(t.stage)==="record_utr") && <button onClick={() => onPayment(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Upload {String(t.doc_type).includes("purchase") ? "UTR" : "UTR/IRN"}</button>}
+                    {String(t.stage)==="create_grn" && <button onClick={() => onDetail(t)} className="rounded-md border border-primary/40 px-2 py-1 text-xs text-primary">Create GRN</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
       </div>
     </div>
   );

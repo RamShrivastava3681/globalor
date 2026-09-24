@@ -34,6 +34,7 @@ import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
+import { Route as AppProductsCreateRouteImport } from './routes/app.products-create'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppProductSkusRouteImport } from './routes/app.product-skus'
 import { Route as AppProductSkuDetailRouteImport } from './routes/app.product-sku-detail'
@@ -184,6 +185,11 @@ const AppPurchaseOrdersRoute = AppPurchaseOrdersRouteImport.update({
 const AppProformasRoute = AppProformasRouteImport.update({
   id: '/proformas',
   path: '/proformas',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProductsCreateRoute = AppProductsCreateRouteImport.update({
+  id: '/products-create',
+  path: '/products-create',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProductsRoute = AppProductsRouteImport.update({
@@ -345,6 +351,7 @@ export interface FileRoutesByFullPath {
   '/app/product-sku-detail': typeof AppProductSkuDetailRoute
   '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
+  '/app/products-create': typeof AppProductsCreateRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
@@ -398,6 +405,7 @@ export interface FileRoutesByTo {
   '/app/product-sku-detail': typeof AppProductSkuDetailRoute
   '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
+  '/app/products-create': typeof AppProductsCreateRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
@@ -451,6 +459,7 @@ export interface FileRoutesById {
   '/app/product-sku-detail': typeof AppProductSkuDetailRoute
   '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
+  '/app/products-create': typeof AppProductsCreateRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
@@ -506,6 +515,7 @@ export interface FileRouteTypes {
     | '/app/product-sku-detail'
     | '/app/product-skus'
     | '/app/products'
+    | '/app/products-create'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
@@ -559,6 +569,7 @@ export interface FileRouteTypes {
     | '/app/product-sku-detail'
     | '/app/product-skus'
     | '/app/products'
+    | '/app/products-create'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
@@ -611,6 +622,7 @@ export interface FileRouteTypes {
     | '/app/product-sku-detail'
     | '/app/product-skus'
     | '/app/products'
+    | '/app/products-create'
     | '/app/proformas'
     | '/app/purchase-orders'
     | '/app/purchases'
@@ -820,6 +832,13 @@ declare module '@tanstack/react-router' {
       path: '/proformas'
       fullPath: '/app/proformas'
       preLoaderRoute: typeof AppProformasRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/products-create': {
+      id: '/app/products-create'
+      path: '/products-create'
+      fullPath: '/app/products-create'
+      preLoaderRoute: typeof AppProductsCreateRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/products': {
@@ -1046,6 +1065,7 @@ interface AppRouteChildren {
   AppProductSkuDetailRoute: typeof AppProductSkuDetailRoute
   AppProductSkusRoute: typeof AppProductSkusRoute
   AppProductsRoute: typeof AppProductsRoute
+  AppProductsCreateRoute: typeof AppProductsCreateRoute
   AppProformasRoute: typeof AppProformasRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
@@ -1093,6 +1113,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProductSkuDetailRoute: AppProductSkuDetailRoute,
   AppProductSkusRoute: AppProductSkusRoute,
   AppProductsRoute: AppProductsRoute,
+  AppProductsCreateRoute: AppProductsCreateRoute,
   AppProformasRoute: AppProformasRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppPurchasesRoute: AppPurchasesRoute,

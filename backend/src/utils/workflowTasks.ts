@@ -204,6 +204,11 @@ const TERMINAL = new Set([
 ]);
 const isTerminal = (s: unknown) => TERMINAL.has(String(s ?? "").toLowerCase());
 
+function isAdvanceTerms(v: unknown): boolean {
+  const t = String(v ?? "").trim().toLowerCase();
+  return t === "advance" || t === "advance payment" || t === "advance_payment" || t.startsWith("advance");
+}
+
 function pickStr(...vals: unknown[]): string | null {
   for (const v of vals) {
     if (v !== null && v !== undefined && String(v).trim() !== "") return String(v);
@@ -250,13 +255,16 @@ export function deriveOpenTasks(docs: {
       out.push({ ...base, stage: "warehouse_approve", doc_status: st, owner_role: "warehouse", required_action: `Approve sales order ${n} (warehouse)`, next_action: "Checker approval" });
     } else if (st === "pending_checker_approval") {
       out.push({ ...base, stage: "checker_approve", doc_status: st, owner_role: "checker", required_action: `Approve sales order ${n} (checker)`, next_action: "Dispatch & invoice" });
-    } else if (["approved", "confirmed", "partially_dispatched", "partiallydispatched"].includes(st)) {
-      // Advance payment terms divert into the proforma/funding track.
-      const terms = String(d.payment_terms ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-      if (terms === "advance") {
-        out.push({ ...base, stage: "create_proforma", doc_status: st, owner_role: "sales", required_action: `Create proforma for sales order ${n} (advance payment terms)`, next_action: "Checker approval" });
+    } else if (["approved", "confirmed", "sent", "partially_dispatched", "partiallydispatched"].includes(st)) {
+      if (isAdvanceTerms(d.payment_terms)) {
+        const hasProforma = docs.proformas.some((p: any) => String(p.linked_po_id ?? p.linkedPoId ?? "") === String(d.id) || String(p.side ?? "").toLowerCase() === "sales" && String(p.po_number ?? "") === String(d.so_number ?? ""));
+        if (!hasProforma) {
+          out.push({ ...base, stage: "create_proforma", doc_status: st, owner_role: "sales", required_action: `Create proforma for sales order ${n} (advance terms)`, next_action: "Checker approval", linked_docs: [{ type: "sales_order", id: String(d.id), number: n }] });
+        } else {
+          out.push({ ...base, stage: "create_invoice", doc_status: st, owner_role: "sales", required_action: `Create sales invoice for ${n} (proforma linked)`, next_action: "Record UTR / IRN", linked_docs: [{ type: "sales_order", id: String(d.id), number: n }] });
+        }
       } else {
-        out.push({ ...base, stage: "dispatch_invoice", doc_status: st, owner_role: "sales", required_action: `Dispatch or invoice ${n}`, next_action: "Create tax invoice" });
+        out.push({ ...base, stage: "dispatch_invoice", doc_status: st, owner_role: "sales", required_action: `Dispatch or invoice ${n}`, next_action: "Create tax invoice", linked_docs: [{ type: "sales_order", id: String(d.id), number: n }] });
       }
     } else if (!isTerminal(st)) {
       out.push({ ...base, stage: "create_invoice", doc_status: st, owner_role: "sales", required_action: `Create tax invoice for ${n}`, next_action: "Record UTR" });
@@ -272,9 +280,22 @@ export function deriveOpenTasks(docs: {
     if (st === "draft") {
       out.push({ ...base, stage: "submit", doc_status: st, owner_role: "purchase", required_action: `Send purchase order ${n} to checker`, next_action: "Checker approval" });
     } else if (st === "pending_approval" || st === "pendingapproval") {
-      out.push({ ...base, stage: "approve", doc_status: st, owner_role: "checker", required_action: `Approve purchase order ${n} (checker)`, next_action: "Auto-sent — receive goods" });
-    } else if (st === "partially_received" || st === "partiallyreceived") {
-      out.push({ ...base, stage: "create_grn", doc_status: st, owner_role: "warehouse", required_action: `Create GRN for ${n}`, next_action: "Create GRN" });
+      out.push({ ...base, stage: "approve", doc_status: st, owner_role: "checker", required_action: `Approve purchase order ${n} (checker)`, next_action: "Create proforma or invoice" });
+    } else if (["sent", "approved", "partially_received", "partiallyreceived"].includes(st)) {
+      // Branch on payment terms: Advance → proforma, else invoice. Avoid duplicate proforma task if one already exists.
+      const hasProforma = docs.proformas.some((p: any) => String(p.linked_po_id ?? p.linkedPoId ?? p.po_id ?? "") === String(d.id));
+      const advance = isAdvanceTerms(d.payment_terms ?? (d as any).paymentTerms);
+      if (advance && !hasProforma) {
+        out.push({ ...base, stage: "create_proforma", doc_status: st, owner_role: "purchase", required_action: `Create purchase proforma for ${n} (advance terms)`, next_action: "Checker approval", linked_docs: [{ type: "purchase_order", id: String(d.id), number: n }] });
+      } else if (advance && hasProforma) {
+        out.push({ ...base, stage: "create_invoice", doc_status: st, owner_role: "purchase", required_action: `Create purchase invoice for ${n} (proforma linked)`, next_action: "Verify & pay", linked_docs: [{ type: "purchase_order", id: String(d.id), number: n }] });
+      } else {
+        out.push({ ...base, stage: "create_invoice", doc_status: st, owner_role: "purchase", required_action: `Create purchase invoice for ${n}`, next_action: "Verify & pay", linked_docs: [{ type: "purchase_order", id: String(d.id), number: n }] });
+      }
+      // Also surface GRN action when goods are expected
+      if (st === "partially_received" || st === "partiallyreceived" || st === "sent") {
+        out.push({ ...base, stage: "create_grn", doc_status: st, owner_role: "warehouse", required_action: `Create GRN for ${n}`, next_action: "Confirm receipt" });
+      }
     } else if (!isTerminal(st) && st !== "cancelled") {
       out.push({ ...base, stage: "await_goods", doc_status: st, owner_role: "warehouse", required_action: `Receive goods for ${n}`, next_action: "Create GRN" });
     }
