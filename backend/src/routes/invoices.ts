@@ -20,6 +20,7 @@ import type { Invoice, InvoiceLine, Customer, Profile, PurchaseInvoice, Vendor, 
 import type { StockMovement, MovementDirection } from "../types/index.js";
 import { scanCustomersMerged, getCustomerById, getInvoicePartyId, normalizeInvoiceParty } from "../utils/customers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { getFileStream } from "../s3/client.js";
 import { Readable } from "stream";
 
@@ -390,6 +391,8 @@ const createInvoiceSchema = z.object({
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
   purchase_invoice_ids: z.array(z.string()).optional().default([]),
+  /** Optional link to a goods sales order — traceability only. Amount/lines stay as typed; never mandatory. */
+  goods_sales_order_id: z.string().trim().max(200).nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
     item_name: z.string().min(1),
@@ -712,6 +715,18 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       created_by: req.user!.id,
     });
 
+    // My Queue: the SO invoice task is done; the new draft invoice needs review.
+    completeTasksForDoc(invoice.company_id, "sales_order", so.id, req.user!.id, "dispatch_invoice");
+    completeTasksForDoc(invoice.company_id, "sales_order", so.id, req.user!.id, "create_invoice");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: so.customer_name,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Review sales invoice ${invoice.invoice_number}`,
+      next_action: "Approve invoice", amount: netReceivable,
+      linked_docs: [{ type: "sales_order", id: so.id, number: so.so_number }],
+    });
+
     res.status(201).json(invoice);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -732,6 +747,20 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
 
     // Look up the customer to infer company_id for super admins (who have company_id = null)
     const customer = await getCustomerById(parsed.customer_id);
+
+    // Optional sales-order link (manual invoice): traceability only — the
+    // amount/lines stay exactly as typed. Deliberately no status gate: a
+    // manual invoice must stay creatable with or without an order.
+    let linkedSoId: string | null = parsed.goods_sales_order_id || null;
+    let linkedSoNumber: string | null = null;
+    if (linkedSoId) {
+      const so = await getItem(TABLES.GOODS_SALES_ORDERS, { id: linkedSoId }) as GoodsSalesOrder | undefined;
+      if (!so || (req.user!.company_id && so.company_id !== req.user!.company_id)) {
+        res.status(404).json({ error: "Linked sales order not found" });
+        return;
+      }
+      linkedSoNumber = so.so_number;
+    }
 
     // Due date is mandatory — never null. Always issue_date + terms (default 30).
     const termsDays = Number(parsed.payment_terms_days) > 0 ? Number(parsed.payment_terms_days) : 30;
@@ -774,6 +803,8 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       po_date: parsed.po_date || null,
       purchase_invoice_ids: parsed.purchase_invoice_ids || [],
       purchase_order_id: null,
+      goods_sales_order_id: linkedSoId,
+      goods_sales_order_number: linkedSoNumber,
       payment_terms_days: termsDays,
       bl_date: parsed.bl_date || null,
       due_date_source: parsed.due_date_source,
@@ -846,6 +877,15 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       severity: "info",
       message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${customer ? ` — ${customer.name}` : ""}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: new draft invoice needs review.
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: customer?.name ?? null,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Review sales invoice ${invoice.invoice_number}`,
+      next_action: "Approve invoice", amount: invoice.amount, due_date: dueDate,
     });
 
     res.status(201).json(invoice);
@@ -927,6 +967,16 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (r
       created_by: req.user!.id,
     });
 
+    // My Queue: review task done → checker approval task opens.
+    completeTasksForDoc(invoice.company_id, "sales_invoice", invoice.id, req.user!.id, "review");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "approve", doc_type: "sales_invoice",
+      doc_id: invoice.id, doc_number: invoice.invoice_number, counterparty: null,
+      doc_status: "submitted", owner_role: "checker",
+      required_action: `Approve sales invoice ${invoice.invoice_number} (checker)`,
+      next_action: "Record UTR", amount: invoice.amount, due_date: invoice.due_date ?? null,
+    });
+
     res.json(updated);
   } catch (err) {
     console.error("Submit invoice error:", err);
@@ -962,6 +1012,33 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
 
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Invoice not found" }); return; }
+    // My Queue: paid invoices drop out; checker decisions auto-advance.
+    const uStatus = String((updated as any).status ?? "");
+    const uCompany = (updated as any).company_id ?? req.user!.company_id;
+    if (uStatus === "paid") {
+      completeTasksForDoc(uCompany, "sales_invoice", req.params.id, req.user!.id);
+    } else if (uStatus === "approved" || uStatus === "rejected") {
+      const u = updated as any;
+      completeTasksForDoc(uCompany, "sales_invoice", req.params.id, req.user!.id);
+      const cp = await getCustomerById(u.customer_id).catch(() => null);
+      if (uStatus === "approved") {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "sales_invoice", stage: "record_utr", doc_type: "sales_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: cp?.name ?? null,
+          doc_status: "approved", owner_role: "treasury",
+          required_action: `Record UTR for ${u.invoice_number}`,
+          next_action: "Confirm receipt", amount: u.amount, due_date: u.due_date ?? null,
+        });
+      } else {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: cp?.name ?? null,
+          doc_status: "rejected", owner_role: "finance",
+          required_action: `Rework sales invoice ${u.invoice_number} (checker rejected)`,
+          next_action: "Resubmit", amount: u.amount,
+        });
+      }
+    }
     res.json(updated);
   } catch (err) {
     console.error("Update invoice error:", err);
@@ -973,6 +1050,8 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
 router.delete("/:id", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.INVOICES, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted invoice.
+    cancelTasksForDoc(req.user!.company_id, "sales_invoice", req.params.id, "Invoice deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete invoice error:", err);
@@ -1743,6 +1822,10 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
         : `Partial payment for ${invoice.invoice_number}: $${payment.toLocaleString()} ($${updated.amount_received.toLocaleString()} of $${amount.toLocaleString()})`,
       created_by: req.user!.id,
     });
+    // My Queue: fully-paid invoices drop out of the queue.
+    if ((updated as any).status === "paid") {
+      completeTasksForDoc(invoice.company_id, "sales_invoice", invoice.id, req.user!.id);
+    }
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {

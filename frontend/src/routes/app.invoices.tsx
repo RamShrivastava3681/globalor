@@ -22,19 +22,23 @@ import {
 } from "recharts";
 
 export const Route = createFileRoute("/app/invoices")({
-  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string; createFromSo?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string | undefined; createFromSo?: string | undefined; utrFor?: string | undefined; fromQueue?: string | undefined } => ({
     tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
     createFromSo: (search.createFromSo as string) || undefined,
+    utrFor: (search.utrFor as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
   }),
   component: InvoicesPage,
 });
 
 export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromSo?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromSo?: string; utrFor?: string; fromQueue?: string } });
   const routeTab = (routerSearch as any)?.tab as string | undefined;
   const routeView = (routerSearch as any)?.view as string | undefined;
+  const routeCreateFromSo = embedded ? undefined : ((routerSearch as any)?.createFromSo as string | undefined);
+  const routeUtrFor = embedded ? undefined : ((routerSearch as any)?.utrFor as string | undefined);
   const [localTab, setLocalTab] = useState<string | null>(null);
   const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
   const view = embedded ? undefined : routeView;
@@ -215,6 +219,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
     onSuccess: () => {
       toast.success("Invoice sent to checker for review");
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -227,6 +232,7 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
       toast.success(`${selectedIds.size} invoice${selectedIds.size !== 1 ? "s" : ""} sent to checker for review`);
       setSelectedIds(new Set());
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -302,6 +308,36 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
       })();
     }
   }, [view]);
+
+  // Deep-link from My Queue: ?createFromSo=<soId> auto-opens the
+  // "Invoice from sales order" modal with that order preselected.
+  useEffect(() => {
+    if (routeCreateFromSo && !embedded) {
+      setSoInvoiceOpen(true);
+    }
+  }, [routeCreateFromSo, embedded]);
+
+  // Deep-link from My Queue: ?utrFor=<invoiceId> opens the invoice detail
+  // (record UTR / payment actions live there).
+  useEffect(() => {
+    if (routeUtrFor && !embedded) {
+      (async () => {
+        const found = invoiceData.find((i: any) => i.id === routeUtrFor);
+        if (found) {
+          setViewing(found);
+        } else {
+          try {
+            const match = await api.get<any>("/invoices/" + routeUtrFor);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        navigate({ to: "/app/invoices", search: { tab, utrFor: undefined }, replace: true });
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeUtrFor]);
 
   // All filtering is now server-side — the data is already filtered before pagination
 
@@ -671,7 +707,21 @@ export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) 
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
 
-      {soInvoiceOpen && <CreateFromSoModal presetSoId={(routerSearch as any)?.createFromSo} onClose={() => setSoInvoiceOpen(false)} />}
+      {soInvoiceOpen && (
+        <CreateFromSoModal
+          presetSoId={(routerSearch as any)?.createFromSo}
+          onClose={() => {
+            setSoInvoiceOpen(false);
+            if (embedded) return;
+            if ((routerSearch as any)?.fromQueue) {
+              // Queue-driven flow: return to My Queue (task auto-completes server-side).
+              navigate({ to: "/app/tasks", replace: true });
+            } else if ((routerSearch as any)?.createFromSo) {
+              navigate({ to: "/app/invoices", search: { tab, createFromSo: undefined }, replace: true });
+            }
+          }}
+        />
+      )}
 
       {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} customers={customersQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
 
@@ -1200,6 +1250,31 @@ function CreateInvoiceView() {
     queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
 
+  // ── Optional sales-order link ──
+  // Picking an SO fetches customer, amount and payment terms from it. Leaving
+  // it empty keeps the fully manual flow — linking is never required.
+  const soQ = useQuery({
+    queryKey: ["goods_so_for_invoice"],
+    queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const invoicableSos = useMemo(() => ((soQ.data ?? []) as any[])
+    .filter((so: any) => ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id)
+    .sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || "")), [soQ.data]);
+  const [linkedSoId, setLinkedSoId] = useState("");
+  const linkedSo = useMemo(() => ((soQ.data ?? []) as any[]).find((s: any) => s.id === linkedSoId) ?? null, [soQ.data, linkedSoId]);
+  const applySo = (so: any) => {
+    setLinkedSoId(so.id);
+    setForm((prev: any) => {
+      const next: any = { ...prev, amount: so.grand_total != null ? String(so.grand_total) : prev.amount };
+      if (so.customer_id) next.customer_id = so.customer_id;
+      const m = /net\s*(\d+)/i.exec(so.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+  const clearSo = () => setLinkedSoId("");
+
   const availableInventory = useMemo(() => {
     const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number; inQty: number; inValue: number }>();
     for (const r of (stockMovementsQ.data ?? []) as any[]) {
@@ -1275,6 +1350,7 @@ function CreateInvoiceView() {
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         purchase_invoice_id: form.purchase_invoice_id || null,
+        goods_sales_order_id: linkedSoId || null,
         documents: docs,
       };
       if (invEnabled) {
@@ -1305,6 +1381,7 @@ function CreateInvoiceView() {
         bl_date: "", due_date_source: "invoice",
         po_number: "", po_date: "", purchase_invoice_id: "",
       });
+      setLinkedSoId("");
       setDocs([]);
       setInvItems([]);
       setInvEnabled(false);
@@ -1336,6 +1413,70 @@ function CreateInvoiceView() {
 
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm">
         <div>
+          <div className="mb-2 text-xs uppercase tracking-widest text-primary">Sales order (optional)</div>
+          <Field label="Link sales order — fetches customer, amount & payment terms">
+            <select
+              className="inp"
+              value={linkedSoId}
+              onChange={(e) => {
+                const so = invoicableSos.find((s: any) => s.id === e.target.value);
+                if (so) applySo(so);
+                else clearSo();
+              }}
+            >
+              <option value="">— No link — enter manually —</option>
+              {invoicableSos.map((so: any) => (
+                <option key={so.id} value={so.id}>
+                  {so.so_number} — {so.customer_name || "no customer"} · {fmtMoney(so.grand_total)} ({String(so.status).replace(/_/g, " ")})
+                </option>
+              ))}
+            </select>
+          </Field>
+          {linkedSo && (
+            <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-mono font-medium">{linkedSo.so_number}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {linkedSo.customer_name ?? ""} · {linkedSo.lines?.length ?? 0} line{(linkedSo.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedSo.grand_total)}
+                  </span>
+                </div>
+                <button type="button" onClick={clearSo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                  Unlink
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Customer, amount{linkedSo.payment_terms ? " and payment terms" : ""} filled from the SO — you can still edit them below.
+              </p>
+              {Array.isArray(linkedSo.lines) && linkedSo.lines.length > 0 && (
+                <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-border bg-background/60">
+                  <table className="w-full text-[11px]">
+                    <thead className="sticky top-0 bg-background text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-2 py-1 text-left font-normal">Item</th>
+                        <th className="px-2 py-1 text-right font-normal">Qty</th>
+                        <th className="px-2 py-1 text-right font-normal">Unit price</th>
+                        <th className="px-2 py-1 text-right font-normal">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedSo.lines.map((l: any, i: number) => (
+                        <tr key={i} className="border-b border-border/40">
+                          <td className="px-2 py-1">{l.name} <span className="font-mono text-muted-foreground">{l.sku}</span></td>
+                          <td className="px-2 py-1 text-right num">{Number(l.ordered_qty).toLocaleString()} {l.unit}</td>
+                          <td className="px-2 py-1 text-right num">{fmtMoney(l.unit_price)}</td>
+                          <td className="px-2 py-1 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
           <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order</div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="PO number"><input maxLength={80} className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></Field>
@@ -1365,6 +1506,9 @@ function CreateInvoiceView() {
           <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
             <option value="">Select customer</option>
             {customersQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {linkedSo?.customer_id && !(customersQ.data ?? []).some((d: any) => d.id === linkedSo.customer_id) && (
+              <option value={linkedSo.customer_id}>{linkedSo.customer_name ?? "SO customer"}</option>
+            )}
           </select>
         </Field>
         <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -1981,6 +2125,30 @@ function InvoiceFormModal({ editing, onClose, customers, purchases, availableInv
     },
   });
 
+  // ── Optional sales-order link (create mode) ──
+  // Picking an SO fetches customer, amount and payment terms from it. Leaving
+  // it empty keeps the fully manual flow — linking is never required.
+  const soLinkQ = useQuery({
+    queryKey: ["goods_so_for_invoice_modal"],
+    queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const invoicableSosModal = useMemo(() => ((soLinkQ.data ?? []) as any[])
+    .filter((so: any) => ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id)
+    .sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || "")), [soLinkQ.data]);
+  const [linkedSoIdModal, setLinkedSoIdModal] = useState("");
+  const linkedSoModal = useMemo(() => ((soLinkQ.data ?? []) as any[]).find((s: any) => s.id === linkedSoIdModal) ?? null, [soLinkQ.data, linkedSoIdModal]);
+  const applySoModal = (so: any) => {
+    setLinkedSoIdModal(so.id);
+    setForm((prev: any) => {
+      const next: any = { ...prev, amount: so.grand_total != null ? String(so.grand_total) : prev.amount };
+      if (so.customer_id) next.customer_id = so.customer_id;
+      const m = /net\s*(\d+)/i.exec(so.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!editing && poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
@@ -2017,6 +2185,7 @@ function InvoiceFormModal({ editing, onClose, customers, purchases, availableInv
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         purchase_invoice_id: form.purchase_invoice_id || null,
+        goods_sales_order_id: !editing ? (linkedSoIdModal || null) : undefined,
         documents: docs,
       };
       if (!editing && invEnabled) {
@@ -2059,6 +2228,53 @@ function InvoiceFormModal({ editing, onClose, customers, purchases, availableInv
           {customers.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
               No customers exist yet. Ask your factor admin to add one in the Customers tab.
+            </div>
+          )}
+          {!editing && (
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Sales order (optional)</div>
+              <Field label="Link sales order — fetches customer, amount & payment terms">
+                <select
+                  className="inp"
+                  value={linkedSoIdModal}
+                  onChange={(e) => {
+                    const so = invoicableSosModal.find((s: any) => s.id === e.target.value);
+                    if (so) applySoModal(so);
+                    else setLinkedSoIdModal("");
+                  }}
+                >
+                  <option value="">— No link — enter manually —</option>
+                  {invoicableSosModal.map((so: any) => (
+                    <option key={so.id} value={so.id}>
+                      {so.so_number} — {so.customer_name || "no customer"} · {fmtMoney(so.grand_total)} ({String(so.status).replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {linkedSoModal && (
+                <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-medium">{linkedSoModal.so_number}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {linkedSoModal.customer_name ?? ""} · {linkedSoModal.lines?.length ?? 0} line{(linkedSoModal.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedSoModal.grand_total)}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => setLinkedSoIdModal("")} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                      Unlink
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Customer, amount{linkedSoModal.payment_terms ? " and payment terms" : ""} filled from the SO — you can still edit them below.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {editing?.goods_sales_order_id && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <span className="uppercase tracking-widest text-success">Linked sales order</span>
+              <span className="ml-2 font-mono">{editing.goods_sales_order_number ?? editing.goods_sales_order_id}</span>
             </div>
           )}
           <div>

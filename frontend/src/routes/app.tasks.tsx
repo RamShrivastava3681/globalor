@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ledger-ui";
@@ -68,9 +69,8 @@ type Task = {
 type FilterKey = "mine" | "pending" | "today" | "overdue" | "rejected" | "completed";
 
 /* ═══════════════════════════════════════════════════════════════
-   DATA — primary contract: GET /workflow-tasks?status=open|done.
-   Fallback: derive the same Task shape client-side from the live
-   document endpoints so the queue works before the backend lands.
+   DATA — contract: GET /workflow-tasks?status=open|done (backend
+   pre-sorted: assigned to me first, then department/role queue).
    ═══════════════════════════════════════════════════════════════ */
 
 async function fetchQueue(status: "open" | "done"): Promise<Task[]> {
@@ -84,429 +84,6 @@ async function fetchQueue(status: "open" | "done"): Promise<Task[]> {
   return [];
 }
 
-async function getList(path: string): Promise<any[]> {
-  try {
-    const d = await api.get<any>(path);
-    if (Array.isArray(d)) return d;
-    if (d && typeof d === "object") {
-      for (const k of [
-        "orders",
-        "invoices",
-        "receipts",
-        "dispatches",
-        "advances",
-        "data",
-        "items",
-        "rows",
-      ]) {
-        if (Array.isArray((d as any)[k])) return (d as any)[k];
-      }
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-const num = (v: unknown): number => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
-const pick = (...vals: unknown[]): string | null => {
-  for (const v of vals) {
-    if (v !== null && v !== undefined && String(v).trim() !== "") return String(v);
-  }
-  return null;
-};
-
-const TERMINAL = new Set([
-  "cancelled",
-  "paid",
-  "delivered",
-  "fully_received",
-  "fullyreceived",
-  "fully_dispatched",
-  "fullydispatched",
-  "converted_to_po",
-  "converted_to_so",
-  "converted",
-  "expired",
-]);
-const isTerminal = (s: unknown) => TERMINAL.has(String(s ?? "").toLowerCase());
-
-let synthSeq = 0;
-function baseTask(
-  doc: any,
-  t: Partial<Task> & Pick<Task, "workflow_type" | "required_action">,
-): Task | null {
-  const status = String(doc.status ?? doc.manual_status ?? doc.lifecycle_status ?? "draft");
-  if (
-    isTerminal(status) ||
-    isTerminal(doc.proforma_status) ||
-    String(doc.status ?? "").toLowerCase() === "cancelled"
-  ) {
-    // Rejected docs stay visible (Rejected filter); everything else terminal drops out.
-    if (
-      String(doc.doc_status ?? doc.status ?? "").toLowerCase() !== "rejected" &&
-      isTerminal(status)
-    )
-      return null;
-  }
-  synthSeq += 1;
-  const id = String(doc.id ?? doc._id ?? `syn-${synthSeq}`);
-  const now = new Date().toISOString();
-  return {
-    id: `${t.workflow_type}-${id}`,
-    workflow_type: t.workflow_type,
-    stage: t.stage ?? status,
-    doc_type: t.doc_type ?? t.workflow_type,
-    doc_id: id,
-    doc_number: pick(
-      doc.so_number,
-      doc.soNumber,
-      doc.po_number,
-      doc.poNumber,
-      doc.invoice_number,
-      doc.invoiceNumber,
-      doc.proforma_number,
-      doc.proformaNumber,
-      doc.receipt_number,
-      doc.receiptNumber,
-      doc.dispatch_number,
-      doc.dispatchNumber,
-      doc.number,
-      doc.name,
-    ),
-    counterparty: pick(
-      doc.customer_name,
-      doc.customerName,
-      doc.customer?.name,
-      doc.supplier_name,
-      doc.supplierName,
-      doc.vendor?.name,
-      doc.party,
-      doc.client_name,
-    ),
-    doc_status: pick(doc.status, doc.manual_status, doc.proforma_status, doc.lifecycle_status),
-    owner_role: t.owner_role ?? "operations",
-    assigned_user: pick(
-      doc.assigned_to,
-      doc.assignedTo,
-      doc.assigned_user,
-      doc.salesperson_email,
-      doc.buyer_email,
-    ),
-    prev_owner: null,
-    required_action: t.required_action,
-    next_action: t.next_action ?? null,
-    priority: t.priority ?? "normal",
-    due_date: pick(
-      doc.due_date,
-      doc.dueDate,
-      doc.expected_delivery_date,
-      doc.expectedDeliveryDate,
-      doc.valid_until,
-      doc.validUntil,
-    ),
-    amount:
-      doc.grand_total ??
-      doc.grandTotal ??
-      doc.amount ??
-      doc.total ??
-      doc.net_payable ??
-      doc.netPayable ??
-      null,
-    latest_update: pick(doc.latest_update, doc.status_notes, doc.notes, doc.comment, doc.remarks),
-    status: "open",
-    created_at: pick(doc.created_at, doc.createdAt, doc.issue_date, doc.order_date) ?? now,
-    updated_at: pick(doc.updated_at, doc.updatedAt) ?? now,
-    completed_at: null,
-    overdue: false,
-  };
-}
-
-/** Build a Task[] from live document endpoints — same shape, mine-first order. */
-async function buildSyntheticQueue(meEmail: string, meId: string): Promise<Task[]> {
-  const [
-    salesOrders,
-    purchaseOrders,
-    salesInvoices,
-    purchaseInvoices,
-    proformas,
-    grns,
-    dispatches,
-    advances,
-  ] = await Promise.all([
-    getList("/goods-sales-orders"),
-    getList("/goods-purchase-orders"),
-    getList("/invoices"),
-    getList("/purchase-invoices"),
-    getList("/purchase-orders"),
-    getList("/goods-receipts"),
-    getList("/goods-dispatches"),
-    getList("/advances"),
-  ]);
-
-  const out: Task[] = [];
-  const push = (t: Task | null) => {
-    if (t) out.push(t);
-  };
-
-  for (const d of salesOrders) {
-    const st = String(d.status ?? d.manual_status ?? "draft").toLowerCase();
-    const n = pick(d.so_number, d.soNumber, d.number) ?? "—";
-    if (st === "draft") {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_order",
-          stage: "submit",
-          doc_type: "sales_order",
-          owner_role: "sales",
-          required_action: `Send sales order ${n} to warehouse`,
-          next_action: "Warehouse approval",
-        }),
-      );
-    } else if (st === "pending_warehouse_approval") {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_order",
-          stage: "warehouse_approve",
-          doc_type: "sales_order",
-          owner_role: "warehouse",
-          required_action: `Approve sales order ${n} (warehouse)`,
-          next_action: "Checker approval",
-        }),
-      );
-    } else if (st === "pending_checker_approval") {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_order",
-          stage: "checker_approve",
-          doc_type: "sales_order",
-          owner_role: "checker",
-          required_action: `Approve sales order ${n} (checker)`,
-          next_action: "Dispatch & invoice",
-        }),
-      );
-    } else if (st === "approved" || st === "confirmed") {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_order",
-          stage: "dispatch_invoice",
-          doc_type: "sales_order",
-          owner_role: "sales",
-          required_action: `Dispatch or invoice ${n}`,
-          next_action: "Create tax invoice",
-        }),
-      );
-    } else {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_order",
-          stage: "create_invoice",
-          doc_type: "sales_order",
-          owner_role: "sales",
-          required_action: `Create tax invoice for ${n}`,
-          next_action: "Record UTR",
-        }),
-      );
-    }
-  }
-  for (const d of purchaseOrders) {
-    const st = String(d.status ?? d.manual_status ?? "draft").toLowerCase();
-    const n = pick(d.po_number, d.poNumber, d.number) ?? "—";
-    if (st === "draft") {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_order",
-          stage: "submit",
-          doc_type: "purchase_order",
-          owner_role: "purchase",
-          required_action: `Send purchase order ${n} to checker`,
-          next_action: "Checker approval",
-        }),
-      );
-    } else if (st === "pending_approval" || st === "pendingapproval") {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_order",
-          stage: "approve",
-          doc_type: "purchase_order",
-          owner_role: "checker",
-          required_action: `Approve purchase order ${n} (checker)`,
-          next_action: "Auto-sent — receive goods",
-        }),
-      );
-    } else if (st === "partially_received" || st === "partiallyreceived") {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_order",
-          stage: "create_grn",
-          doc_type: "purchase_order",
-          owner_role: "warehouse",
-          required_action: `Create GRN for ${n}`,
-          next_action: "Record supplier invoice",
-        }),
-      );
-    } else {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_order",
-          stage: "await_goods",
-          doc_type: "purchase_order",
-          owner_role: "warehouse",
-          required_action: `Receive goods for ${n}`,
-          next_action: "Create GRN",
-        }),
-      );
-    }
-  }
-  for (const d of purchaseInvoices) {
-    const st = String(d.status ?? "draft").toLowerCase();
-    const n = pick(d.invoice_number, d.invoiceNumber, d.number) ?? "—";
-    if (st === "draft") {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_invoice",
-          stage: "verify",
-          doc_type: "purchase_invoice",
-          owner_role: "finance",
-          required_action: `Verify purchase invoice ${n}`,
-          next_action: "Approve for payment",
-        }),
-      );
-    } else if (st.includes("approve") || st === "verified") {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_invoice",
-          stage: "approve_for_payment",
-          doc_type: "purchase_invoice",
-          owner_role: "finance",
-          required_action: `Approve payment for ${n}`,
-          next_action: "Record payment",
-          priority: num(d.amount ?? d.net_payable) >= 100000 ? "high" : "normal",
-        }),
-      );
-    } else {
-      push(
-        baseTask(d, {
-          workflow_type: "purchase_invoice",
-          stage: "record_payment",
-          doc_type: "purchase_invoice",
-          owner_role: "treasury",
-          required_action: `Record payment for ${n}`,
-          next_action: "Close invoice",
-        }),
-      );
-    }
-  }
-  for (const d of salesInvoices) {
-    const st = String(d.status ?? "draft").toLowerCase();
-    const n = pick(d.invoice_number, d.invoiceNumber, d.number) ?? "—";
-    if (st === "draft") {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_invoice",
-          stage: "review",
-          doc_type: "sales_invoice",
-          owner_role: "finance",
-          required_action: `Review sales invoice ${n}`,
-          next_action: "Approve invoice",
-        }),
-      );
-    } else if (st === "pending" || st === "issued" || st.includes("pending")) {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_invoice",
-          stage: "approve",
-          doc_type: "sales_invoice",
-          owner_role: "finance",
-          required_action: `Approve sales invoice ${n}`,
-          next_action: "Record UTR",
-        }),
-      );
-    } else {
-      push(
-        baseTask(d, {
-          workflow_type: "sales_invoice",
-          stage: "record_utr",
-          doc_type: "sales_invoice",
-          owner_role: "treasury",
-          required_action: `Record UTR for ${n}`,
-          next_action: "Confirm receipt",
-          priority: st === "overdue" ? "urgent" : "normal",
-          overdue: st === "overdue" ? true : undefined,
-        }),
-      );
-    }
-  }
-  for (const d of proformas) {
-    const side = String(d.side ?? "").toLowerCase();
-    const fst = String(d.proforma_status ?? d.proformaStatus ?? "").toLowerCase();
-    if (fst !== "" && fst !== "pending_review" && fst !== "approved") continue;
-    const n = pick(d.proforma_number, d.proformaNumber, d.po_number, d.poNumber) ?? "—";
-    push(
-      baseTask(d, {
-        workflow_type: "proforma",
-        stage: fst === "approved" ? "convert" : "approve",
-        doc_type: "proforma",
-        owner_role: side === "sales" ? "sales" : "purchase",
-        required_action:
-          fst === "approved" ? `Convert proforma ${n} to order` : `Approve proforma ${n}`,
-        next_action: "Create order",
-      }),
-    );
-  }
-  for (const d of grns) {
-    const st = String(d.status ?? "draft").toLowerCase();
-    if (st !== "draft") continue;
-    const n = pick(d.receipt_number, d.receiptNumber, d.grn_number, d.number) ?? "—";
-    push(
-      baseTask(d, {
-        workflow_type: "grn",
-        stage: "confirm",
-        doc_type: "grn",
-        owner_role: "warehouse",
-        required_action: `Confirm GRN ${n}`,
-        next_action: "Stock in",
-      }),
-    );
-  }
-  for (const d of dispatches) {
-    const st = String(d.status ?? "draft").toLowerCase();
-    if (st !== "draft") continue;
-    const n = pick(d.dispatch_number, d.dispatchNumber, d.number) ?? "—";
-    push(
-      baseTask(d, {
-        workflow_type: "dispatch",
-        stage: "confirm",
-        doc_type: "dispatch",
-        owner_role: "warehouse",
-        required_action: `Confirm dispatch ${n}`,
-        next_action: "Mark delivered",
-      }),
-    );
-  }
-  for (const d of advances) {
-    const st = String(d.status ?? "pending").toLowerCase();
-    if (!st.includes("pending")) continue;
-    const n = pick(d.reference, d.advance_number, d.number) ?? "—";
-    push(
-      baseTask(d, {
-        workflow_type: "payment",
-        stage: "approve",
-        doc_type: "payment",
-        owner_role: "treasury",
-        required_action: `Approve advance ${n}`,
-        next_action: "Release funds",
-      }),
-    );
-  }
-
-  // Backend contract: mine first, then the rest (stable).
-  const me = (u: string | null) => !!u && (u.toLowerCase() === meEmail.toLowerCase() || u === meId);
-  return [...out].sort((a, b) => Number(me(b.assigned_user)) - Number(me(a.assigned_user)));
-}
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -574,20 +151,46 @@ const PRIORITY_CLS: Record<Priority, string> = {
 function actionLabel(stage: string): string {
   const s = stage.toLowerCase();
   if (s.includes("approve") || s.includes("review") || s.includes("checker")) return "Approve";
+  if (s.includes("dispatch_invoice") || s.includes("create_invoice")) return "Make invoice";
   if (s.includes("record") || s.includes("generate")) return "Record";
   if (s.includes("confirm")) return "Confirm";
   return "Open";
 }
 
+/** Secondary "Make invoice" hop for order tasks whose primary action is_receiving. */
+function makeInvoiceRoute(t: Task): { to: string; search: Record<string, string> } | null {
+  if (t.workflow_type === "purchase_order" && (t.stage === "await_goods" || t.stage === "create_grn")) {
+    return { to: "/app/purchases", search: { createFromPo: t.doc_id, fromQueue: "1" } };
+  }
+  return null;
+}
+
+/** Queue workflow → checker drawer kind (checker-owned tasks deep-open in the checker). */
+const CHECKER_KIND: Record<WorkflowType, string> = {
+  sales_order: "sales_order",
+  purchase_order: "po",
+  purchase_invoice: "purchase",
+  sales_invoice: "sale",
+  proforma: "proforma",
+  payment: "",
+  grn: "",
+  dispatch: "",
+};
+
 /** Spec routing table, translated to /app/* routes. */
 function resolveTaskRoute(t: Task): { to: string; search: Record<string, string> } {
   const stage = t.stage.toLowerCase();
   const id = t.doc_id;
+  // Checker-owned stages open that exact document in the checker desk.
+  const ck = CHECKER_KIND[t.workflow_type];
+  if (ck && t.owner_role === "checker") {
+    return { to: "/app/checker", search: { review: `${ck}:${id}` } };
+  }
   if (t.workflow_type === "sales_order") {
     if (stage.includes("submit") || stage.includes("warehouse") || stage.includes("checker"))
       return { to: "/app/sales-orders", search: {} };
     if (stage.includes("dispatch_invoice") || stage.includes("create_invoice"))
-      return { to: "/app/invoices", search: { createFromSo: id } };
+      return { to: "/app/invoices", search: { createFromSo: id, fromQueue: "1" } };
     if (stage.includes("create_proforma"))
       return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
   }
@@ -646,7 +249,8 @@ const WORKFLOW_OPTIONS: Array<{ value: "all" | WorkflowType; label: string }> = 
 
 export function WorkflowQueuePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const qc = useQueryClient();
+  const { user, roles } = useAuth();
   const meEmail = user?.email ?? "";
   const meId = user?.id ?? "";
   const today = todayYMD();
@@ -655,12 +259,14 @@ export function WorkflowQueuePage() {
   const [workflow, setWorkflow] = useState<"all" | WorkflowType>("all");
   const [queue, setQueue] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<"smart" | "newest" | "due">("smart");
 
   // ── Primary contract (backend pre-sorted) ──
   const openQ = useQuery({
     queryKey: ["workflow-queue", "open"],
     queryFn: () => fetchQueue("open"),
     refetchInterval: 60_000,
+    staleTime: 45_000,
     retry: false,
   });
   const doneQ = useQuery({
@@ -668,32 +274,46 @@ export function WorkflowQueuePage() {
     queryFn: () => fetchQueue("done"),
     enabled: filter === "completed",
     refetchInterval: 60_000,
+    staleTime: 45_000,
     retry: false,
   });
 
-  // ── Fallback: derive the queue client-side if the service isn't there yet ──
-  const usingFallback = openQ.isError;
-  const synthQ = useQuery({
-    queryKey: ["workflow-queue", "synthetic", meEmail, meId],
-    queryFn: () => buildSyntheticQueue(meEmail, meId),
-    enabled: usingFallback,
-    refetchInterval: 60_000,
-    retry: false,
-  });
+  const queueError = openQ.isError;
 
-  const openTasks: Task[] = useMemo(
-    () => openQ.data ?? (usingFallback ? (synthQ.data ?? []) : []),
-
-    [openQ.data, usingFallback, synthQ.data],
-  );
+  const openTasks: Task[] = useMemo(() => openQ.data ?? [], [openQ.data]);
   const doneTasks: Task[] = useMemo(() => doneQ.data ?? [], [doneQ.data]);
-  const isFetching = openQ.isFetching || doneQ.isFetching || synthQ.isFetching;
-  const isLoading = openQ.isLoading || (usingFallback && synthQ.isLoading);
+  const isFetching = openQ.isFetching || doneQ.isFetching;
+  const isLoading = openQ.isLoading;
 
   const refresh = () => {
     openQ.refetch();
     if (filter === "completed") doneQ.refetch();
-    if (usingFallback) synthQ.refetch();
+  };
+
+  // SLA sweep: once per session, escalate overdue tasks (idempotent server-side).
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("wf-sweep-done")) return;
+      sessionStorage.setItem("wf-sweep-done", "1");
+    } catch {
+      // storage unavailable — still run once per mount
+    }
+    api.post("/workflow-tasks/sweep").catch(() => {}).then(() => {
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canRebuild = roles.includes("factor_admin") || roles.includes("checker") || roles.includes("treasury") || roles.includes("operations");
+  const rebuildQueue = async () => {
+    if (!window.confirm("Rebuild My Queue from current documents? Existing open tasks are refreshed in place — nothing is duplicated.")) return;
+    try {
+      const res = await api.post<{ ensured: number; derived: number }>("/workflow-tasks/backfill");
+      toast.success(`Queue rebuilt — ${res?.ensured ?? 0} open tasks`);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rebuild failed");
+    }
   };
 
   // ── Live counts ──
@@ -722,11 +342,28 @@ export function WorkflowQueuePage() {
     return [...set].sort();
   }, [openTasks]);
 
-  // ── Visible tasks (order preserved — backend already sorted) ──
+  // ── Role-aware default queue: land checkers/treasury/ops on their own
+  // non-empty queue on first load; never overrides an explicit selection.
+  const queueTouchedRef = useRef(false);
+  useEffect(() => {
+    if (queueTouchedRef.current || queue !== "all" || roles.length === 0 || openTasks.length === 0) return;
+    const counts = new Map<string, number>();
+    for (const t of openTasks) counts.set(t.owner_role, (counts.get(t.owner_role) ?? 0) + 1);
+    const candidates: string[] = [];
+    if (roles.includes("checker")) candidates.push("checker");
+    if (roles.includes("treasury")) candidates.push("treasury");
+    if (roles.includes("operations")) candidates.push("operations");
+    const best = candidates.find((q) => (counts.get(q) ?? 0) > 0);
+    if (best) setQueue(best);
+  }, [roles, openTasks, queue]);
+
+  const PRIORITY_RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+
+  // ── Visible tasks (filtered, then sorted by the selected sort mode) ──
   const visible = useMemo(() => {
     const base = filter === "completed" ? doneTasks : openTasks;
     const q = search.trim().toLowerCase();
-    return base.filter((t) => {
+    const rows = base.filter((t) => {
       if (filter === "mine" && !isMine(t, meEmail, meId)) return false;
       if (filter === "today" && !isDueTodayTask(t, today)) return false;
       if (filter === "overdue" && !isOverdueTask(t, today)) return false;
@@ -740,11 +377,33 @@ export function WorkflowQueuePage() {
       }
       return true;
     });
-  }, [filter, openTasks, doneTasks, workflow, queue, search, meEmail, meId, today]);
+    // Smart: overdue first, then due-today, then priority, then value.
+    // Newest / due-date sorts preserve the previous manual orderings.
+    if (sortMode === "newest") {
+      return [...rows].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+    }
+    if (sortMode === "due") {
+      return [...rows].sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+    }
+    return [...rows].sort((a, b) => {
+      const ao = isOverdueTask(a, today) ? 0 : 0 + (isDueTodayTask(a, today) ? 1 : 2);
+      const bo = isOverdueTask(b, today) ? 0 : 0 + (isDueTodayTask(b, today) ? 1 : 2);
+      if (ao !== bo) return ao - bo;
+      const ap = PRIORITY_RANK[a.priority ?? "normal"] ?? 2;
+      const bp = PRIORITY_RANK[b.priority ?? "normal"] ?? 2;
+      if (ap !== bp) return ap - bp;
+      return (Number(b.amount ?? 0) || 0) - (Number(a.amount ?? 0) || 0);
+    });
+  }, [filter, openTasks, doneTasks, workflow, queue, search, meEmail, meId, today, sortMode]);
 
   const openTask = (t: Task) => {
     const r = resolveTaskRoute(t);
     navigate({ to: r.to, search: r.search } as never);
+  };
+
+  const makeInvoice = (t: Task) => {
+    const r = makeInvoiceRoute(t);
+    if (r) navigate({ to: r.to, search: r.search } as never);
   };
 
   return (
@@ -758,25 +417,36 @@ export function WorkflowQueuePage() {
         }
         description="Every pending task across Sales, Purchase, Finance, Treasury, Warehouse and Dispatch — your tasks first."
         actions={
-          <button
-            onClick={refresh}
-            disabled={isFetching}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-          >
-            {isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
+          <div className="flex items-center gap-2">
+            {canRebuild && (
+              <button
+                onClick={rebuildQueue}
+                title="Regenerate open tasks from current documents (idempotent)"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                Rebuild queue
+              </button>
             )}
-            Refresh
-          </button>
+            <button
+              onClick={refresh}
+              disabled={isFetching}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+            >
+              {isFetching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Refresh
+            </button>
+          </div>
         }
       />
 
       <div className="mt-4 space-y-3">
-        {usingFallback && !isLoading && (
-          <p className="text-xs text-muted-foreground">
-            Live workflow service unavailable — showing a derived queue from open documents.
+        {queueError && !isLoading && (
+          <p className="text-xs text-destructive">
+            Queue service unavailable — press Refresh to retry{canRebuild ? ", or Rebuild queue to regenerate tasks" : ""}.
           </p>
         )}
 
@@ -828,7 +498,7 @@ export function WorkflowQueuePage() {
             </select>
             <select
               value={queue}
-              onChange={(e) => setQueue(e.target.value)}
+              onChange={(e) => { queueTouchedRef.current = true; setQueue(e.target.value); }}
               aria-label="Filter by queue"
               className="h-9 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:border-primary focus:outline-none"
             >
@@ -838,6 +508,17 @@ export function WorkflowQueuePage() {
                   {cap(q)} queue
                 </option>
               ))}
+            </select>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as "smart" | "newest" | "due")}
+              aria-label="Sort tasks"
+              title="Smart sorts overdue first, then due-today, priority and value"
+              className="h-9 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:border-primary focus:outline-none"
+            >
+              <option value="smart">Smart sort</option>
+              <option value="newest">Newest first</option>
+              <option value="due">Due date</option>
             </select>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
@@ -873,7 +554,13 @@ export function WorkflowQueuePage() {
         ) : (
           <div className="space-y-2.5">
             {visible.map((t) => (
-              <TaskCard key={t.id} task={t} today={today} onOpen={() => openTask(t)} />
+              <TaskCard
+                key={t.id}
+                task={t}
+                today={today}
+                onOpen={() => openTask(t)}
+                makeInvoice={makeInvoiceRoute(t) ? () => makeInvoice(t) : undefined}
+              />
             ))}
           </div>
         )}
@@ -886,7 +573,7 @@ export function WorkflowQueuePage() {
    TASK ROW CARD
    ═══════════════════════════════════════════════════════════════ */
 
-function TaskCard({ task: t, today, onOpen }: { task: Task; today: string; onOpen: () => void }) {
+function TaskCard({ task: t, today, onOpen, makeInvoice }: { task: Task; today: string; onOpen: () => void; makeInvoice?: () => void }) {
   const overdue = isOverdueTask(t, today) && t.status === "open";
   const dueToday = isDueTodayTask(t, today) && !overdue && t.status === "open";
   const completed = t.status === "done";
@@ -964,12 +651,23 @@ function TaskCard({ task: t, today, onOpen }: { task: Task; today: string; onOpe
               {fmtDue(t.due_date)}
             </span>
           </div>
-          <button
-            onClick={onOpen}
-            className="inline-flex h-8 items-center rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover"
-          >
-            {actionLabel(t.stage)}
-          </button>
+          <div className="flex items-center gap-1.5">
+            {makeInvoice && (
+              <button
+                onClick={makeInvoice}
+                title="Create the invoice for this order with values prefilled"
+                className="inline-flex h-8 items-center rounded-lg border border-primary/40 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+              >
+                Make invoice
+              </button>
+            )}
+            <button
+              onClick={onOpen}
+              className="inline-flex h-8 items-center rounded-lg bg-primary px-3.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover"
+            >
+              {actionLabel(t.stage)}
+            </button>
+          </div>
         </div>
       </div>
     </article>

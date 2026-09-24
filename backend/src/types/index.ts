@@ -720,6 +720,49 @@ export interface Advance {
   updated_at: string;
 }
 
+// ── Workflow tasks (My Queue automation backbone) ──
+export type WorkflowTaskType =
+  | "sales_order"
+  | "purchase_order"
+  | "purchase_invoice"
+  | "sales_invoice"
+  | "proforma"
+  | "payment"
+  | "grn"
+  | "dispatch";
+
+export type WorkflowTaskPriority = "low" | "normal" | "high" | "urgent";
+
+export type WorkflowTaskStatus = "open" | "done" | "cancelled";
+
+export interface WorkflowTask {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  workflow_type: WorkflowTaskType;
+  stage: string;
+  doc_type: string;
+  doc_id: string;
+  doc_number: string | null;
+  counterparty: string | null;
+  doc_status: string | null;
+  owner_role: string;
+  assigned_user: string | null;
+  prev_owner: string | null;
+  required_action: string;
+  next_action: string | null;
+  priority: WorkflowTaskPriority;
+  due_date: string | null;
+  amount: number | null;
+  latest_update: string | null;
+  linked_docs: Array<{ type: string; id: string; number: string }> | null;
+  status: WorkflowTaskStatus;
+  completed_by: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── Expenses ──
 export interface Expense {
   id: string;

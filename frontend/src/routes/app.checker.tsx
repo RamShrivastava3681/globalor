@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { api } from "@/lib/api-client";
@@ -14,6 +14,9 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/checker")({
+  validateSearch: (search: Record<string, unknown>): { review?: string | undefined } => ({
+    review: (search.review as string) || undefined,
+  }),
   component: CheckerPage,
 });
 
@@ -102,6 +105,10 @@ function CheckerPage() {
   const { isAdmin, isChecker, user, canWrite } = useAuth();
   const canReview = canWrite("checker-desk");
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  // Deep-link from My Queue: ?review=<kind>:<id> opens that document's review drawer.
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { review?: string } });
+  const routeReview = (routerSearch as any)?.review as string | undefined;
 
   // ── Filters ──
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma" | "quotation">("all");
@@ -176,6 +183,7 @@ function CheckerPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-quotations"] });
       qc.invalidateQueries({ queryKey: ["quotations"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Quotation pricing reviewed");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -189,6 +197,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-proformas"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Proforma reviewed");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -202,6 +211,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Decision recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -215,6 +225,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-purchases"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Decision recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -230,6 +241,7 @@ function CheckerPage() {
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ["checker-pos"] });
       qc.invalidateQueries({ queryKey: ["goods_po"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success(v.decision === "approved" ? "Purchase order approved & sent — goods can now be received" : "Purchase order sent back to draft");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -244,6 +256,7 @@ function CheckerPage() {
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ["checker-sales-orders"] });
       qc.invalidateQueries({ queryKey: ["goods_so"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success(v.decision === "approved" ? "Sales order approved — dispatch & invoicing unblocked" : "Sales order sent back to draft");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -290,6 +303,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success(`Approved ${results.approved} item${results.approved !== 1 ? "s" : ""}${results.failed > 0 ? `, ${results.failed} failed` : ""}`);
       setApproveAllOpen(false);
       setSelectedIds(new Set());
@@ -420,6 +434,22 @@ function CheckerPage() {
       client_id: s.client_id,
     })),
   ], [salesQ.data, purchasesQ.data, proformasQ.data, quotationsQ.data, posQ.data, salesOrdersQ.data, advMap]);
+
+  // ── Deep-link: open the exact review drawer for ?review=<kind>:<id> ──
+  useEffect(() => {
+    if (!routeReview || reviewDrawer) return;
+    const sep = routeReview.indexOf(":");
+    if (sep <= 0) return;
+    const kind = routeReview.slice(0, sep);
+    const id = routeReview.slice(sep + 1);
+    const row = allRows.find((r) => r.kind === kind && r.id === id);
+    if (row) {
+      setReviewDrawer(row);
+      setSearchQuery(row.invoice_number || "");
+      navigate({ to: "/app/checker", search: { review: undefined }, replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeReview, allRows]);
 
   // ── Filter + Sort ──
   const filteredRows = useMemo(() => allRows

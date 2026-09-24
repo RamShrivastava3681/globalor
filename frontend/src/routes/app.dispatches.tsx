@@ -1,4 +1,4 @@
-import { createFileRoute, useRouterState, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/dispatches")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { so?: string; createFromInvoice?: string } => ({
     so: typeof search?.so === "string" ? search.so : undefined,
+    createFromInvoice: typeof search?.createFromInvoice === "string" ? search.createFromInvoice : undefined,
   }),
   component: DispatchesPage,
 });
@@ -105,14 +106,33 @@ const DSP_STATUS: Record<DSP["status"], string> = {
 
 export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoProp }: { embedded?: boolean; preselectedSo?: string } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string; createFromInvoice?: string } });
+  const linkInvoice = embedded ? undefined : ((routerSearch as any)?.createFromInvoice as string | undefined);
   const preselectedSo = preselectedSoProp ?? (embedded ? undefined : ((routerSearch as any)?.so as string | undefined));
+  const navigate = useNavigate();
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-sales-orders");
   const canOverride = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [preselectSo, setPreselectSo] = useState<string | undefined>(preselectedSo);
+
+  // Deep-link from My Queue: ?createFromInvoice=<invoiceId> resolves the
+  // invoice's sales order and opens the dispatch form preselected.
+  useEffect(() => {
+    if (!embedded && linkInvoice && canEdit) {
+      (async () => {
+        try {
+          const inv = await api.get<any>("/invoices/" + linkInvoice);
+          if (inv?.goods_sales_order_id) setPreselectSo(inv.goods_sales_order_id);
+        } catch {
+          // keep the manual flow — user picks the SO themselves
+        }
+        setOpen(true);
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkInvoice, embedded, canEdit]);
   const [statusFilter, setStatusFilter] = useState<"all" | DSP["status"]>("all");
   const [deliverTarget, setDeliverTarget] = useState<DSP | null>(null);
   const [returnTarget, setReturnTarget] = useState<DSP | null>(null);
@@ -310,7 +330,18 @@ export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoP
         )}
       </div>
 
-      {open && <NewDispatchModal preselectSo={preselectSo} canOverride={canOverride} onClose={() => setOpen(false)} />}
+      {open && (
+        <NewDispatchModal
+          preselectSo={preselectSo}
+          canOverride={canOverride}
+          onClose={() => {
+            setOpen(false);
+            if (!embedded && linkInvoice) {
+              navigate({ to: "/app/dispatches", search: { so: undefined, createFromInvoice: undefined }, replace: true });
+            }
+          }}
+        />
+      )}
       {deliverTarget && <DeliverModal dsp={deliverTarget} onClose={() => setDeliverTarget(null)} />}
       {returnTarget && <ReturnModal dsp={returnTarget} onClose={() => setReturnTarget(null)} />}
     </div>

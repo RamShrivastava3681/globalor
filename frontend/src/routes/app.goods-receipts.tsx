@@ -1,4 +1,4 @@
-import { createFileRoute, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/goods-receipts")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { po?: string; createFromPo?: string } => ({
     po: typeof search?.po === "string" ? search.po : undefined,
+    createFromPo: typeof search?.createFromPo === "string" ? search.createFromPo : undefined,
   }),
   component: GoodsReceiptsPage,
 });
@@ -84,14 +85,25 @@ const GRN_STATUS: Record<GRN["status"], string> = {
 
 export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselectedPoProp }: { embedded?: boolean; preselectedPo?: string } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string } });
-  const preselectedPo = preselectedPoProp ?? (embedded ? undefined : ((routerSearch as any)?.po as string | undefined));
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string; createFromPo?: string } });
+  const linkPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
+  const preselectedPo = preselectedPoProp ?? (embedded ? undefined : (((routerSearch as any)?.po ?? linkPo) as string | undefined));
+  const navigate = useNavigate();
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-purchase-orders");
   const canOverride = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [preselectPo, setPreselectPo] = useState<string | undefined>(preselectedPo);
+
+  // Deep-link from My Queue: ?createFromPo=<poId> opens the GRN form preselected.
+  useEffect(() => {
+    if (!embedded && linkPo && canEdit) {
+      setPreselectPo(linkPo);
+      setOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkPo, embedded, canEdit]);
   const [statusFilter, setStatusFilter] = useState<"all" | GRN["status"]>("all");
 
   const grnsQ = useQuery({
@@ -255,7 +267,18 @@ export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselected
         )}
       </div>
 
-      {open && <NewGRNModal preselectPo={preselectPo} canOverride={canOverride} onClose={() => setOpen(false)} />}
+      {open && (
+        <NewGRNModal
+          preselectPo={preselectPo}
+          canOverride={canOverride}
+          onClose={() => {
+            setOpen(false);
+            if (!embedded && linkPo) {
+              navigate({ to: "/app/goods-receipts", search: { po: undefined, createFromPo: undefined }, replace: true });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

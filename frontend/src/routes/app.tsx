@@ -62,7 +62,19 @@ function AppLayout() {
   });
   const unreadAlerts = (alertsQ.data ?? []).filter((a: any) => !a?.is_read).length;
   const checkerCount = (checkerQ.data ?? []).filter((i: any) => i?.status === "pending" || i?.noa_status === "pending").length;
-  const queueCount = 0;
+  // My Queue badge: live count of open tasks assigned to me.
+  const queueBadgeQ = useQuery({
+    queryKey: ["workflow-queue", "open", "badge"],
+    queryFn: async () => (await api.get<any[]>("/workflow-tasks?status=open")) ?? [],
+    enabled: !!user,
+    refetchInterval: 60_000,
+    staleTime: 45_000,
+    retry: false,
+  });
+  const queueCount = (queueBadgeQ.data ?? []).filter(
+    (t: any) => t?.status === "open" && !!t?.assigned_user &&
+      (t.assigned_user === user?.email || t.assigned_user === user?.id),
+  ).length;
 
   // Fetch companies for super admin company switcher
   useEffect(() => {

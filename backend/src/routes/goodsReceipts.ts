@@ -13,6 +13,7 @@ import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } f
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { recomputePoReceivedQuantities, syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
 import { triggerForecastRecompute } from "../utils/forecast.js";
 import type { GoodsReceipt, GoodsReceiptLine, GoodsPurchaseOrder, PurchaseInvoice, StockMovement } from "../types/index.js";
@@ -201,6 +202,16 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       created_by: req.user!.id,
     });
 
+    // My Queue: draft GRN needs confirmation.
+    ensureTask(grn.company_id, grn.client_id, {
+      workflow_type: "grn", stage: "confirm", doc_type: "grn",
+      doc_id: grn.id, doc_number: grn.receipt_number, counterparty: grn.supplier_name,
+      doc_status: "draft", owner_role: "warehouse", assigned_user: grn.created_by,
+      required_action: `Confirm GRN ${grn.receipt_number}`,
+      next_action: "Stock in",
+      linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
+    });
+
     res.status(201).json(grn);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -327,6 +338,9 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-purchase-orde
       message: `GRN ${grn.receipt_number} confirmed — ${createdMovements.reduce((s, m) => s + m.quantity, 0)} units credited to stock against ${po.po_number}`,
       created_by: req.user!.id,
     });
+
+    // My Queue: confirmed GRNs leave the queue.
+    completeTasksForDoc(grn.company_id, "grn", grn.id, req.user!.id);
 
     res.json({ ...confirmed, movements_created: createdMovements.length });
   } catch (err) {

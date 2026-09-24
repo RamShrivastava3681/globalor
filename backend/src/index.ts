@@ -47,6 +47,7 @@ import goodsDispatchRoutes from "./routes/goodsDispatches.js";
 import quotationRoutes from "./routes/quotations.js";
 import forecastVariableRoutes from "./routes/forecastVariables.js";
 import approvalRoutes from "./routes/approvals.js";
+import workflowTaskRoutes from "./routes/workflowTasks.js";
 
 const app = express();
 
@@ -113,6 +114,7 @@ app.use("/api/noa", publicLimiter, noaRoutes);
 
 // Public quotation-approval endpoints get the same moderate limiter
 app.use("/api/approvals", publicLimiter, approvalRoutes);
+app.use("/api/workflow-tasks", workflowTaskRoutes);
 
 // Upload endpoints get a upload-specific limiter
 app.use("/api/upload", uploadLimiter, uploadRoutes);

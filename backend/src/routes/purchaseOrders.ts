@@ -16,6 +16,7 @@ import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { computeOrderTotals } from "../utils/goodsOrders.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { scanCustomersMerged, getCustomerById } from "../utils/customers.js";
 import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Customer, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
@@ -136,6 +137,16 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
     };
 
     await putItem(TABLES.PURCHASE_ORDERS, po as any);
+
+    // My Queue: new proforma needs checker review.
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+      doc_id: id, doc_number: po.proforma_number ?? po.po_number, counterparty: null,
+      doc_status: "pending_review", owner_role: "checker",
+      required_action: `Approve ${parsed.side} proforma ${po.proforma_number ?? po.po_number} (checker)`,
+      next_action: "Create order", amount: po.amount,
+    });
+
     res.status(201).json(po);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -167,6 +178,8 @@ router.patch("/:id", requireAuth, requireWriteAccess("purchase-orders"), async (
 router.delete("/:id", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.PURCHASE_ORDERS, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted proforma.
+    cancelTasksForDoc(req.user!.company_id, "proforma", req.params.id, "Proforma deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete purchase order error:", err);
@@ -288,6 +301,30 @@ router.post("/:id/review", requireAuth, requireAnyWriteAccess("purchase-orders",
       updated_at: nowISO(),
     });
 
+    // My Queue: review task done → convert task (approved) or rework (rejected).
+    if (updated) {
+      const u = updated as any;
+      completeTasksForDoc(u.company_id ?? req.user!.company_id, "proforma", req.params.id, req.user!.id, "approve");
+      if (decision === "approved") {
+        ensureTask(u.company_id ?? req.user!.company_id, u.client_id ?? req.user!.id, {
+          workflow_type: "proforma", stage: "convert", doc_type: "proforma",
+          doc_id: req.params.id, doc_number: u.proforma_number ?? u.po_number, counterparty: null,
+          doc_status: "approved", owner_role: u.side === "sales" ? "sales" : "purchase",
+          required_action: `Convert proforma ${u.proforma_number ?? u.po_number} to order`,
+          next_action: "Create order", amount: u.amount,
+        });
+      } else {
+        ensureTask(u.company_id ?? req.user!.company_id, u.client_id ?? req.user!.id, {
+          workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+          doc_id: req.params.id, doc_number: u.proforma_number ?? u.po_number, counterparty: null,
+          doc_status: "rejected", owner_role: u.side === "sales" ? "sales" : "purchase",
+          required_action: `Rework proforma ${u.proforma_number ?? u.po_number} (checker rejected)`,
+          next_action: "Resubmit", amount: u.amount,
+          latest_update: comments ? String(comments).slice(0, 500) : null,
+        });
+      }
+    }
+
     res.json(updated);
   } catch (err) {
     console.error("Review purchase order error:", err);
@@ -336,6 +373,9 @@ router.post("/:id/fund", requireAuth, requireAnyWriteAccess("purchase-orders", "
       notes: null,
     };
     await putItem(TABLES.ADVANCES, advance as any);
+
+    // My Queue: funded proformas leave the queue.
+    completeTasksForDoc(po.company_id, "proforma", po.id, req.user!.id);
 
     res.json({ success: true, advance });
   } catch (err) {
@@ -445,6 +485,17 @@ router.post("/:id/convert-to-po", requireAuth, requireAnyWriteAccess("purchase-o
       severity: "info",
       message: `Purchase order ${po.po_number} created from proforma ${ref}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: proforma convert task done → the new draft PO needs sending.
+    completeTasksForDoc(proforma.company_id, "proforma", proforma.id, req.user!.id);
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: po.created_by,
+      required_action: `Send purchase order ${po.po_number} to checker`,
+      next_action: "Checker approval", amount: po.grand_total,
+      linked_docs: [{ type: "proforma", id: proforma.id, number: ref }],
     });
 
     res.status(201).json(po);
@@ -565,6 +616,17 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       severity: "info",
       message: `Sales order ${so.so_number} created from proforma ${ref}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: proforma convert task done → the new draft SO needs sending.
+    completeTasksForDoc(proforma.company_id, "proforma", proforma.id, req.user!.id);
+    ensureTask(so.company_id, so.client_id, {
+      workflow_type: "sales_order", stage: "submit", doc_type: "sales_order",
+      doc_id: so.id, doc_number: so.so_number, counterparty: so.customer_name,
+      doc_status: "draft", owner_role: "sales", assigned_user: so.created_by,
+      required_action: `Send sales order ${so.so_number} to warehouse`,
+      next_action: "Warehouse approval", amount: so.grand_total,
+      linked_docs: [{ type: "proforma", id: proforma.id, number: ref }],
     });
 
     res.status(201).json(so);

@@ -93,6 +93,9 @@ export const TABLES = {
    * write) so two concurrent signups with the same email can't both succeed.
    */
   EMAIL_REGISTRY: `${p()}_email_registry`,
+  /** My Queue tasks — the automation backbone (Phase 2). One row per pending
+   *  action on a document; completed/cancelled rows are kept for history. */
+  WORKFLOW_TASKS: `${p()}_workflow_tasks`,
 } as const;
 
 // ── Generic helpers ──

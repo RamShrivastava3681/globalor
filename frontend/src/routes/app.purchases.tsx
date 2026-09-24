@@ -20,18 +20,23 @@ import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 export const Route = createFileRoute("/app/purchases")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string; createFromPo?: string; openInvoice?: string; fromQueue?: string } => ({
     tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
+    createFromPo: (search.createFromPo as string) || undefined,
+    openInvoice: (search.openInvoice as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
   }),
   component: PurchasesPage,
 });
 
 export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromPo?: string; openInvoice?: string; fromQueue?: string } });
   const routeTab = (routerSearch as any)?.tab as string | undefined;
   const routeView = (routerSearch as any)?.view as string | undefined;
+  const routeCreateFromPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
+  const routeOpenInvoice = embedded ? undefined : ((routerSearch as any)?.openInvoice as string | undefined);
   const [localTab, setLocalTab] = useState<string | null>(null);
   const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
   const view = embedded ? undefined : routeView;
@@ -205,6 +210,40 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
     }
   }, [view, piQ.data]);
 
+  // Deep-link from My Queue: ?openInvoice=<id> opens the PI detail modal
+  // (fetches the single invoice when it isn't on the current page).
+  useEffect(() => {
+    if (routeOpenInvoice) {
+      (async () => {
+        const data = Array.isArray(piQ.data) ? piQ.data : (piQ.data?.data ?? []);
+        const found = (data as any[]).find((p: any) => p.id === routeOpenInvoice);
+        if (found) {
+          setViewing(found);
+        } else {
+          try {
+            const match = await api.get<any>("/purchase-invoices/" + routeOpenInvoice);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        if (!embedded) {
+          navigate({ to: "/app/purchases", search: { tab, openInvoice: undefined }, replace: true });
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeOpenInvoice]);
+
+  // Deep-link from My Queue: ?createFromPo=<poId> opens the new-invoice
+  // form with that purchase order preselected.
+  useEffect(() => {
+    if (routeCreateFromPo && !embedded) {
+      setEditing(null);
+      setOpen(true);
+    }
+  }, [routeCreateFromPo, embedded]);
+
   const remove = useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/purchase-invoices/${id}`);
@@ -243,6 +282,7 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
     onSuccess: () => {
       toast.success("Invoice sent to checker for review");
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -672,7 +712,17 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
           vendors={vendorsQ.data ?? []}
           invoices={miniInvoicesQ.data ?? []}
           linkedSales={editing ? linkedSales(editing.id) : []}
-          onClose={() => { setOpen(false); setEditing(null); }}
+          presetPoId={!editing ? routeCreateFromPo : undefined}
+          onClose={() => {
+            setOpen(false); setEditing(null);
+            if (embedded) return;
+            if ((routerSearch as any)?.fromQueue) {
+              // Queue-driven flow: return to My Queue (task auto-completes server-side).
+              navigate({ to: "/app/tasks", replace: true });
+            } else if (routeCreateFromPo) {
+              navigate({ to: "/app/purchases", search: { tab, createFromPo: undefined }, replace: true });
+            }
+          }}
           onDone={() => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); qc.invalidateQueries({ queryKey: ["invoices-by-pi"] }); }}
         />
       )}
@@ -1365,7 +1415,7 @@ async function exportPurchaseInvoicePdf(invoice: any) {
   }
 }
 
-function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; onClose: () => void; onDone: () => void }) {
+function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, presetPoId, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; presetPoId?: string; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
@@ -1388,6 +1438,51 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
     return editing && linkedSales.length > 0 ? linkedSales[0].id : "";
   });
   const initialLinkedIdsRef = useRef<string[]>(editing ? linkedSales.map((s: any) => s.id) : []);
+
+  // ── Optional purchase-order link ──
+  // Picking a PO fetches supplier, PO ref/date, amount and payment terms from
+  // it and snapshots its lines server-side. Leaving it empty keeps the fully
+  // manual flow — linking is never required.
+  const goodsPoQ = useQuery({
+    queryKey: ["goods_po"],
+    queryFn: async () => (await api.get<any[]>("/goods-purchase-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const billablePos = useMemo(() => ((goodsPoQ.data ?? []) as any[])
+    .filter((p: any) => ["sent", "partially_received", "fully_received"].includes(p.status))
+    .sort((a: any, b: any) => (b.po_number || "").localeCompare(a.po_number || "")), [goodsPoQ.data]);
+  const [linkedPoId, setLinkedPoId] = useState(() => editing?.goods_purchase_order_id ?? "");
+  const linkedPo = useMemo(() => ((goodsPoQ.data ?? []) as any[]).find((p: any) => p.id === linkedPoId) ?? null, [goodsPoQ.data, linkedPoId]);
+  const applyPo = (po: any) => {
+    setLinkedPoId(po.id);
+    setForm((prev: any) => {
+      const next: any = {
+        ...prev,
+        po_number: po.po_number ?? prev.po_number,
+        po_date: po.po_date ?? prev.po_date,
+        amount: po.grand_total != null ? String(po.grand_total) : prev.amount,
+      };
+      if (po.supplier_id) next.vendor_id = po.supplier_id;
+      const m = /net\s*(\d+)/i.exec(po.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+  const clearPo = () => setLinkedPoId("");
+
+  // Deep-link preset: auto-apply the linked PO once options resolve.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current || !presetPoId || !goodsPoQ.data) return;
+    const po = ((goodsPoQ.data ?? []) as any[]).find((p: any) => p.id === presetPoId);
+    if (po) {
+      presetAppliedRef.current = true;
+      applyPo(po);
+    } else if (!goodsPoQ.isLoading) {
+      presetAppliedRef.current = true; // missing / not billable — stop retrying
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetPoId, goodsPoQ.data, goodsPoQ.isLoading]);
 
   const [hasDueDate, setHasDueDate] = useState(() => {
     if (editing?.due_date) return true;
@@ -1438,6 +1533,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
         vendor_id: form.vendor_id,
         invoice_number: form.invoice_number.trim(),
         amount: Number(form.amount),
+        goods_purchase_order_id: !editing ? (linkedPoId || null) : undefined,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         issue_date: form.issue_date,
@@ -1504,11 +1600,79 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
 
           {!editing && (
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order</div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order (optional)</div>
+              <L label="Link purchase order — fetches supplier, lines & totals">
+                <select
+                  className="inp"
+                  value={linkedPoId}
+                  onChange={(e) => {
+                    const po = billablePos.find((p: any) => p.id === e.target.value);
+                    if (po) applyPo(po);
+                    else clearPo();
+                  }}
+                >
+                  <option value="">— No link — enter manually —</option>
+                  {billablePos.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.po_number} — {p.supplier_name ?? "supplier"} · {fmtMoney(p.grand_total)} ({String(p.status).replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </L>
+              {linkedPo && (
+                <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-medium">{linkedPo.po_number}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {linkedPo.supplier_name ?? ""} · {linkedPo.lines?.length ?? 0} line{(linkedPo.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedPo.grand_total)}
+                      </span>
+                    </div>
+                    <button type="button" onClick={clearPo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                      Unlink
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Supplier, PO ref/date, amount{linkedPo.payment_terms ? " and payment terms" : ""} filled from the PO — you can still edit them below. PO lines are snapshotted to this invoice on save.
+                  </p>
+                  {Array.isArray(linkedPo.lines) && linkedPo.lines.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-border bg-background/60">
+                      <table className="w-full text-[11px]">
+                        <thead className="sticky top-0 bg-background text-[10px] uppercase tracking-widest text-muted-foreground">
+                          <tr className="border-b border-border">
+                            <th className="px-2 py-1 text-left font-normal">Item</th>
+                            <th className="px-2 py-1 text-right font-normal">Qty</th>
+                            <th className="px-2 py-1 text-right font-normal">Unit cost</th>
+                            <th className="px-2 py-1 text-right font-normal">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linkedPo.lines.map((l: any, i: number) => (
+                            <tr key={i} className="border-b border-border/40">
+                              <td className="px-2 py-1">{l.name} <span className="font-mono text-muted-foreground">{l.sku}</span></td>
+                              <td className="px-2 py-1 text-right num">{Number(l.ordered_qty).toLocaleString()} {l.unit}</td>
+                              <td className="px-2 py-1 text-right num">{fmtMoney(l.unit_price)}</td>
+                              <td className="px-2 py-1 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <L label="PO number"><input maxLength={80} className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
                 <L label="PO date"><input type="date" className="inp" value={form.po_date} onChange={(e) => setForm({ ...form, po_date: e.target.value })} /></L>
               </div>
+            </div>
+          )}
+
+          {editing?.goods_purchase_order_id && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <span className="uppercase tracking-widest text-success">Linked purchase order</span>
+              <span className="ml-2 font-mono">{linkedPo?.po_number ?? editing.po_number ?? editing.goods_purchase_order_id}</span>
+              <span className="ml-2 text-muted-foreground">PO lines were snapshotted at creation — edit quantities on the invoice, not the link.</span>
             </div>
           )}
 
@@ -1542,6 +1706,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
               <select required className="inp" value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}>
                 <option value="">Select supplier</option>
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                {linkedPo?.supplier_id && !(vendors as any[]).some((v: any) => v.id === linkedPo.supplier_id) && (
+                  <option value={linkedPo.supplier_id}>{linkedPo.supplier_name ?? "PO supplier"}</option>
+                )}
               </select>
             </L>
             <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>

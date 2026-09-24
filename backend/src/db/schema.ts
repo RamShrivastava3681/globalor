@@ -297,6 +297,14 @@ const tableDefs = [
     AttributeDefinitions: [{ AttributeName: "email", AttributeType: "S" }],
     BillingMode: "PAY_PER_REQUEST",
   },
+  {
+    // My Queue tasks (Phase 2 automation backbone). Auto-created on startup
+    // for new deployments; existing deployments create it on first backfill.
+    TableName: TABLES.WORKFLOW_TASKS,
+    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    BillingMode: "PAY_PER_REQUEST",
+  },
 ] as const;
 
 export async function createTables() {

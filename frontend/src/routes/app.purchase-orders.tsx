@@ -337,9 +337,9 @@ function PODetailModal({ po, onClose }: { po: PO; onClose: () => void }) {
                   <th className="px-3 py-2 text-left font-normal">SKU</th>
                   <th className="px-3 py-2 text-right font-normal">Ordered</th>
                   <th className="px-3 py-2 text-right font-normal">Received</th>
-                  <th className="px-3 py-2 text-right font-normal">Price</th>
+                  <th className="px-3 py-2 text-right font-normal whitespace-nowrap">Unit cost</th>
                   <th className="px-3 py-2 text-right font-normal">GST</th>
-                  <th className="px-3 py-2 text-right font-normal">Line total</th>
+                  <th className="px-3 py-2 text-right font-normal whitespace-nowrap">Line total</th>
                 </tr>
               </thead>
               <tbody>
@@ -347,13 +347,13 @@ function PODetailModal({ po, onClose }: { po: PO; onClose: () => void }) {
                   <tr key={i} className="border-t border-border/60">
                     <td className="px-3 py-2 font-medium">{l.name}</td>
                     <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{l.sku}</td>
-                    <td className="px-3 py-2 text-right num">{l.ordered_qty.toLocaleString()} <span className="text-[10px] text-muted-foreground">{l.unit}</span></td>
-                    <td className={`px-3 py-2 text-right num ${l.received_qty > 0 ? "text-success" : "text-muted-foreground"}`}>
+                    <td className="px-3 py-2 text-right num whitespace-nowrap">{l.ordered_qty.toLocaleString()} <span className="text-[10px] text-muted-foreground">{l.unit}</span></td>
+                    <td className={`px-3 py-2 text-right num whitespace-nowrap ${l.received_qty > 0 ? "text-success" : "text-muted-foreground"}`}>
                       {l.received_qty > 0 ? l.received_qty.toLocaleString() : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right num">{fmtMoney(l.unit_price)}</td>
-                    <td className="px-3 py-2 text-right num">{l.gst_rate != null ? `${l.gst_rate}%` : "—"}</td>
-                    <td className="px-3 py-2 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                    <td className="px-3 py-2 text-right num whitespace-nowrap" title={String(l.unit_price)}>{fmtMoney(l.unit_price)}</td>
+                    <td className="px-3 py-2 text-right num whitespace-nowrap">{l.gst_rate != null ? `${l.gst_rate}%` : "—"}</td>
+                    <td className="px-3 py-2 text-right num font-medium whitespace-nowrap" title={String(l.line_total)}>{fmtMoney(l.line_total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -544,7 +544,7 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">New purchase order</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
@@ -646,32 +646,32 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
             <div className="space-y-2">
               {lines.map((l, i) => (
                 <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
-                  <div className="sm:col-span-5">
+                  <div className="min-w-0 sm:col-span-4">
                     <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Product</div>
                     <select className="inp" aria-label="Product" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
                       <option value="">Pick product…</option>
                       {activeProducts.map((p) => <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>)}
                     </select>
                   </div>
-                  <div className="sm:col-span-3">
+                  <div className="min-w-0 sm:col-span-3">
                     <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Item name</div>
                     <input className="inp" placeholder="Item name (free text)" aria-label="Item name" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
                   </div>
-                  <div className="sm:col-span-1">
+                  <div className="min-w-0 sm:col-span-1">
                     <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Qty</div>
                     <input className="inp num" placeholder="Qty" aria-label="Ordered quantity" value={l.ordered_qty} onChange={(e) => setLine(i, { ordered_qty: e.target.value })} />
                   </div>
-                  <div className="sm:col-span-1">
-                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Price</div>
-                    <input className="inp num" placeholder="Price" aria-label="Unit price" title="Last PO/GRN price suggested automatically" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                  <div className="min-w-0 sm:col-span-2">
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Unit cost</div>
+                    <input className="inp num" placeholder="0.00" aria-label="Unit cost" title={l.unit_price ? `Unit cost: ${l.unit_price} — last PO/GRN price suggested automatically` : "Last PO/GRN price suggested automatically"} value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
                   </div>
-                  <div className="sm:col-span-1">
+                  <div className="min-w-0 sm:col-span-1">
                     <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">GST %</div>
                     <select className="inp" aria-label="GST rate" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })}>
                       {GST_OPTIONS.map((g) => <option key={g} value={g}>{g}%</option>)}
                     </select>
                   </div>
-                  <div className="sm:col-span-1">
+                  <div className="min-w-0 sm:col-span-1">
                     <div className="mb-1 hidden text-[10px] uppercase tracking-widest text-muted-foreground sm:block">&nbsp;</div>
                     <div className="flex items-center justify-end">
                       <button type="button" title="Remove line" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}

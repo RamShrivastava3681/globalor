@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { poDerivedStatus, computeOrderTotals } from "../utils/goodsOrders.js";
 import type {
@@ -323,6 +324,15 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       created_by: req.user!.id,
     });
 
+    // My Queue: open "send to checker" task.
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: po.created_by,
+      required_action: `Send purchase order ${po.po_number} to checker`,
+      next_action: "Checker approval", amount: po.grand_total,
+    });
+
     res.status(201).json({ ...po, created_proforma: createdProforma, created_invoice: createdInvoice });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -456,6 +466,15 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("goods-purchase-order
       message: `Purchase order ${existing.po_number} sent to checker for approval`,
       created_by: req.user!.id,
     });
+    // My Queue: submit task done → checker approval task opens.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id, "submit");
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "approve", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "pending_approval", owner_role: "checker",
+      required_action: `Approve purchase order ${existing.po_number} (checker)`,
+      next_action: "Auto-sent — receive goods", amount: existing.grand_total,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Submit goods purchase order error:", err);
@@ -503,6 +522,16 @@ router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-purchase-o
       severity: "info",
       message: `Purchase order ${existing.po_number} approved by checker and sent — goods can now be received`,
       created_by: req.user!.id,
+    });
+    // My Queue: review tasks done → receive-goods task opens.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "await_goods", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "sent", owner_role: "warehouse",
+      required_action: `Receive goods for ${existing.po_number}`,
+      next_action: "Create GRN", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
     });
     // Fire-and-forget client/supplier notification — email failure never rolls back approval.
     try {
@@ -565,6 +594,16 @@ router.post("/:id/reject", requireAuth, requireAnyWriteAccess("goods-purchase-or
       message: `Purchase order ${existing.po_number} rejected by checker — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
       created_by: req.user!.id,
     });
+    // My Queue: back to a draft submit task for the maker.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: existing.created_by,
+      required_action: `Rework purchase order ${existing.po_number} (checker rejected)`,
+      next_action: "Checker approval", amount: existing.grand_total,
+      latest_update: comments ? String(comments).slice(0, 500) : null,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Reject goods purchase order error:", err);
@@ -591,6 +630,16 @@ router.post("/:id/send", requireAuth, requireWriteAccess("goods-purchase-orders"
       manual_status: "sent",
       status: "sent",
       updated_at: nowISO(),
+    });
+    // My Queue (legacy send): review tasks done → receive-goods task opens.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "await_goods", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "sent", owner_role: "warehouse",
+      required_action: `Receive goods for ${existing.po_number}`,
+      next_action: "Create GRN", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
     });
     res.json(updated);
   } catch (err) {
@@ -622,6 +671,8 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-purchase-order
       status: "cancelled",
       updated_at: nowISO(),
     });
+    // My Queue: drop open tasks for the cancelled order.
+    cancelTasksForDoc(existing.company_id, "purchase_order", existing.id, "Purchase order cancelled");
     res.json(updated);
   } catch (err) {
     console.error("Cancel goods purchase order error:", err);
@@ -643,6 +694,8 @@ router.delete("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), 
       return;
     }
     await deleteItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted draft.
+    cancelTasksForDoc(existing.company_id, "purchase_order", existing.id, "Purchase order deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete goods purchase order error:", err);

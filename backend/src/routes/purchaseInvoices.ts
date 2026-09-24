@@ -17,6 +17,7 @@ import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
 import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Supplier, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
@@ -430,6 +431,19 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       created_by: req.user!.id,
     });
 
+    // My Queue: new draft PI needs verification. A PO-linked PI also clears
+    // the PO's receive-goods task (goods are now being billed).
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: vendor?.name ?? null,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Verify purchase invoice ${invoice.invoice_number}`,
+      next_action: "Approve for payment", amount: invoice.amount, due_date: due_date,
+    });
+    if (linkedPoId) {
+      completeTasksForDoc(invoice.company_id, "purchase_order", linkedPoId, req.user!.id);
+    }
+
     res.status(201).json(invoice);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -459,6 +473,35 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
 
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
+    // My Queue: paid PIs drop out; checker decisions auto-advance.
+    const uStatus = String((updated as any).status ?? "");
+    const uCompany = (updated as any).company_id ?? req.user!.company_id;
+    if (uStatus === "paid") {
+      completeTasksForDoc(uCompany, "purchase_invoice", req.params.id, req.user!.id);
+    } else if (uStatus === "approved" || uStatus === "rejected" || uStatus === "disputed") {
+      const u = updated as any;
+      completeTasksForDoc(uCompany, "purchase_invoice", req.params.id, req.user!.id);
+      const vendor = ((await getItem(TABLES.VENDORS, { id: u.vendor_id }).catch(() => null)) as any)
+        ?? ((await getItem(TABLES.SUPPLIERS, { id: u.vendor_id }).catch(() => null)) as any);
+      const vendorName = vendor?.name ?? vendor?.company_name ?? null;
+      if (uStatus === "approved") {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "purchase_invoice", stage: "record_payment", doc_type: "purchase_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: vendorName,
+          doc_status: "approved", owner_role: "treasury",
+          required_action: `Record payment for ${u.invoice_number}`,
+          next_action: "Close invoice", amount: u.amount, due_date: u.due_date ?? null,
+        });
+      } else {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: vendorName,
+          doc_status: uStatus, owner_role: "finance",
+          required_action: `Rework purchase invoice ${u.invoice_number} (checker ${uStatus})`,
+          next_action: "Resubmit", amount: u.amount,
+        });
+      }
+    }
     res.json(updated);
   } catch (err) {
     console.error("Update purchase invoice error:", err);
@@ -950,6 +993,15 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"),
       return;
     }
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, { status: "submitted", updated_at: nowISO() });
+    // My Queue: verify task done → checker approval task opens.
+    completeTasksForDoc(invoice.company_id, "purchase_invoice", invoice.id, req.user!.id, "verify");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "purchase_invoice", stage: "approve_for_payment", doc_type: "purchase_invoice",
+      doc_id: invoice.id, doc_number: invoice.invoice_number, counterparty: null,
+      doc_status: "submitted", owner_role: "checker",
+      required_action: `Approve purchase invoice ${invoice.invoice_number} (checker)`,
+      next_action: "Record payment", amount: invoice.amount, due_date: invoice.due_date ?? null,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Submit purchase invoice error:", err);
@@ -960,6 +1012,8 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"),
 router.delete("/:id", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.PURCHASE_INVOICES, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted invoice.
+    cancelTasksForDoc(req.user!.company_id, "purchase_invoice", req.params.id, "Purchase invoice deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete purchase invoice error:", err);

@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { scanCustomersMerged } from "../utils/customers.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
@@ -213,6 +214,15 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       created_by: req.user!.id,
     });
 
+    // My Queue: open "send to warehouse" task.
+    ensureTask(so.company_id, so.client_id, {
+      workflow_type: "sales_order", stage: "submit", doc_type: "sales_order",
+      doc_id: so.id, doc_number: so.so_number, counterparty: so.customer_name,
+      doc_status: "draft", owner_role: "sales", assigned_user: so.created_by,
+      required_action: `Send sales order ${so.so_number} to warehouse`,
+      next_action: "Warehouse approval", amount: so.grand_total,
+    });
+
     res.status(201).json(so);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -363,6 +373,15 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("goods-sales-orders")
       message: `Sales order ${existing.so_number} sent to warehouse for approval`,
       created_by: req.user!.id,
     });
+    // My Queue: submit task done → warehouse approval task opens.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id, "submit");
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "warehouse_approve", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "pending_warehouse_approval", owner_role: "warehouse",
+      required_action: `Approve sales order ${existing.so_number} (warehouse)`,
+      next_action: "Checker approval", amount: existing.grand_total,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Submit goods sales order error:", err);
@@ -399,6 +418,15 @@ router.post("/:id/warehouse-approve", requireAuth, requireAnyWriteAccess("goods-
       severity: "info",
       message: `Sales order ${existing.so_number} approved by warehouse — sent to checker for final approval`,
       created_by: req.user!.id,
+    });
+    // My Queue: warehouse task done → checker approval task opens.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id, "warehouse_approve");
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "checker_approve", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "pending_checker_approval", owner_role: "checker",
+      required_action: `Approve sales order ${existing.so_number} (checker)`,
+      next_action: "Dispatch & invoice", amount: existing.grand_total,
     });
     res.json(updated);
   } catch (err) {
@@ -437,6 +465,16 @@ router.post("/:id/warehouse-reject", requireAuth, requireAnyWriteAccess("goods-s
       severity: "warning",
       message: `Sales order ${existing.so_number} rejected by warehouse — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
       created_by: req.user!.id,
+    });
+    // My Queue: back to a draft submit task for the maker.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "submit", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "draft", owner_role: "sales", assigned_user: existing.created_by,
+      required_action: `Rework sales order ${existing.so_number} (warehouse rejected)`,
+      next_action: "Warehouse approval", amount: existing.grand_total,
+      latest_update: comments ? String(comments).slice(0, 500) : null,
     });
     res.json(updated);
   } catch (err) {
@@ -482,6 +520,16 @@ router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-sales-orde
       message: `Sales order ${existing.so_number} approved by checker — goods can now be dispatched or invoiced`,
       created_by: req.user!.id,
     });
+    // My Queue: review tasks done → dispatch/invoice task opens.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "dispatch_invoice", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "approved", owner_role: "sales",
+      required_action: `Dispatch or invoice ${existing.so_number}`,
+      next_action: "Create tax invoice", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Approve goods sales order error:", err);
@@ -524,6 +572,16 @@ router.post("/:id/reject", requireAuth, requireAnyWriteAccess("goods-sales-order
       message: `Sales order ${existing.so_number} rejected by checker — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
       created_by: req.user!.id,
     });
+    // My Queue: back to a draft submit task for the maker.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "submit", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "draft", owner_role: "sales", assigned_user: existing.created_by,
+      required_action: `Rework sales order ${existing.so_number} (checker rejected)`,
+      next_action: "Warehouse approval", amount: existing.grand_total,
+      latest_update: comments ? String(comments).slice(0, 500) : null,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Reject goods sales order error:", err);
@@ -550,6 +608,16 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-sales-orders"
       manual_status: "confirmed",
       status: "confirmed",
       updated_at: nowISO(),
+    });
+    // My Queue (legacy confirm): review tasks done → dispatch/invoice task opens.
+    completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "sales_order", stage: "dispatch_invoice", doc_type: "sales_order",
+      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+      doc_status: "confirmed", owner_role: "sales",
+      required_action: `Dispatch or invoice ${existing.so_number}`,
+      next_action: "Create tax invoice", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
     });
     res.json(updated);
   } catch (err) {
@@ -585,6 +653,8 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-sales-orders")
       status: "cancelled",
       updated_at: nowISO(),
     });
+    // My Queue: drop open tasks for the cancelled order.
+    cancelTasksForDoc(existing.company_id, "sales_order", existing.id, "Sales order cancelled");
     res.json(updated);
   } catch (err) {
     console.error("Cancel goods sales order error:", err);
@@ -606,6 +676,8 @@ router.delete("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), asy
       return;
     }
     await deleteItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted draft.
+    cancelTasksForDoc(existing.company_id, "sales_order", existing.id, "Sales order deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete goods sales order error:", err);

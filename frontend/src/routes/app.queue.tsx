@@ -172,6 +172,7 @@ export function QueuePage() {
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       const ld = diffDaysUTC(vars.due_date, vars.receipt_date);
       const sp = Math.max(0, +(vars.amount - vars.amount_received).toFixed(2));
       toast.success(`Invoice closed · ${ld} late day${ld === 1 ? "" : "s"}${sp > 0 ? ` · short ${fmtMoney(sp)}` : ""}`);
@@ -186,6 +187,7 @@ export function QueuePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Balance paid");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -205,6 +207,7 @@ export function QueuePage() {
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["advances"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Advance recorded");
       setFundPf(null);
     },
