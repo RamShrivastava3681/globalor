@@ -151,15 +151,17 @@ const PRIORITY_CLS: Record<Priority, string> = {
 function actionLabel(stage: string): string {
   const s = stage.toLowerCase();
   if (s.includes("approve") || s.includes("review") || s.includes("checker")) return "Approve";
-  if (s.includes("dispatch_invoice") || s.includes("create_invoice")) return "Make invoice";
+  if (s.includes("dispatch_invoice") || s.includes("create_invoice") || s.includes("record_supplier_invoice")) return "Make invoice";
+  if (s.includes("create_proforma")) return "Make proforma";
   if (s.includes("record") || s.includes("generate")) return "Record";
   if (s.includes("confirm")) return "Confirm";
   return "Open";
 }
 
-/** Secondary "Make invoice" hop for order tasks whose primary action is_receiving. */
+/** Secondary "Make invoice" hop for order tasks whose primary action is_receiving/proforma. */
 function makeInvoiceRoute(t: Task): { to: string; search: Record<string, string> } | null {
-  if (t.workflow_type === "purchase_order" && (t.stage === "await_goods" || t.stage === "create_grn")) {
+  if (t.workflow_type === "purchase_order" && (t.stage === "await_goods" || t.stage === "create_grn" || t.stage === "record_supplier_invoice")) {
+    // The purchases page opens its invoice panel with this PO preselected.
     return { to: "/app/purchases", search: { createFromPo: t.doc_id, fromQueue: "1" } };
   }
   return null;
@@ -189,10 +191,11 @@ function resolveTaskRoute(t: Task): { to: string; search: Record<string, string>
   if (t.workflow_type === "sales_order") {
     if (stage.includes("submit") || stage.includes("warehouse") || stage.includes("checker"))
       return { to: "/app/sales-orders", search: {} };
+    if (stage.includes("create_proforma"))
+      // Advance payment terms: the next hop is the proforma (funding) track.
+      return { to: "/app/proformas", search: { createFromSo: id, side: "sales", fromQueue: "1" } };
     if (stage.includes("dispatch_invoice") || stage.includes("create_invoice"))
       return { to: "/app/invoices", search: { createFromSo: id, fromQueue: "1" } };
-    if (stage.includes("create_proforma"))
-      return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
   }
   if (
     t.workflow_type === "sales_invoice" &&
@@ -205,9 +208,10 @@ function resolveTaskRoute(t: Task): { to: string; search: Record<string, string>
   )
     return { to: "/app/dispatches", search: { createFromInvoice: id } };
   if (t.workflow_type === "purchase_order" && stage.includes("create_proforma"))
-    return { to: "/app/proformas", search: { createFromPo: id } };
+    return { to: "/app/proformas", search: { createFromPo: id, fromQueue: "1" } };
   if (t.workflow_type === "purchase_order" && stage.includes("record_supplier_invoice"))
-    return { to: "/app/purchases", search: { createFromPo: id } };
+    // Invoice panel on the purchases page, PO link preselected.
+    return { to: "/app/purchases", search: { createFromPo: id, fromQueue: "1" } };
   if (
     t.workflow_type === "purchase_order" &&
     (stage.includes("await_goods") || stage.includes("create_grn"))

@@ -23,6 +23,7 @@ import {
   Warehouse,
   ChevronDown,
   FileText,
+  Boxes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -50,6 +51,7 @@ const PAGE_META: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/app/customers", label: "Customers", icon: Building2 },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/products", label: "Product Catalogue", icon: Package },
+  { to: "/app/product-skus", label: "Product SKUs", icon: Boxes },
   { to: "/app/warehouse-workbench", label: "Warehouse Control", icon: Warehouse },
   { to: "/app/warehouse", label: "Warehouse", icon: Warehouse },
   { to: "/app/reports", label: "Reports", icon: BarChart3 },

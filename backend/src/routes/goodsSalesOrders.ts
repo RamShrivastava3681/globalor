@@ -520,16 +520,31 @@ router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-sales-orde
       message: `Sales order ${existing.so_number} approved by checker — goods can now be dispatched or invoiced`,
       created_by: req.user!.id,
     });
-    // My Queue: review tasks done → dispatch/invoice task opens.
+    // My Queue: review tasks done. Advance payment terms divert the flow into
+    // the proforma/funding track (proforma → checker → treasury advance);
+    // every other flow goes straight to dispatch/invoice.
     completeTasksForDoc(existing.company_id, "sales_order", existing.id, req.user!.id);
-    ensureTask(existing.company_id, existing.client_id, {
-      workflow_type: "sales_order", stage: "dispatch_invoice", doc_type: "sales_order",
-      doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
-      doc_status: "approved", owner_role: "sales",
-      required_action: `Dispatch or invoice ${existing.so_number}`,
-      next_action: "Create tax invoice", amount: existing.grand_total,
-      due_date: existing.expected_delivery_date ?? null,
-    });
+    const isAdvanceTerms = String(existing.payment_terms ?? "").trim().toLowerCase().replace(/\s+/g, "_") === "advance";
+    if (isAdvanceTerms) {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "sales_order", stage: "create_proforma", doc_type: "sales_order",
+        doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+        doc_status: "approved", owner_role: "sales",
+        required_action: `Create proforma for sales order ${existing.so_number} (advance payment terms)`,
+        next_action: "Checker approval", amount: existing.grand_total,
+        due_date: existing.expected_delivery_date ?? null,
+        linked_docs: [{ type: "sales_order", id: existing.id, number: existing.so_number }],
+      });
+    } else {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "sales_order", stage: "dispatch_invoice", doc_type: "sales_order",
+        doc_id: existing.id, doc_number: existing.so_number, counterparty: existing.customer_name,
+        doc_status: "approved", owner_role: "sales",
+        required_action: `Dispatch or invoice ${existing.so_number}`,
+        next_action: "Create tax invoice", amount: existing.grand_total,
+        due_date: existing.expected_delivery_date ?? null,
+      });
+    }
     res.json(updated);
   } catch (err) {
     console.error("Approve goods sales order error:", err);

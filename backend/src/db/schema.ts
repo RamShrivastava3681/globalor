@@ -175,131 +175,54 @@ const tableDefs = [
     BillingMode: "PAY_PER_REQUEST",
   },
   {
-    TableName: TABLES.GOODS_PURCHASE_ORDERS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
+    // ── SKU hierarchy: master product + its colour/size variants ──
+    //
+    // Design for future extension without redesign:
+    //   MASTER PRODUCT (product_type = MASTER)
+    //   └─ MASTER-SKU (parentProductId = master id)
+    //        ├─ MASTER-SKU-COLOUR
+    //        │    └─ MASTER-SKU-COLOUR-SIZE (future)
+    //        └─ MASTER-SKU-SIZE (future)
+    //
+    // Index strategy so that "colour under a master" and "all variants of a
+    // master" are queryable directly (no full table scans):
+    //   - `id` hash key: unique variant id
+    //   - `masterSku` range key: SKUs sharing the same master are ordered
+    //     (e.g. AD-M-TS-001, AD-M-TS-001-BLK, AD-M-TS-001-WHT).
+    //   - `parentId-index`: all variants (including the master) for a parent.
+    //   - `parentSku-index`: variants filtered by master SKU value.
+    TableName: TABLES.PRODUCT_SKUS,
+    KeySchema: [
+      { AttributeName: "id", KeyType: "HASH" },
+      { AttributeName: "masterSku", KeyType: "RANGE" },
+    ],
+    AttributeDefinitions: [
+      { AttributeName: "id", AttributeType: "S" },
+      { AttributeName: "masterSku", AttributeType: "S" },
+      { AttributeName: "parentId", AttributeType: "S" },
+      { AttributeName: "productType", AttributeType: "S" },
+      { AttributeName: "company_id", AttributeType: "S" },
+    ],
+    GlobalSecondaryIndexes: [
+      {
+        IndexName: "parentId-index",
+        KeySchema: [{ AttributeName: "parentId", KeyType: "HASH" }],
+        Projection: { ProjectionType: "ALL" },
+      },
+      {
+        IndexName: "parentSku-index",
+        KeySchema: [{ AttributeName: "parentSku", KeyType: "HASH" }],
+        Projection: { ProjectionType: "ALL" },
+      },
+      {
+        IndexName: "companyId-index",
+        KeySchema: [{ AttributeName: "company_id", KeyType: "HASH" }],
+        Projection: { ProjectionType: "ALL" },
+      },
+    ],
     BillingMode: "PAY_PER_REQUEST",
   },
   {
-    TableName: TABLES.GOODS_RECEIPTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.GOODS_SALES_ORDERS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.GOODS_DISPATCHES,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.QUOTATIONS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.FORECAST_VARIABLES,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.CASH_ACCOUNTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.EXPECTED_INFLOWS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.EXPECTED_OUTFLOWS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.MARKETPLACE_SETTLEMENTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.RECURRING_EXPENSES,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.PURCHASE_COMMITMENTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.TREASURY_SETTINGS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.SHIPMENTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.SHIPMENT_EVENTS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.SHIPMENT_QUOTES,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.LOGISTICS_PROVIDERS,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.SHIPMENT_AUDIT,
-    KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    TableName: TABLES.LOGISTICS_SETTINGS,
-    KeySchema: [{ AttributeName: "company_id", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "company_id", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    // Email → user_id registry: fast lookup by email and atomic signup
-    // uniqueness (conditional writes). Auto-created on startup for new
-    // deployments; existing deployments should run migrate-email-registry.ts.
-    TableName: TABLES.EMAIL_REGISTRY,
-    KeySchema: [{ AttributeName: "email", KeyType: "HASH" }],
-    AttributeDefinitions: [{ AttributeName: "email", AttributeType: "S" }],
-    BillingMode: "PAY_PER_REQUEST",
-  },
-  {
-    // My Queue tasks (Phase 2 automation backbone). Auto-created on startup
-    // for new deployments; existing deployments create it on first backfill.
     TableName: TABLES.WORKFLOW_TASKS,
     KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
     AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],

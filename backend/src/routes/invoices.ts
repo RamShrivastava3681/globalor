@@ -1758,7 +1758,14 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
     // Money step — never a blind read-modify-write. Conditional on the
     // previously-read `amount_received` with a bounded retry, so two concurrent
     // payments can't lose each other's contribution.
+    // Legacy rows carry amount_received = null; the numeric comparison below
+    // can never match a NULL-typed attribute, so seed it to 0 first (no
+    // concurrency risk: null means no payment was ever recorded).
     let current = invoice;
+    if (current.amount_received == null) {
+      await updateItem(TABLES.INVOICES, { id: req.params.id }, { amount_received: 0, updated_at: nowISO() });
+      current = { ...current, amount_received: 0 };
+    }
     let updated: any = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       const receivedSoFar = Number(current.amount_received ?? 0);

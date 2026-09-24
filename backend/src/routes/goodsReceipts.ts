@@ -322,7 +322,7 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-purchase-orde
     // Fold accepted qty into the PO lines and recompute its status.
     // Recompute-from-confirmed-GRNs + version guard → race-safe & convergent
     // (this GRN is now "confirmed", so the recompute includes it).
-    await recomputePoReceivedQuantities(po.id);
+    const refreshedPo = await recomputePoReceivedQuantities(po.id);
 
     // Back-fill every purchase invoice that bills this PO (grn_received_qty per
     // line + the confirmed-GRN id list). Failure must never fail the confirm —
@@ -341,6 +341,27 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-purchase-orde
 
     // My Queue: confirmed GRNs leave the queue.
     completeTasksForDoc(grn.company_id, "grn", grn.id, req.user!.id);
+
+    // Goods are in — unless the supplier's invoice is already in the system,
+    // finance now needs to record it against this PO. Chained off the PO's
+    // receive-goods task so the queue flows goods-in → payable automatically.
+    // Once fully received, the old receive-goods task is obsolete.
+    if (String(refreshedPo?.status ?? po.status) === "fully_received") {
+      completeTasksForDoc(grn.company_id, "purchase_order", po.id, req.user!.id, "await_goods");
+    }
+    const existingPi = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, {
+      filterExpression: "goods_purchase_order_id = :poid",
+      expressionAttributeValues: { ":poid": po.id },
+    }).catch(() => [] as PurchaseInvoice[]);
+    if (!existingPi.some((pi) => !["paid", "cancelled"].includes(String(pi.status)))) {
+      ensureTask(grn.company_id, grn.client_id, {
+        workflow_type: "purchase_order", stage: "record_supplier_invoice", doc_type: "purchase_order",
+        doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+        doc_status: String(refreshedPo?.status ?? po.status ?? "sent"), owner_role: "finance",
+        required_action: `Record supplier invoice for ${po.po_number}`,
+        next_action: "Verify & approve for payment", amount: po.grand_total,
+      });
+    }
 
     res.json({ ...confirmed, movements_created: createdMovements.length });
   } catch (err) {

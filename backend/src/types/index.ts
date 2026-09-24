@@ -847,6 +847,55 @@ export interface CatalogueSettings {
  * Snapshot of a catalogue product embedded in document line items
  * (PO, GRN, quotation, SO, dispatch, invoice, stock movement).
  */
+/**
+ * Master product record in the SKU hierarchy. `id` is the primary key; the
+ * master SKU itself is stored in `masterSku` and also copied into `parentSku`.
+ * `parentId` is null so this row is a root node in the tree.
+ */
+export interface ProductSku {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  /** Master SKU for the whole hierarchy (e.g. AD-M-TS-001). Only populated on the master row; colour variants carry the full derivative SKU. */
+  masterSku: string;
+  /** `null` on the master (root). Points at the parent record for colour/size children. */
+  parentId: string | null;
+  /** The parent's master SKU (root = the row's own masterSku). Useful so children never need to join to their parent by id. */
+  parentSku: string | null;
+  /** Display name shown at the top of the product detail panel. */
+  productName: string;
+  itemNumber: string;
+  brand: string | null;
+  gender: string | null;
+  category: string | null;
+  modelNumber: string | null;
+  hsnCode: string | null;
+  taxPercent: number;
+  unitOfMeasure: string;
+  unitCost: number;
+  unitPrice: number;
+  grossMargin: number;
+  /** "MASTER" = the base product; "COLOUR" = a variant of the master. */
+  productType: "MASTER" | "COLOUR";
+  status: ProductSkuStatus;
+  /** Colour label for COLOUR rows (null for MASTER). */
+  colourName: string | null;
+  /** Colour code for COLOUR rows (null for MASTER). */
+  colourCode: string | null;
+  /** Fully derived SKU (e.g. AD-M-TS-001-BLK). */
+  colourSku: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Status of a SKU-type record. */
+export type ProductSkuStatus = "ACTIVE" | "INACTIVE";
+
+/** Units of measure offered by the UI (shared controlled vocabulary). */
+export type UnitOfMeasure = "Piece" | "Kg" | "Litre" | "Box" | "Set" | "Pair" | "Carton" | "Dozen" | "Bottle" | "Roll" | "Meter" | "Gram";
+
+/** Minimal line item for embed/summary listings. */
 export interface ProductLine {
   product_id: string | null;
   sku: string;

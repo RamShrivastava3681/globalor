@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   BellRing,
+  Boxes,
   ClipboardCheck,
   LayoutDashboard,
   ListTodo,
@@ -68,6 +69,7 @@ export function useSidebarEntries(checkerCount = 0, queueCount = 0): Bucket[] {
       { label: "Procurement", icon: ShoppingCart, to: "/app/procurement-workbench", roles: ["operations", "admin"] },
       { label: "Sales", icon: ShoppingBag, to: "/app/sales-workbench", roles: ["sales_rep", "operations", "admin"] },
       { label: "Product Catalogue", icon: Package, to: "/app/products", roles: ["operations", "admin"] },
+      { label: "Product SKUs", icon: Boxes, to: "/app/product-skus", roles: ["operations", "admin"] },
       { label: "Warehouse Control", icon: Warehouse, to: "/app/warehouse-workbench", roles: ["operations", "admin"] },
       { label: "Logistics", icon: Truck, to: "/app/logistics", roles: ["operations", "treasury", "admin"] },
       { label: "Reports", icon: BarChart3, to: "/app/reports", roles: ["all"] },

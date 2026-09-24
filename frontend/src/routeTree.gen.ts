@@ -35,6 +35,8 @@ import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppProductsRouteImport } from './routes/app.products'
+import { Route as AppProductSkusRouteImport } from './routes/app.product-skus'
+import { Route as AppProductSkuDetailRouteImport } from './routes/app.product-sku-detail'
 import { Route as AppProcurementWorkbenchRouteImport } from './routes/app.procurement-workbench'
 import { Route as AppMyReportsRouteImport } from './routes/app.my-reports'
 import { Route as AppLogisticsRouteImport } from './routes/app.logistics'
@@ -189,6 +191,16 @@ const AppProductsRoute = AppProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProductSkusRoute = AppProductSkusRouteImport.update({
+  id: '/product-skus',
+  path: '/product-skus',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProductSkuDetailRoute = AppProductSkuDetailRouteImport.update({
+  id: '/product-sku-detail',
+  path: '/product-sku-detail',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProcurementWorkbenchRoute = AppProcurementWorkbenchRouteImport.update({
   id: '/procurement-workbench',
   path: '/procurement-workbench',
@@ -330,6 +342,8 @@ export interface FileRoutesByFullPath {
   '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
+  '/app/product-sku-detail': typeof AppProductSkuDetailRoute
+  '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -381,6 +395,8 @@ export interface FileRoutesByTo {
   '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
+  '/app/product-sku-detail': typeof AppProductSkuDetailRoute
+  '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -432,6 +448,8 @@ export interface FileRoutesById {
   '/app/logistics': typeof AppLogisticsRoute
   '/app/my-reports': typeof AppMyReportsRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
+  '/app/product-sku-detail': typeof AppProductSkuDetailRoute
+  '/app/product-skus': typeof AppProductSkusRoute
   '/app/products': typeof AppProductsRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -485,6 +503,8 @@ export interface FileRouteTypes {
     | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
+    | '/app/product-sku-detail'
+    | '/app/product-skus'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
@@ -536,6 +556,8 @@ export interface FileRouteTypes {
     | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
+    | '/app/product-sku-detail'
+    | '/app/product-skus'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
@@ -586,6 +608,8 @@ export interface FileRouteTypes {
     | '/app/logistics'
     | '/app/my-reports'
     | '/app/procurement-workbench'
+    | '/app/product-sku-detail'
+    | '/app/product-skus'
     | '/app/products'
     | '/app/proformas'
     | '/app/purchase-orders'
@@ -805,6 +829,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/product-skus': {
+      id: '/app/product-skus'
+      path: '/product-skus'
+      fullPath: '/app/product-skus'
+      preLoaderRoute: typeof AppProductSkusRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/product-sku-detail': {
+      id: '/app/product-sku-detail'
+      path: '/product-sku-detail'
+      fullPath: '/app/product-sku-detail'
+      preLoaderRoute: typeof AppProductSkuDetailRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/procurement-workbench': {
       id: '/app/procurement-workbench'
       path: '/procurement-workbench'
@@ -1005,6 +1043,8 @@ interface AppRouteChildren {
   AppLogisticsRoute: typeof AppLogisticsRoute
   AppMyReportsRoute: typeof AppMyReportsRoute
   AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
+  AppProductSkuDetailRoute: typeof AppProductSkuDetailRoute
+  AppProductSkusRoute: typeof AppProductSkusRoute
   AppProductsRoute: typeof AppProductsRoute
   AppProformasRoute: typeof AppProformasRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
@@ -1050,6 +1090,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppLogisticsRoute: AppLogisticsRoute,
   AppMyReportsRoute: AppMyReportsRoute,
   AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
+  AppProductSkuDetailRoute: AppProductSkuDetailRoute,
+  AppProductSkusRoute: AppProductSkusRoute,
   AppProductsRoute: AppProductsRoute,
   AppProformasRoute: AppProformasRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,

@@ -332,6 +332,32 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       required_action: `Send purchase order ${po.po_number} to checker`,
       next_action: "Checker approval", amount: po.grand_total,
     });
+    // A one-modal proforma is a live funding document — it needs its own
+    // checker-review task or it never enters the queue.
+    if (createdProforma) {
+      ensureTask(createdProforma.company_id, createdProforma.client_id, {
+        workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+        doc_id: createdProforma.id, doc_number: createdProforma.proforma_number ?? createdProforma.po_number,
+        counterparty: createdProforma.vendor_id ?? null,
+        doc_status: "pending_review", owner_role: "checker",
+        required_action: `Approve purchase proforma ${createdProforma.proforma_number ?? createdProforma.po_number} (checker)`,
+        next_action: "Create order", amount: createdProforma.amount,
+        linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
+      });
+    }
+    // A one-modal purchase invoice is a live payable — it needs its own
+    // finance-verify task or it never enters the queue.
+    if (createdInvoice) {
+      ensureTask(createdInvoice.company_id, createdInvoice.client_id, {
+        workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+        doc_id: createdInvoice.id, doc_number: createdInvoice.invoice_number,
+        counterparty: po.supplier_name,
+        doc_status: "draft", owner_role: "finance",
+        required_action: `Verify purchase invoice ${createdInvoice.invoice_number}`,
+        next_action: "Approve for payment", amount: createdInvoice.amount,
+        linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
+      });
+    }
 
     res.status(201).json({ ...po, created_proforma: createdProforma, created_invoice: createdInvoice });
   } catch (err) {

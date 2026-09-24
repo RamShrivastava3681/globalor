@@ -30,6 +30,7 @@ export const Route = createFileRoute("/app/proformas")({
     createFromPo: z.string().optional(),
     createFromSo: z.string().optional(),
     side: z.string().optional(),
+    fromQueue: z.string().optional(),
   }),
   component: ProformasPage,
 });
@@ -55,7 +56,7 @@ type PF = {
 
 export function ProformasPage({ embedded = false }: { embedded?: boolean } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { view?: string; createFromPo?: string; createFromSo?: string; side?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { view?: string; createFromPo?: string; createFromSo?: string; side?: string; fromQueue?: string } });
   const view = embedded ? undefined : ((routerSearch as any)?.view as string | undefined);
   const routeCreateFromPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
   const routeCreateFromSo = embedded ? undefined : ((routerSearch as any)?.createFromSo as string | undefined);
@@ -75,7 +76,11 @@ export function ProformasPage({ embedded = false }: { embedded?: boolean } = {})
 
   const closeModal = () => {
     setOpen(null);
-    if (!embedded && (routeCreateFromPo || routeCreateFromSo)) {
+    if (embedded) return;
+    if ((routerSearch as any)?.fromQueue) {
+      // Queue-driven flow: the task completes server-side on create — return to My Queue.
+      navigate({ to: "/app/tasks", replace: true });
+    } else if (routeCreateFromPo || routeCreateFromSo) {
       navigate({ to: "/app/proformas", search: { createFromPo: undefined, createFromSo: undefined, side: undefined }, replace: true });
     }
   };

@@ -90,6 +90,14 @@ export async function ensureTask(
           amount: seed.amount ?? t.amount ?? null,
           latest_update: seed.latest_update ?? t.latest_update ?? null,
           linked_docs: seed.linked_docs ?? t.linked_docs ?? null,
+          // The caller asserts this (doc, stage) should be actionable NOW.
+          // A stale existence scan can match a task that completeTasksForDoc
+          // just closed (DynamoDB reads are eventually consistent) — restoring
+          // open state here makes the refresh converge instead of silently
+          // swallowing the new stage behind a done task.
+          status: "open",
+          completed_by: null,
+          completed_at: null,
           updated_at: now,
         },
       )) as unknown as WorkflowTask | undefined;
@@ -243,7 +251,13 @@ export function deriveOpenTasks(docs: {
     } else if (st === "pending_checker_approval") {
       out.push({ ...base, stage: "checker_approve", doc_status: st, owner_role: "checker", required_action: `Approve sales order ${n} (checker)`, next_action: "Dispatch & invoice" });
     } else if (["approved", "confirmed", "partially_dispatched", "partiallydispatched"].includes(st)) {
-      out.push({ ...base, stage: "dispatch_invoice", doc_status: st, owner_role: "sales", required_action: `Dispatch or invoice ${n}`, next_action: "Create tax invoice" });
+      // Advance payment terms divert into the proforma/funding track.
+      const terms = String(d.payment_terms ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+      if (terms === "advance") {
+        out.push({ ...base, stage: "create_proforma", doc_status: st, owner_role: "sales", required_action: `Create proforma for sales order ${n} (advance payment terms)`, next_action: "Checker approval" });
+      } else {
+        out.push({ ...base, stage: "dispatch_invoice", doc_status: st, owner_role: "sales", required_action: `Dispatch or invoice ${n}`, next_action: "Create tax invoice" });
+      }
     } else if (!isTerminal(st)) {
       out.push({ ...base, stage: "create_invoice", doc_status: st, owner_role: "sales", required_action: `Create tax invoice for ${n}`, next_action: "Record UTR" });
     }
@@ -260,7 +274,7 @@ export function deriveOpenTasks(docs: {
     } else if (st === "pending_approval" || st === "pendingapproval") {
       out.push({ ...base, stage: "approve", doc_status: st, owner_role: "checker", required_action: `Approve purchase order ${n} (checker)`, next_action: "Auto-sent — receive goods" });
     } else if (st === "partially_received" || st === "partiallyreceived") {
-      out.push({ ...base, stage: "create_grn", doc_status: st, owner_role: "warehouse", required_action: `Create GRN for ${n}`, next_action: "Record supplier invoice" });
+      out.push({ ...base, stage: "create_grn", doc_status: st, owner_role: "warehouse", required_action: `Create GRN for ${n}`, next_action: "Create GRN" });
     } else if (!isTerminal(st) && st !== "cancelled") {
       out.push({ ...base, stage: "await_goods", doc_status: st, owner_role: "warehouse", required_action: `Receive goods for ${n}`, next_action: "Create GRN" });
     }

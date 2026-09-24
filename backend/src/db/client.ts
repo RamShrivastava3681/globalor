@@ -96,6 +96,18 @@ export const TABLES = {
   /** My Queue tasks — the automation backbone (Phase 2). One row per pending
    *  action on a document; completed/cancelled rows are kept for history. */
   WORKFLOW_TASKS: `${p()}_workflow_tasks`,
+  /**
+   * SKU hierarchy: master product + child colour/size variants.
+   *
+   * Partition key: `id` (unique variant id).
+   * Sort key: `masterSku` (SKUs sharing a master are ordered).
+   * Indexes:
+   *   - `parentId-index`: all variants in a master record (including the
+   *     master itself, which stores its own id in `parentId`).
+   *   - `parentSku-index`: variants sharing a master SKU value.
+   *   - `companyId-index`: scope by company.
+   */
+  PRODUCT_SKUS: `${p()}_product_skus`,
 } as const;
 
 // ── Generic helpers ──

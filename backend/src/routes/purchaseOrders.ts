@@ -374,8 +374,20 @@ router.post("/:id/fund", requireAuth, requireAnyWriteAccess("purchase-orders", "
     };
     await putItem(TABLES.ADVANCES, advance as any);
 
-    // My Queue: funded proformas leave the queue.
+    // My Queue: funded proformas leave the funding queue — and, when the
+    // funding completes the approved→funded transition, immediately re-open
+    // the convert task on the maker's desk (order creation is the next hop).
     completeTasksForDoc(po.company_id, "proforma", po.id, req.user!.id);
+    if (po.proforma_status === "approved" && !po.converted_to) {
+      ensureTask(po.company_id, po.client_id, {
+        workflow_type: "proforma", stage: "convert", doc_type: "proforma",
+        doc_id: po.id, doc_number: po.proforma_number ?? po.po_number, counterparty: null,
+        doc_status: "funded", owner_role: po.side === "sales" ? "sales" : "purchase",
+        required_action: `Convert proforma ${po.proforma_number ?? po.po_number} to order`,
+        next_action: "Create order", amount: po.amount,
+        latest_update: "Advance funded — proforma is ready to convert",
+      });
+    }
 
     res.json({ success: true, advance });
   } catch (err) {
