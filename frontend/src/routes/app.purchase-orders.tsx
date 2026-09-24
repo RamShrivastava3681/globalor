@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, Send, Ban, Truck, Pencil, Package, Wallet, FileSignature, FileText, Boxes, Link2, Ship,
+  Plus, X, Loader2, Trash2, CheckCircle2, Send, Ban, Pencil, Package, Wallet, FileSignature, FileText, Boxes, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { addressOptionsFor, defaultAddressFor } from "@/lib/customerAddresses";
@@ -261,16 +261,9 @@ export function PurchaseOrdersPage() {
                           </button>
                         )}
                         {(po.status === "sent" || po.status === "partially_received") && (
-                          <Link to="/app/goods-receipts" search={{ po: po.id }}
-                            className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
-                            <Truck className="h-3 w-3" /> Receive goods
-                          </Link>
-                        )}
-                        {(po.status === "approved" || po.status === "sent" || po.status === "partially_received") && (
-                          <Link to="/app/logistics" search={{ from_type: "goods_purchase_order", from_id: po.id }}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary">
-                            <Ship className="h-3 w-3" /> Ship
-                          </Link>
+                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                            Inbound — receive via GRN tab
+                          </span>
                         )}
                         {(po.status === "draft" || po.status === "approved" || po.status === "sent") && canEdit && (
                           <button onClick={() => { if (window.confirm(`Cancel ${po.po_number}?`)) cancel.mutate(po.id); }}
@@ -654,30 +647,38 @@ function NewPOModal({ buyerDefault, onClose }: { buyerDefault: string; onClose: 
               {lines.map((l, i) => (
                 <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
                   <div className="sm:col-span-5">
-                    <select className="inp" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Product</div>
+                    <select className="inp" aria-label="Product" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
                       <option value="">Pick product…</option>
                       {activeProducts.map((p) => <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>)}
                     </select>
                   </div>
                   <div className="sm:col-span-3">
-                    <input className="inp" placeholder="Item name (free text)" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Item name</div>
+                    <input className="inp" placeholder="Item name (free text)" aria-label="Item name" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <input className="inp num" placeholder="Qty" value={l.ordered_qty} onChange={(e) => setLine(i, { ordered_qty: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Qty</div>
+                    <input className="inp num" placeholder="Qty" aria-label="Ordered quantity" value={l.ordered_qty} onChange={(e) => setLine(i, { ordered_qty: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <input className="inp num" placeholder="Price" title="Last PO/GRN price suggested automatically" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Price</div>
+                    <input className="inp num" placeholder="Price" aria-label="Unit price" title="Last PO/GRN price suggested automatically" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <select className="inp" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })}>
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">GST %</div>
+                    <select className="inp" aria-label="GST rate" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })}>
                       {GST_OPTIONS.map((g) => <option key={g} value={g}>{g}%</option>)}
                     </select>
                   </div>
-                  <div className="flex items-center justify-end sm:col-span-1">
-                    <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
-                      className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                  <div className="sm:col-span-1">
+                    <div className="mb-1 hidden text-[10px] uppercase tracking-widest text-muted-foreground sm:block">&nbsp;</div>
+                    <div className="flex items-center justify-end">
+                      <button type="button" title="Remove line" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
+                        className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="text-[9px] text-muted-foreground sm:col-span-11">
                     {l.product_id ? `${l.sku} · ${l.unit}` : "Free-text line — pick a product to auto-suggest the last PO/GRN price"}

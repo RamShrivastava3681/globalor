@@ -39,7 +39,6 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
   const canEdit = canWrite("purchase-invoices");
-  const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -571,11 +570,7 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
                               </span>
                             )}
                             {p.status === "pending" && (
-                              canReview ? (
-                                <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
-                              ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
-                              )
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker — see Checker tab</span>
                             )}
                             {(p.status === "approved" || p.status === "advanced") && (
                               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
