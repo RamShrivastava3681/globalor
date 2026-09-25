@@ -253,7 +253,7 @@ function ProductsPage() {
           canEdit ? (
             <button
               onClick={() => navigate({ to: "/app/products-create" })}
-              title="Create a Master SKU — productName, itemNumber, brand, gender, category, model, HSN, tax, UOM, cost, price"
+              title="Create a Master SKU — productName, itemNumber, brand, category, model, HSN, tax, UOM, cost, price"
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
             >
               <Package className="h-4 w-4" /> Create Master SKU
@@ -337,7 +337,7 @@ function ProductsPage() {
                         <span className="block truncate font-medium">{m.productName}</span>
                         <span className="block font-mono text-[11px] font-semibold text-primary">{m.masterSku}</span>
                         <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                          #{m.itemNumber} · {[m.brand, m.gender, m.category, m.modelNumber].filter(Boolean).join(" · ")}
+                          #{m.itemNumber} · {[m.brand, m.category, m.modelNumber].filter(Boolean).join(" · ")}
                         </span>
                       </span>
                     </button>
@@ -602,7 +602,7 @@ function MasterEditDialog({ master, pending, onSave, onClose }: { master: Produc
         >
           <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs">
             <span className="text-muted-foreground">Master SKU:</span> <span className="font-semibold text-primary">{master.masterSku}</span>{" "}
-            <span className="text-muted-foreground">(read-only · {master.brand} · {master.gender} · {master.category} · {master.modelNumber})</span>
+            <span className="text-muted-foreground">(read-only · {master.brand} · {master.category} · {master.modelNumber})</span>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <F label="Product Name *"><input required className="inp" value={f.productName} onChange={(e) => setF({ ...f, productName: e.target.value })} /></F>

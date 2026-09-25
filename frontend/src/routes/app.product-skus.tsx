@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoneyINR } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtMoneyUSD } from "@/components/ledger-ui";
 import {
   Plus, X, Loader2, Package, Boxes, CircleDollarSign, Percent, PackageOpen, Check, Eye, Trash2,
 } from "lucide-react";
@@ -235,7 +235,7 @@ export function ProductSkusPage() {
               <CircleDollarSign className="h-3.5 w-3.5 text-success" /> Inventory value
             </div>
             <div className="mt-2 font-display text-2xl font-semibold">
-              {fmtMoneyINR(rows.reduce((s, p) => s + p.unitPrice, 0))}
+              {fmtMoneyUSD(rows.reduce((s, p) => s + p.unitPrice, 0))}
             </div>
           </Card>
           <Card className="p-4">
@@ -319,7 +319,7 @@ export function ProductSkusPage() {
                             <div className="truncate font-medium">{m.productName}</div>
                             <div className="font-mono text-[11px] font-semibold text-primary">{m.masterSku}</div>
                             <div className="font-mono text-[10px] text-muted-foreground">
-                              #{m.itemNumber} · {[m.brand, m.gender, m.category, m.modelNumber].filter(Boolean).join(" · ")}
+                              #{m.itemNumber} · {[m.brand, m.category, m.modelNumber].filter(Boolean).join(" · ")}
                             </div>
                           </div>
                         </div>
@@ -339,8 +339,8 @@ export function ProductSkusPage() {
                         <div className="mt-1 text-[10px] text-muted-foreground">{variants.length} colour{variants.length === 1 ? "" : "s"}</div>
                       </td>
                       <td className="px-3 py-3 text-right num">
-                        <div>{fmtMoneyINR(m.unitPrice)}</div>
-                        <div className="text-[10px] text-muted-foreground">cost {fmtMoneyINR(m.unitCost)}</div>
+                        <div>{fmtMoneyUSD(m.unitPrice)}</div>
+                        <div className="text-[10px] text-muted-foreground">cost {fmtMoneyUSD(m.unitCost)}</div>
                       </td>
                       <td className="px-3 py-3 text-right num font-medium">{m.grossMargin.toFixed(2)}%</td>
                       <td className="px-3 py-3 text-xs text-muted-foreground">{m.hsnCode ?? "—"} · {m.taxPercent}%</td>
@@ -458,7 +458,7 @@ export function ProductSkusPage() {
 
               <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">Inherited from {colourTarget.masterSku}:</span>{" "}
-                {fmtMoneyINR(colourTarget.unitCost)} cost · {fmtMoneyINR(colourTarget.unitPrice)} price · {colourTarget.taxPercent}% tax · HSN {colourTarget.hsnCode ?? "—"} · {colourTarget.unitOfMeasure}
+                {fmtMoneyUSD(colourTarget.unitCost)} cost · {fmtMoneyUSD(colourTarget.unitPrice)} price · {colourTarget.taxPercent}% tax · HSN {colourTarget.hsnCode ?? "—"} · {colourTarget.unitOfMeasure}
               </div>
 
               <div className="flex items-center justify-end gap-2 border-t border-border pt-4">

@@ -1,15 +1,17 @@
 import { ReactNode } from "react";
 import { AnimatedMoney, AnimatedNumber } from "@/components/animated-number";
 import { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate } from "@/lib/format";
-
 export function fmtMoneyINR(v: number | null | undefined): string {
   const n = Number(v ?? 0);
-  return new Intl.NumberFormat("en-IN", {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "INR",
+    currency: "USD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(n);}
+  }).format(n);
+}
+// Alias for clarity — master SKU pricing is in USD
+export const fmtMoneyUSD = fmtMoneyINR;
 export { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate };
 export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: string; actions?: ReactNode }) {
   return (

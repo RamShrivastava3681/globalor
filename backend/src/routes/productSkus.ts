@@ -46,21 +46,13 @@ export function resolveColourCode(input: string): string {
 
 // ── SKU helpers ─────────────────────────────────────────────────────────────
 
-const genderCodeMap: Record<string, string> = {
-  male: "M", m: "M", female: "F", f: "F", unisex: "U", u: "U",
-  kids: "K", boys: "M", girls: "F", infant: "I",
-};
+// Brand is fixed to GLO for every Master SKU — no edit option anywhere.
+export const FIXED_BRAND = "GLO";
 
 const categoryCodeMap: Record<string, string> = {
   "t-shirt": "TS", tshirt: "TS", ts: "TS", shirt: "SH", jeans: "JN",
   trousers: "TR", dress: "DR", jacket: "JK", saree: "SR", kurta: "KR",
 };
-
-function toGenderCode(v: string): string {
-  const k = v.trim().toLowerCase();
-  if (genderCodeMap[k]) return genderCodeMap[k];
-  return v.trim().charAt(0).toUpperCase() || "U";
-}
 
 function toCategoryCode(v: string): string {
   const k = v.trim().toLowerCase().replace(/\s+/g, "");
@@ -76,12 +68,12 @@ function padModelNumber(v: string): string {
   return v.trim().toUpperCase().padStart(3, "0").slice(-3) || "001";
 }
 
-export function buildMasterSku(brand: string, gender: string, category: string, modelNumber: string): string {
-  const b = (brand.trim().toUpperCase().slice(0, 2) || "AD").padEnd(2, "X");
-  const g = toGenderCode(gender);
+export function buildMasterSku(_brand: string, category: string, modelNumber: string): string {
+  // Format: GLO-CATEGORY-MODEL (e.g. GLO-TS-001). Brand is fixed to GLO, gender removed.
+  const b = FIXED_BRAND;
   const c = toCategoryCode(category);
   const m = padModelNumber(modelNumber);
-  return `${b}-${g}-${c}-${m}`;
+  return `${b}-${c}-${m}`;
 }
 
 function nextAvailableMasterSku(baseSku: string, existingSkus: string[]): string {
@@ -129,8 +121,8 @@ const hsnSchema = z.string().trim().regex(/^[0-9]{4,8}$/, "HSN Code must be 4-8 
 const statusEnum = z.enum(["ACTIVE", "INACTIVE"] as const);
 
 const baseSkuFields = z.object({
-  brand: z.string().trim().min(1, "Brand is required").max(60),
-  gender: z.string().trim().min(1, "Gender is required").max(40),
+  brand: z.string().trim().max(60).optional().nullable(),
+  gender: z.string().trim().max(40).optional().nullable(),
   category: z.string().trim().min(1, "Category is required").max(100),
   modelNumber: z.string().trim().min(1, "Model Number is required").max(40),
   hsnCode: hsnSchema,
@@ -198,8 +190,8 @@ router.get("/validate-sku", requireAuth, async (req: AuthRequest, res: Response)
 // ── GET /api/product-skus/next-sku ────────────────────────────────────────
 router.get("/next-sku", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { brand = "AD", gender = "Male", category = "T-Shirt", modelNumber = "001" } = req.query as Record<string, string>;
-    const base = buildMasterSku(brand, gender, category, modelNumber);
+    const { category = "T-Shirt", modelNumber = "001" } = req.query as Record<string, string>;
+    const base = buildMasterSku(FIXED_BRAND, category, modelNumber);
     const all = await scanTable<ProductSku>(TABLES.PRODUCT_SKUS, getCompanyFilter(req.user!));
     const sku = nextAvailableMasterSku(base, all.map((r) => r.masterSku).filter(Boolean) as string[]);
     res.json({ sku, base, available: sku === base });
@@ -266,9 +258,9 @@ router.post("/", requireAuth, requireWriteAccess("products"), async (req: AuthRe
     const isColour = !!req.body?.parentProductId && !req.body?.isMaster;
 
     if (!isColour) {
-      // ── Master ──
+      // ── Master ── brand is always GLO, gender removed
       const parsed = masterCreateSchema.parse(req.body);
-      const masterSku = buildMasterSku(parsed.brand, parsed.gender, parsed.category, parsed.modelNumber);
+      const masterSku = buildMasterSku(FIXED_BRAND, parsed.category, parsed.modelNumber);
 
       if (allSkuRows.some((r) => r.masterSku === masterSku)) {
         const suggestion = nextAvailableMasterSku(masterSku, allSkuRows.map((r) => r.masterSku).filter(Boolean) as string[]);
@@ -285,8 +277,8 @@ router.post("/", requireAuth, requireWriteAccess("products"), async (req: AuthRe
         parentSku: null,
         productName: parsed.productName.trim(),
         itemNumber: parsed.itemNumber.trim(),
-        brand: parsed.brand.trim().toUpperCase(),
-        gender: parsed.gender.trim(),
+        brand: FIXED_BRAND,
+        gender: null,
         category: parsed.category.trim(),
         modelNumber: padModelNumber(parsed.modelNumber),
         hsnCode: parsed.hsnCode.trim(),
@@ -389,7 +381,10 @@ router.post("/", requireAuth, requireWriteAccess("products"), async (req: AuthRe
     res.status(201).json(colour);
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ error: err.errors[0].message });
+      const issue = err.issues[0];
+      const field = issue.path.join(".");
+      const message = field ? `${field}: ${issue.message}` : issue.message;
+      res.status(400).json({ error: message, details: err.issues.map((i) => ({ field: i.path.join("."), message: i.message })) });
       return;
     }
     console.error("Create product SKU error:", err);
@@ -466,7 +461,10 @@ router.patch("/:id", requireAuth, requireWriteAccess("products"), async (req: Au
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
-      res.status(400).json({ error: err.errors[0].message });
+      const issue = err.issues[0];
+      const field = issue.path.join(".");
+      const message = field ? `${field}: ${issue.message}` : issue.message;
+      res.status(400).json({ error: message, details: err.issues.map((i) => ({ field: i.path.join("."), message: i.message })) });
       return;
     }
     console.error("Update product SKU error:", err);

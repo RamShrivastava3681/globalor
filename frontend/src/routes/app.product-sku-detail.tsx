@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoneyINR } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtMoneyUSD } from "@/components/ledger-ui";
 import { Package, Pen, Trash2, Plus, PackageOpen, ArrowLeft, Save, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -122,9 +122,8 @@ export function ProductSkuDetailPage() {
             <Info label="Item Number" value={`#${mat.itemNumber}`} mono />
             <div className="rounded-xl border border-border p-4"><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Status</div><span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[mat.status]}`}>{mat.status}</span></div>
           </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <Info label="Brand" value={mat.brand ?? "—"} />
-            <Info label="Gender" value={mat.gender ?? "—"} />
             <Info label="Category" value={mat.category ?? "—"} />
             <Info label="Model" value={mat.modelNumber ?? "—"} mono />
           </div>
@@ -135,9 +134,9 @@ export function ProductSkuDetailPage() {
             <div className="rounded-xl border border-border bg-muted/20 p-4"><div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Gross Margin</div><div className="font-display text-xl font-semibold text-success">{margin.toFixed(2)}%</div><div className="text-[11px] text-muted-foreground">((Price − Cost) ÷ Price) × 100 · read-only</div></div>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <Info label="Unit Cost" value={fmtMoneyINR(mat.unitCost)} large />
-            <Info label="Unit Price" value={fmtMoneyINR(mat.unitPrice)} large />
-            <Info label="Margin Value" value={fmtMoneyINR(mat.unitPrice - mat.unitCost)} large />
+            <Info label="Unit Cost" value={fmtMoneyUSD(mat.unitCost)} large />
+            <Info label="Unit Price" value={fmtMoneyUSD(mat.unitPrice)} large />
+            <Info label="Margin Value" value={fmtMoneyUSD(mat.unitPrice - mat.unitCost)} large />
           </div>
         </Card>
 
@@ -161,7 +160,7 @@ export function ProductSkuDetailPage() {
               <thead className="text-xs uppercase tracking-widest text-muted-foreground"><tr className="border-b border-border"><th className="px-4 py-3 text-left">Colour</th><th className="px-3 py-3 text-left font-mono text-[11px]">Colour SKU</th><th className="px-3 py-3 text-right">Cost</th><th className="px-3 py-3 text-right">Price</th><th className="px-3 py-3 text-right">Margin</th><th className="px-3 py-3 text-center">Status</th><th className="px-3 py-3 text-right">Actions</th></tr></thead>
               <tbody>{variants.map((v) => {
                 const vm = v.unitPrice > 0 ? ((v.unitPrice - v.unitCost) / v.unitPrice) * 100 : 0;
-                return <tr key={v.id} className="border-b border-border/60 hover:bg-muted/30"><td className="px-4 py-3"><span className="font-medium">{v.colourName}</span> <span className="font-mono text-[10px] text-muted-foreground">{v.colourCode}</span></td><td className="px-3 py-3 font-mono text-xs text-primary">{v.colourSku}</td><td className="px-3 py-3 text-right">{fmtMoneyINR(v.unitCost)}</td><td className="px-3 py-3 text-right">{fmtMoneyINR(v.unitPrice)}</td><td className="px-3 py-3 text-right font-medium">{vm.toFixed(2)}%</td><td className="px-3 py-3 text-center"><span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[v.status]}`}>{v.status}</span></td><td className="px-3 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => setColourEdit(v)} className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary"><Pen className="h-3 w-3" /></button><button onClick={() => { if (confirm(`Remove ${v.colourSku}?`)) removeColour.mutate(v.id); }} className="rounded-md border border-border px-2 py-1 text-xs hover:border-destructive hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>;
+                return <tr key={v.id} className="border-b border-border/60 hover:bg-muted/30"><td className="px-4 py-3"><span className="font-medium">{v.colourName}</span> <span className="font-mono text-[10px] text-muted-foreground">{v.colourCode}</span></td><td className="px-3 py-3 font-mono text-xs text-primary">{v.colourSku}</td><td className="px-3 py-3 text-right">{fmtMoneyUSD(v.unitCost)}</td><td className="px-3 py-3 text-right">{fmtMoneyUSD(v.unitPrice)}</td><td className="px-3 py-3 text-right font-medium">{vm.toFixed(2)}%</td><td className="px-3 py-3 text-center"><span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[v.status]}`}>{v.status}</span></td><td className="px-3 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => setColourEdit(v)} className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary"><Pen className="h-3 w-3" /></button><button onClick={() => { if (confirm(`Remove ${v.colourSku}?`)) removeColour.mutate(v.id); }} className="rounded-md border border-border px-2 py-1 text-xs hover:border-destructive hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>;
               })}</tbody></table></div>
           ) : <div className="py-10 text-center text-sm text-muted-foreground">No colour variants yet. Click <span className="text-foreground">+ Add Colour</span> to create one.</div>}
         </Card>
@@ -185,8 +184,8 @@ export function ProductSkuDetailPage() {
                 <F label="Colour Code — auto"><div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 font-mono text-sm font-medium text-primary">{addColourCode} <span className="ml-2 text-[10px] text-muted-foreground">(read-only)</span></div></F>
                 <F label="Colour SKU — auto"><div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 font-mono text-xs font-medium text-primary">{addColourSku}</div></F>
                 <F label="Status"><select className="inp" value={addForm.status} onChange={(e) => setAddForm({ ...addForm, status: e.target.value as any })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></F>
-                <F label="Unit Cost (prefilled, editable)"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={addForm.unitCost} onChange={(e) => setAddForm({ ...addForm, unitCost: e.target.value })} placeholder={String(mat.unitCost)} /></div></F>
-                <F label="Unit Price (prefilled, editable)"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={addForm.unitPrice} onChange={(e) => setAddForm({ ...addForm, unitPrice: e.target.value })} placeholder={String(mat.unitPrice)} /></div></F>
+                <F label="Unit Cost (prefilled, editable)"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={addForm.unitCost} onChange={(e) => setAddForm({ ...addForm, unitCost: e.target.value })} placeholder={String(mat.unitCost)} /></div></F>
+                <F label="Unit Price (prefilled, editable)"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={addForm.unitPrice} onChange={(e) => setAddForm({ ...addForm, unitPrice: e.target.value })} placeholder={String(mat.unitPrice)} /></div></F>
                 <F label="Gross Margin % — auto"><div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 font-mono text-sm font-semibold text-success">{addMargin.toFixed(2)}%</div></F>
                 <F label="Tax % (inherited, editable)"><div className="relative"><input className="inp num" value={addForm.taxPercent} onChange={(e) => setAddForm({ ...addForm, taxPercent: e.target.value })} placeholder={String(mat.taxPercent)} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span></div></F>
                 <F label="HSN Code (inherited, editable)"><input className="inp font-mono" value={addForm.hsnCode} onChange={(e) => setAddForm({ ...addForm, hsnCode: e.target.value })} placeholder={mat.hsnCode ?? ""} /></F>
@@ -218,8 +217,8 @@ function ColourEditModal({ colour, masterSku, onSave, onClose }: { colour: Produ
     <form onSubmit={(e) => { e.preventDefault(); onSave({ unitCost: Number(f.unitCost), unitPrice: Number(f.unitPrice), taxPercent: Number(f.taxPercent), hsnCode: f.hsnCode.trim() || null, status: f.status }); }} className="space-y-4 p-5">
       <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs"><span className="text-muted-foreground">Colour SKU:</span> <span className="font-semibold text-primary">{colour.colourSku}</span> <span className="text-muted-foreground">(read-only)</span></div>
       <div className="grid gap-3 md:grid-cols-2">
-        <F label="Unit Cost"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></div></F>
-        <F label="Unit Price"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></div></F>
+        <F label="Unit Cost"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></div></F>
+        <F label="Unit Price"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></div></F>
         <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-semibold text-success">{m.toFixed(2)}% <span className="text-[10px] text-muted-foreground">margin (read-only)</span></div>
         <F label="Tax %"><div className="relative"><input className="inp num" value={f.taxPercent} onChange={(e) => setF({ ...f, taxPercent: e.target.value })} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span></div></F>
         <F label="HSN Code"><input className="inp font-mono" value={f.hsnCode} onChange={(e) => setF({ ...f, hsnCode: e.target.value })} /></F>
@@ -239,8 +238,8 @@ function EditMasterForm({ product, onSave, onClose }: { product: ProductSku; onS
       <F label="Item Number *"><input required className="inp font-mono" value={f.itemNumber} onChange={(e) => setF({ ...f, itemNumber: e.target.value })} /></F>
       <F label="HSN Code"><input className="inp font-mono" value={f.hsnCode} onChange={(e) => setF({ ...f, hsnCode: e.target.value })} /></F>
       <F label="Tax %"><input className="inp num" value={f.taxPercent} onChange={(e) => setF({ ...f, taxPercent: e.target.value })} /></F>
-      <F label="Unit Cost"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></div></F>
-      <F label="Unit Price"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">₹</span><input className="inp num pl-7" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></div></F>
+      <F label="Unit Cost"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></div></F>
+      <F label="Unit Price"><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span><input className="inp num pl-7" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></div></F>
       <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-semibold text-success">{m.toFixed(2)}% margin (read-only)</div>
       <F label="Status"><select className="inp" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as any })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></F>
     </div>
