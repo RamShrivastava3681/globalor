@@ -176,6 +176,9 @@ router.patch("/:id", requireAuth, requireWriteAccess("customers"), async (req: A
 router.delete("/:id", requireAuth, requireWriteAccess("customers"), async (req: AuthRequest, res: Response) => {
   try {
     const cid = req.params.id as string;
+    // Cascade: remove all orders, invoices and related data created on this party
+    const { cascadeDeleteCustomer } = await import("../utils/partyCascade.js");
+    await cascadeDeleteCustomer(req.user!.company_id, cid).catch((e) => console.error("Customer cascade delete error:", e));
     await deleteItem(TABLES.DEBTORS, { id: cid }).catch(() => {});
     await deleteItem(TABLES.CUSTOMERS, { id: cid }).catch(() => {});
     res.json({ success: true });

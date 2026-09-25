@@ -120,7 +120,12 @@ router.patch("/:id", requireAuth, requireWriteAccess("suppliers"), async (req: A
 // ── DELETE /api/suppliers/:id ──
 router.delete("/:id", requireAuth, requireWriteAccess("suppliers"), async (req: AuthRequest, res: Response) => {
   try {
-    await deleteItem(TABLES.SUPPLIERS, { id: req.params.id });
+    const sid = req.params.id as string;
+    const { cascadeDeleteSupplier } = await import("../utils/partyCascade.js");
+    await cascadeDeleteSupplier(req.user!.company_id, sid).catch((e) => console.error("Supplier cascade delete error:", e));
+    await deleteItem(TABLES.SUPPLIERS, { id: sid });
+    // Also remove vendor mirror if present
+    await deleteItem(TABLES.VENDORS, { id: sid }).catch(() => {});
     res.json({ success: true });
   } catch (err) {
     console.error("Delete supplier error:", err);

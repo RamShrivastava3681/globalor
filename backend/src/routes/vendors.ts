@@ -110,7 +110,11 @@ router.patch("/:id", requireAuth, requireWriteAccess("vendors"), async (req: Aut
 // ── DELETE /api/vendors/:id ──
 router.delete("/:id", requireAuth, requireWriteAccess("vendors"), async (req: AuthRequest, res: Response) => {
   try {
-    await deleteItem(TABLES.VENDORS, { id: req.params.id });
+    const vid = req.params.id as string;
+    const { cascadeDeleteSupplier } = await import("../utils/partyCascade.js");
+    await cascadeDeleteSupplier(req.user!.company_id, vid).catch((e) => console.error("Vendor cascade delete error:", e));
+    await deleteItem(TABLES.VENDORS, { id: vid });
+    await deleteItem(TABLES.SUPPLIERS, { id: vid }).catch(() => {});
     res.json({ success: true });
   } catch (err) {
     console.error("Delete vendor error:", err);
