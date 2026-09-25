@@ -677,7 +677,7 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-sales-orders")
   }
 });
 
-// ── DELETE /api/goods-sales-orders/:id ── (drafts only)
+// ── DELETE /api/goods-sales-orders/:id ── (allowed regardless of status)
 router.delete("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const existing = await getItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id }) as GoodsSalesOrder | undefined;
@@ -686,12 +686,8 @@ router.delete("/:id", requireAuth, requireWriteAccess("goods-sales-orders"), asy
       res.status(404).json({ error: "Sales order not found" });
       return;
     }
-    if (existing.status !== "draft") {
-      res.status(400).json({ error: `Only draft sales orders can be deleted (current: ${existing.status})` });
-      return;
-    }
     await deleteItem(TABLES.GOODS_SALES_ORDERS, { id: req.params.id });
-    // My Queue: drop open tasks for the deleted draft.
+    // My Queue: drop open tasks for the deleted order regardless of status.
     cancelTasksForDoc(existing.company_id, "sales_order", existing.id, "Sales order deleted");
     res.json({ success: true });
   } catch (err) {

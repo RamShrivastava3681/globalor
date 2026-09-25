@@ -141,7 +141,7 @@ export function PurchaseOrdersPage() {
   });
   const remove = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/goods-purchase-orders/${id}`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_po"] }); toast.success("Draft removed"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_po"] }); toast.success("Purchase order removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -236,41 +236,44 @@ export function PurchaseOrdersPage() {
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${STATUS_META[po.status].cls}`}>{STATUS_META[po.status].label}</span>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {canEdit && po.status === "draft" && (
-                          <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {canEdit && po.status === "draft" && (
                             <button onClick={() => submit.mutate(po.id)} disabled={submit.isPending}
                               className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
                               <Send className="h-3 w-3" /> Send for approval
                             </button>
-                            <button onClick={() => { if (window.confirm(`Delete draft ${po.po_number}?`)) remove.mutate(po.id); }}
+                          )}
+                          {po.status === "pending_approval" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
+                              <CheckCircle2 className="h-3 w-3" /> Awaiting checker
+                            </span>
+                          )}
+                          {canEdit && po.status === "approved" && (
+                            <button onClick={() => send.mutate(po.id)} disabled={send.isPending}
+                              title="Legacy order approved before the checker gate — mark it sent to unblock receiving"
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
+                              <Send className="h-3 w-3" /> Mark sent
+                            </button>
+                          )}
+                          {(po.status === "sent" || po.status === "partially_received") && (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              Inbound — receive via GRN tab
+                            </span>
+                          )}
+                          {(po.status === "draft" || po.status === "approved" || po.status === "sent") && canEdit && (
+                            <button onClick={() => { if (window.confirm(`Cancel ${po.po_number}?`)) cancel.mutate(po.id); }}
                               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                              <Ban className="h-3 w-3" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => { if (window.confirm(`Remove ${po.po_number} regardless of status (${po.status})? This cannot be undone.`)) remove.mutate(po.id); }}
+                              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                              title={`Remove ${po.po_number} — works on any status`}>
                               <Trash2 className="h-3 w-3" />
                             </button>
-                          </div>
-                        )}
-                        {po.status === "pending_approval" && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
-                            <CheckCircle2 className="h-3 w-3" /> Awaiting checker
-                          </span>
-                        )}
-                        {canEdit && po.status === "approved" && (
-                          <button onClick={() => send.mutate(po.id)} disabled={send.isPending}
-                            title="Legacy order approved before the checker gate — mark it sent to unblock receiving"
-                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
-                            <Send className="h-3 w-3" /> Mark sent
-                          </button>
-                        )}
-                        {(po.status === "sent" || po.status === "partially_received") && (
-                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                            Inbound — receive via GRN tab
-                          </span>
-                        )}
-                        {(po.status === "draft" || po.status === "approved" || po.status === "sent") && canEdit && (
-                          <button onClick={() => { if (window.confirm(`Cancel ${po.po_number}?`)) cancel.mutate(po.id); }}
-                            className="ml-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
-                            <Ban className="h-3 w-3" />
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

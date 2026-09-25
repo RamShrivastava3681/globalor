@@ -169,7 +169,7 @@ export function SalesOrdersPage() {
   });
   const remove = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/goods-sales-orders/${id}`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Draft removed"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -264,39 +264,42 @@ export function SalesOrdersPage() {
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${STATUS_META[so.status].cls}`}>{STATUS_META[so.status].label}</span>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {canEdit && so.status === "draft" && (
-                          <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {canEdit && so.status === "draft" && (
                             <button onClick={() => submit.mutate(so.id)} disabled={submit.isPending}
                               className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
                               <Send className="h-3 w-3" /> Send for approval
                             </button>
-                            <button onClick={() => { if (window.confirm(`Delete draft ${so.so_number}?`)) remove.mutate(so.id); }}
+                          )}
+                          {so.status === "pending_warehouse_approval" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
+                              <Clock className="h-3 w-3" /> Awaiting warehouse
+                            </span>
+                          )}
+                          {so.status === "pending_checker_approval" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-info/40 px-2 py-1 text-[11px] text-info">
+                              <Clock className="h-3 w-3" /> Awaiting checker
+                            </span>
+                          )}
+                          {RELEASED.has(so.status) && so.status !== "fully_dispatched" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              Released — dispatch via Dispatches · invoice via Invoices
+                            </span>
+                          )}
+                          {(so.status === "draft" || RELEASED.has(so.status)) && canEdit && (
+                            <button onClick={() => { if (window.confirm(`Cancel ${so.so_number}?`)) cancel.mutate(so.id); }}
                               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                              <Ban className="h-3 w-3" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => { if (window.confirm(`Remove ${so.so_number} regardless of status (${so.status})? This cannot be undone.`)) remove.mutate(so.id); }}
+                              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                              title={`Remove ${so.so_number} — works on any status`}>
                               <Trash2 className="h-3 w-3" />
                             </button>
-                          </div>
-                        )}
-                        {so.status === "pending_warehouse_approval" && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
-                            <Clock className="h-3 w-3" /> Awaiting warehouse
-                          </span>
-                        )}
-                        {so.status === "pending_checker_approval" && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-info/40 px-2 py-1 text-[11px] text-info">
-                            <Clock className="h-3 w-3" /> Awaiting checker
-                          </span>
-                        )}
-                        {RELEASED.has(so.status) && so.status !== "fully_dispatched" && (
-                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                            Released — dispatch via Dispatches · invoice via Invoices
-                          </span>
-                        )}
-                        {(so.status === "draft" || RELEASED.has(so.status)) && canEdit && (
-                          <button onClick={() => { if (window.confirm(`Cancel ${so.so_number}?`)) cancel.mutate(so.id); }}
-                            className="ml-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
-                            <Ban className="h-3 w-3" />
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
