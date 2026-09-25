@@ -2,6 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Package, FileText, Paperclip, X } from "lucide-react";
+import { DocActions, type DocKind } from "@/components/workflow/doc-actions";
+
+function taskToDocKind(task: any): DocKind | null {
+  const wt = String(task.workflow_type ?? "");
+  const dt = String(task.doc_type ?? "");
+  if (wt === "proforma" || dt === "proforma") return "proforma";
+  if (wt === "sales_invoice" || dt === "sales_invoice") return "sale";
+  if (wt === "purchase_invoice" || dt === "purchase_invoice") return "purchase";
+  if (wt === "sales_order" || dt === "sales_order") return "sales_order";
+  if (wt === "purchase_order" || dt === "purchase_order") return "po";
+  return null;
+}
 
 type Task = any;
 
@@ -50,6 +62,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () =>
             <Info label="Priority" value={task.priority} />
           </div>
           {task.latest_update && <p className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs">{task.latest_update}</p>}
+          {(() => {
+            const kind = taskToDocKind(task);
+            if (!kind || !doc) return null;
+            return <DocActions kind={kind} doc={doc} onDone={onClose} />;
+          })()}
           {task.linked_docs?.length > 0 && (
             <div className="text-xs"><span className="font-semibold">Linked:</span> {task.linked_docs.map((d: any) => `${d.type} ${d.number}`).join(" · ")}</div>
           )}

@@ -1,12 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoneyINR } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Save, Package, Boxes, CircleDollarSign, Percent, Pen, Trash2, PackageOpen,
-} from "lucide-react";import { toast } from "sonner";
+  Plus, X, Loader2, Package, Boxes, CircleDollarSign, Percent, PackageOpen, Check, Eye, Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+
 export const Route = createFileRoute("/app/product-skus")({
   component: ProductSkusPage,
 });
@@ -38,219 +40,174 @@ type ProductSku = {
   created_at: string;
 };
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Colour vocabulary (shared with backend) ─────────────────────────────────
+
+const COLOUR_OPTIONS = [
+  { name: "Black", code: "BLK", swatch: "bg-black" },
+  { name: "White", code: "WHT", swatch: "border border-border bg-white" },
+  { name: "Red", code: "RED", swatch: "bg-red-600" },
+  { name: "Green", code: "GRN", swatch: "bg-green-600" },
+  { name: "Grey", code: "GRY", swatch: "bg-gray-500" },
+  { name: "Blue", code: "BLU", swatch: "bg-blue-600" },
+  { name: "Navy Blue", code: "NVY", swatch: "bg-blue-950" },
+  { name: "Yellow", code: "YLW", swatch: "bg-yellow-400" },
+  { name: "Orange", code: "ORG", swatch: "bg-orange-500" },
+  { name: "Pink", code: "PNK", swatch: "bg-pink-500" },
+  { name: "Purple", code: "PUR", swatch: "bg-purple-600" },
+  { name: "Brown", code: "BRN", swatch: "bg-amber-800" },
+] as const;
 
 const STATUS_STYLES: Record<string, string> = {
   ACTIVE: "border-success/40 bg-success/10 text-success",
   INACTIVE: "border-border bg-muted text-muted-foreground",
 };
 
-function fmtNumber(v: number | null | undefined): string {
-  return v?.toLocaleString("en-IN", { maximumFractionDigits: 2 }) ?? "—";
-}
-
-// ── Page ────────────────────────────────────────────────────────────────────
-
-const COLOUR_OPTIONS = [
-  "BLK", "WHT", "RED", "GRN", "GRY", "BLU", "NAV", "YLW", "ORG", "PNK", "PUR", "BRN",
-];
-
-const colourLabel = (code: string): string => {
-  const map: Record<string, string> = {
-    BLK: "Black", WHT: "White", RED: "Red", GRN: "Green", GRY: "Grey",
-    BLU: "Blue", NAV: "Navy Blue", YLW: "Yellow", ORG: "Orange", PNK: "Pink",
-    PUR: "Purple", BRN: "Brown",
-  };
-  return map[code] ?? code;
-};
-
-const UOM_OPTIONS = ["Piece", "Kg", "Litre", "Box", "Set", "Pair", "Carton", "Dozen", "Bottle", "Roll", "Meter", "Gram"];
-
-const emptyForm = {
-  name: "",
-  itemNumber: "",
-  brand: "",
-  gender: "",
-  category: "",
-  modelNumber: "",
-  hsnCode: "",
-  taxPercent: "0",
-  unitOfMeasure: "Piece",
-  unitCost: "600",
-  unitPrice: "1000",
-  colourCode: "",
-  colourName: "",
-  status: "ACTIVE" as const,
-};
-
-const emptyColourClass = {
-  colourCode: "",
-  colourName: "",
-};
-
 export function ProductSkusPage() {
   const { canWrite } = useAuth();
   const canEdit = canWrite("products");
+  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<ProductSku | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [form, setForm] = useState(emptyForm);
-  const [colourForm, setColourForm] = useState(emptyColourClass);
+  const [statusFilter, setStatusFilter] = useState<"all" | "ACTIVE" | "INACTIVE">("all");
 
-  const products = useQuery({
+  // ── Colour dialog state: which master are we adding colours to? ──
+  const [colourTargetId, setColourTargetId] = useState<string | null>(null);
+  const [selectedColourCodes, setSelectedColourCodes] = useState<string[]>([]);
+
+  const skusQ = useQuery({
     queryKey: ["product-skus"],
     queryFn: async () => (await api.get<ProductSku[]>("/product-skus")) ?? [],
   });
 
-  const masterCount = useMemo(() => {
-    return (products.data ?? []).filter((p) => p.productType === "MASTER").length;
-  }, [products.data]);
+  const rows = skusQ.data ?? [];
+  const masters = useMemo(() => rows.filter((r) => r.productType === "MASTER"), [rows]);
+  const variantsByParent = useMemo(() => {
+    const map = new Map<string, ProductSku[]>();
+    for (const r of rows) {
+      if (r.productType === "COLOUR" && r.parentId) {
+        const list = map.get(r.parentId) ?? [];
+        list.push(r);
+        map.set(r.parentId, list);
+      }
+    }
+    return map;
+  }, [rows]);
 
-  const variantCount = useMemo(() => {
-    return (products.data ?? []).filter((p) => p.productType === "COLOUR").length;
-  }, [products.data]);
+  const variantCount = useMemo(() => rows.filter((r) => r.productType === "COLOUR").length, [rows]);
 
-  const save = useMutation({
+  const colourTarget = colourTargetId ? masters.find((m) => m.id === colourTargetId) ?? null : null;
+  const existingColourCodes = useMemo(() => {
+    if (!colourTarget) return new Set<string>();
+    return new Set(
+      (variantsByParent.get(colourTarget.id) ?? [])
+        .map((v) => (v.colourCode ?? "").toUpperCase())
+        .filter(Boolean),
+    );
+  }, [colourTarget, variantsByParent]);
+
+  const openColourDialog = (masterId: string) => {
+    setColourTargetId(masterId);
+    setSelectedColourCodes([]);
+  };
+
+  const closeColourDialog = () => {
+    if (createColours.isPending) return;
+    setColourTargetId(null);
+    setSelectedColourCodes([]);
+  };
+
+  const createColours = useMutation({
     mutationFn: async () => {
-      const payload: Record<string, unknown> = {};
-      const name = form.name.trim();
-      if (!name) throw new Error("Product name is required");
-      payload.productName = name;
-
-      const item = form.itemNumber.trim();
-      if (!item) throw new Error("Item number is required");
-      payload.itemNumber = item;
-
-      if (form.brand.trim()) payload.brand = form.brand.trim();
-      if (form.gender.trim()) payload.gender = form.gender.trim();
-      if (form.category.trim()) payload.category = form.category.trim();
-      if (form.modelNumber.trim()) payload.modelNumber = form.modelNumber.trim();
-      if (form.hsnCode.trim() !== "") payload.hsnCode = form.hsnCode.trim();
-
-      const tax = Number(form.taxPercent);
-      if (Number.isNaN(tax)) throw new Error("Tax % must be a valid number");
-      if (tax < 0 || tax > 100) throw new Error("Tax % must be between 0 and 100");
-      payload.taxPercent = tax;
-
-      if (form.unitOfMeasure.trim()) payload.unitOfMeasure = form.unitOfMeasure.trim();
-
-      const unitCost = Number(form.unitCost);
-      if (Number.isNaN(unitCost) || unitCost < 0) throw new Error("Unit cost must be a valid number >= 0");
-      payload.unitCost = Math.round(unitCost * 100) / 100;
-
-      const unitPrice = Number(form.unitPrice);
-      if (Number.isNaN(unitPrice) || unitPrice <= 0) throw new Error("Unit price must be a valid number > 0");
-      payload.unitPrice = Math.round(unitPrice * 100) / 100;
-
-      const isColour = !!editing && editing.productType === "COLOUR";
-      if (isColour) {
-        payload.parentProductId = editing!.id;
-        if (colourForm.colourCode.trim()) payload.colourCode = colourForm.colourCode.trim().toUpperCase();
-        if (colourForm.colourName.trim()) payload.colourName = colourForm.colourName.trim();
-        payload.colourSku = `${editing!.masterSku.toUpperCase()}-${colourForm.colourCode.trim().toUpperCase()}`;
-      } else {
-        payload.isMaster = true;
-      }
-
-      payload.grossMargin = payload.unitPrice > 0
-        ? Math.round(((payload.unitPrice - payload.unitCost) / payload.unitPrice) * 10000) / 100
-        : 0;
-      payload.status = form.status;
-
-      if (isColour) {
-        await api.patch(`/product-skus/${editing!.id}`, payload);
-      } else {
-        await api.post("/product-skus", payload);
-      }
+      if (!colourTarget) throw new Error("Select a master SKU");
+      const colours = COLOUR_OPTIONS.filter(
+        (c) => selectedColourCodes.includes(c.code) && !existingColourCodes.has(c.code),
+      );
+      if (colours.length === 0) throw new Error("Select at least one available colour");
+      const results = await Promise.allSettled(
+        colours.map((c) =>
+          api.post<ProductSku>("/product-skus", {
+            parentProductId: colourTarget.id,
+            colourName: c.name,
+            colourCode: c.code,
+            status: "ACTIVE",
+          }),
+        ),
+      );
+      return {
+        created: results.filter((r) => r.status === "fulfilled").length,
+        failed: results.flatMap((r, i) =>
+          r.status === "rejected"
+            ? [{ code: colours[i].code, message: r.reason instanceof Error ? r.reason.message : "Unknown error" }]
+            : [],
+        ),
+      };
     },
-    onSuccess: () => {
-      toast.success(editing?.productType === "COLOUR" ? "Colour variant added" : "Master product created");
+    onSuccess: ({ created, failed }) => {
       qc.invalidateQueries({ queryKey: ["product-skus"] });
-      setOpen(false);
-      setEditing(null);
-      setForm(emptyForm);
-      setColourForm(emptyColourClass);
+      if (colourTarget) qc.invalidateQueries({ queryKey: ["product-sku-master", colourTarget.id] });
+      if (created > 0) toast.success(`${created} colour SKU${created === 1 ? "" : "s"} created under ${colourTarget?.masterSku}`);
+      if (failed.length > 0) {
+        setSelectedColourCodes(failed.map((f) => f.code));
+        toast.error(`${failed.length} could not be created: ${failed[0].message}`);
+        return;
+      }
+      closeColourDialogReset();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create colour SKUs"),
   });
 
-  const remove = useMutation({
+  const closeColourDialogReset = () => {
+    setColourTargetId(null);
+    setSelectedColourCodes([]);
+  };
+
+  const removeMaster = useMutation({
     mutationFn: async (id: string) => {
+      const variants = variantsByParent.get(id) ?? [];
+      if (variants.length > 0) throw new Error("Remove colour variants first (open the master detail page)");
       await api.delete(`/product-skus/${id}`);
     },
     onSuccess: () => {
-      toast.success("Removed");
+      toast.success("Master SKU removed");
       qc.invalidateQueries({ queryKey: ["product-skus"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const openNew = () => {
-    setEditing(null);
-    setForm(emptyForm);
-    setColourForm(emptyColourClass);
-    setOpen(true);
-  };
-
-  const openEdit = (p: ProductSku) => {
-    setEditing(p);
-    setForm({
-      name: p.productName,
-      itemNumber: p.itemNumber,
-      brand: p.brand ?? "",
-      gender: p.gender ?? "",
-      category: p.category ?? "",
-      modelNumber: p.modelNumber ?? "",
-      hsnCode: p.hsnCode ?? "",
-      taxPercent: String(p.taxPercent),
-      unitOfMeasure: p.unitOfMeasure,
-      unitCost: String(p.unitCost),
-      unitPrice: String(p.unitPrice),
-      colourCode: "",
-      colourName: "",
-      status: p.status,
-    });
-    setColourForm(emptyColourClass);
-    setOpen(true);
-  };
-
-  const set = (k: keyof typeof emptyForm) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm({ ...form, [k]: e.target.value });
-
-  const productsData = products.data ?? [];
-
-  const filtered = useMemo(() => {
+  const filteredMasters = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return productsData.filter((p) => {
-      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    return masters.filter((m) => {
+      if (statusFilter !== "all" && m.status !== statusFilter) return false;
       if (!q) return true;
+      const variants = variantsByParent.get(m.id) ?? [];
       return (
-        p.productName.toLowerCase().includes(q) ||
-        p.masterSku.toLowerCase().includes(q) ||
-        (p.colourName ?? "").toLowerCase().includes(q) ||
-        (p.colourSku ?? "").toLowerCase().includes(q) ||
-        (p.brand ?? "").toLowerCase().includes(q) ||
-        (p.category ?? "").toLowerCase().includes(q)
+        m.productName.toLowerCase().includes(q) ||
+        m.masterSku.toLowerCase().includes(q) ||
+        (m.brand ?? "").toLowerCase().includes(q) ||
+        (m.category ?? "").toLowerCase().includes(q) ||
+        (m.itemNumber ?? "").toLowerCase().includes(q) ||
+        variants.some(
+          (v) =>
+            (v.colourSku ?? "").toLowerCase().includes(q) ||
+            (v.colourName ?? "").toLowerCase().includes(q),
+        )
       );
     });
-  }, [productsData, searchQuery, statusFilter]);
+  }, [masters, variantsByParent, searchQuery, statusFilter]);
 
   return (
     <div>
       <PageHeader
         eyebrow="Inventory"
-        title="Product SKUs"
-        description="Master product + its colour variants. The master SKU is the parent record; every colour SKU inherits from it."
+        title="Product Catalogue"
+        description="Master SKU is the parent record. Every colour-coded SKU inherits from its master — use the per-row button to add colours."
         actions={
           canEdit ? (
             <button
-              onClick={openNew}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary-hover active:bg-primary-active"
+              onClick={() => navigate({ to: "/app/products-create" })}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary-hover"
             >
-              <Plus className="h-4 w-4" /> Add product / colour
+              <Plus className="h-4 w-4" /> Create Master SKU
             </button>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
@@ -261,32 +218,15 @@ export function ProductSkusPage() {
       <div className="space-y-6 p-4 md:p-8">
         {/* ── Stats ── */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card
-            className="p-4"
-            action={
-              <button
-                onClick={openNew}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
-                <Plus className="h-3 w-3" /> New
-              </button>
-            }
-          >
+          <Card className="p-4">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <Package className="h-3.5 w-3.5 text-primary" /> Master products
+              <Package className="h-3.5 w-3.5 text-primary" /> Master SKUs
             </div>
-            <div className="mt-2 font-display text-2xl font-semibold">{masterCount}</div>
+            <div className="mt-2 font-display text-2xl font-semibold">{masters.length}</div>
           </Card>
-          <Card
-            className="p-4"
-            action={
-              <button className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline">
-                <Boxes className="h-3.5 w-3.5" /> Variants
-              </button>
-            }
-          >
+          <Card className="p-4">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <PackageOpen className="h-3.5 w-3.5 text-info" /> Colour variants
+              <PackageOpen className="h-3.5 w-3.5 text-info" /> Colour SKUs
             </div>
             <div className="mt-2 font-display text-2xl font-semibold">{variantCount}</div>
           </Card>
@@ -295,9 +235,7 @@ export function ProductSkusPage() {
               <CircleDollarSign className="h-3.5 w-3.5 text-success" /> Inventory value
             </div>
             <div className="mt-2 font-display text-2xl font-semibold">
-              {fmtMoneyINR(
-                (products.data ?? []).reduce((s, p) => s + p.unitPrice * 1, 0)
-              )}
+              {fmtMoneyINR(rows.reduce((s, p) => s + p.unitPrice, 0))}
             </div>
           </Card>
           <Card className="p-4">
@@ -305,44 +243,38 @@ export function ProductSkusPage() {
               <Percent className="h-3.5 w-3.5 text-warning" /> Avg margin
             </div>
             <div className="mt-2 font-display text-2xl font-semibold">
-              {productsData.length
-                ? `${Math.round(
-                    productsData.reduce((s, p) => s + p.grossMargin, 0) /
-                      productsData.filter((p) => p.grossMargin > 0).length *
-                      100
-                  )}%`
+              {rows.length
+                ? `${(rows.reduce((s, p) => s + (p.grossMargin ?? 0), 0) / rows.length).toFixed(1)}%`
                 : "—"}
             </div>
           </Card>
         </div>
 
-        {/* ── Filters + table ── */}
+        {/* ── Master list ── */}
         <Card>
           <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center">
             <input
               type="text"
-              placeholder="Search by name, SKU, colour, brand, category…"
+              placeholder="Search masters by name, SKU, brand, category, colour…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all sm:max-w-md"
+              className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 sm:max-w-md"
             />
             <div className="flex gap-1 rounded-lg border border-border p-1">
-              {(["all", "active", "inactive"] as const).map((s) => (
+              {(["all", "ACTIVE", "INACTIVE"] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
                   className={`rounded-md px-3 py-1.5 text-xs capitalize transition-colors ${
-                    statusFilter === s
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent"
+                    statusFilter === s ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                   }`}
                 >
-                  {s}
+                  {s === "all" ? s : s.toLowerCase()}
                 </button>
               ))}
             </div>
             <span className="ml-auto text-xs text-muted-foreground">
-              {filtered.length} of {productsData.length}
+              {filteredMasters.length} of {masters.length} masters
             </span>
           </div>
 
@@ -350,116 +282,99 @@ export function ProductSkusPage() {
             <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-left">Product</th>
-                  <th className="px-3 py-3 text-left">SKU Structure</th>
-                  <th className="px-3 py-3 text-right">Cost</th>
-                  <th className="px-3 py-3 text-right">Price</th>
+                  <th className="px-4 py-3 text-left">Master SKU</th>
+                  <th className="px-3 py-3 text-left">Colour SKUs</th>
+                  <th className="px-3 py-3 text-right">Cost / Price</th>
                   <th className="px-3 py-3 text-right">Margin</th>
                   <th className="px-3 py-3 text-left">HSN / Tax</th>
                   <th className="px-3 py-3 text-center">Status</th>
-                  <th className="px-3 py-3 text-right"></th>
+                  <th className="px-3 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {products.isLoading && (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center text-muted-foreground">Loading…</td>
-                  </tr>
+                {skusQ.isLoading && (
+                  <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Loading…</td></tr>
                 )}
-                {!products.isLoading && filtered.length === 0 && (
+                {!skusQ.isLoading && filteredMasters.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="p-10 text-center text-muted-foreground">
-                      {productsData.length === 0
-                        ? "No product SKUs yet. Click <span className='text-foreground'>Add product</span> to start."
-                        : "No product SKUs match your filters."}
+                    <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      {masters.length === 0 ? (
+                        <span>No master SKUs yet. Click <span className="text-foreground">Create Master SKU</span> to start.</span>
+                      ) : (
+                        "No master SKUs match your filters."
+                      )}
                     </td>
                   </tr>
                 )}
-                {filtered.map((p) => {
-                  const isMaster = p.productType === "MASTER";
+                {filteredMasters.map((m) => {
+                  const variants = variantsByParent.get(m.id) ?? [];
                   return (
-                    <tr
-                      key={p.id}
-                      className={`border-b border-border/60 hover:bg-muted/30 ${
-                        p.status === "INACTIVE" ? "opacity-60" : ""
-                      }`}
-                    >
+                    <tr key={m.id} className={`border-b border-border/60 hover:bg-muted/30 ${m.status === "INACTIVE" ? "opacity-60" : ""}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
-                            {isMaster ? (
-                              <Package className="h-4 w-4 text-primary" />
-                            ) : (
-                              <PackageOpen className="h-4 w-4 text-info" />
-                            )}
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+                            <Package className="h-4 w-4 text-primary" />
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{p.productName}</span>
-                              {!isMaster && (
-                                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
-                                  Colour
-                                </span>
-                              )}
-                            </div>
+                            <div className="truncate font-medium">{m.productName}</div>
+                            <div className="font-mono text-[11px] font-semibold text-primary">{m.masterSku}</div>
                             <div className="font-mono text-[10px] text-muted-foreground">
-                              {isMaster ? p.masterSku : p.colourSku}
-                              {p.colourName ? ` · ${p.colourName}` : ""}
-                              {p.itemNumber ? ` · #${p.itemNumber}` : ""}
+                              #{m.itemNumber} · {[m.brand, m.gender, m.category, m.modelNumber].filter(Boolean).join(" · ")}
                             </div>
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <div className="font-mono text-[11px]">
-                          {isMaster ? (
-                            <>
-                              <span className="text-primary">{p.masterSku}</span>
-                              <br />
-                              <span className="text-muted-foreground">
-                                {p.brand} · {p.gender} · {p.category} · {p.modelNumber}
+                        {variants.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">No colours yet</span>
+                        ) : (
+                          <div className="flex max-w-[280px] flex-wrap gap-1.5">
+                            {variants.map((v) => (
+                              <span key={v.id} title={`${v.colourName} (${v.colourCode})`} className="rounded-md border border-info/25 bg-info/5 px-2 py-0.5 font-mono text-[10px] font-medium text-foreground">
+                                {v.colourSku}
                               </span>
-                            </>
-                          ) : (
-                            <span className="text-primary">{p.colourSku}</span>
-                          )}
-                        </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-1 text-[10px] text-muted-foreground">{variants.length} colour{variants.length === 1 ? "" : "s"}</div>
                       </td>
-                      <td className="px-3 py-3 text-right num">{fmtMoneyINR(p.unitCost)}</td>
-                      <td className="px-3 py-3 text-right num">{fmtMoneyINR(p.unitPrice)}</td>
-                      <td className="px-3 py-3 text-right num font-medium">{p.grossMargin.toFixed(2)}%</td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        {p.hsnCode ?? "—"} · {p.taxPercent}%
+                      <td className="px-3 py-3 text-right num">
+                        <div>{fmtMoneyINR(m.unitPrice)}</div>
+                        <div className="text-[10px] text-muted-foreground">cost {fmtMoneyINR(m.unitCost)}</div>
                       </td>
+                      <td className="px-3 py-3 text-right num font-medium">{m.grossMargin.toFixed(2)}%</td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">{m.hsnCode ?? "—"} · {m.taxPercent}%</td>
                       <td className="px-3 py-3 text-center">
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_STYLES[p.status]}`}>
-                          {p.status}
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] ${STATUS_STYLES[m.status]}`}>
+                          {m.status}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
                           {canEdit && (
-                            <>
-                              <button
-                                onClick={() => openEdit(p)}
-                                className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
-                              >
-                                <Pen className="h-3 w-3" />
-                              </button>
-                              {!isMaster && (
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Remove colour ${p.colourSku}?`)) {
-                                      remove.mutate(p.id);
-                                    }
-                                  }}
-                                  className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                  aria-label="Delete"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </>
+                            <button
+                              onClick={() => openColourDialog(m.id)}
+                              title={`Create colour-coded SKUs under ${m.masterSku}`}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-info px-3 py-1.5 text-xs font-medium text-info-foreground hover:opacity-90"
+                            >
+                              <PackageOpen className="h-3.5 w-3.5" /> Add Colours
+                            </button>
+                          )}
+                          <Link
+                            to="/app/product-sku-detail"
+                            search={{ id: m.id } as never}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> View
+                          </Link>
+                          {canEdit && (variantsByParent.get(m.id) ?? []).length === 0 && (
+                            <button
+                              onClick={() => { if (confirm(`Remove master ${m.masterSku}?`)) removeMaster.mutate(m.id); }}
+                              className="rounded-md border border-border px-2 py-1.5 text-muted-foreground hover:border-destructive hover:text-destructive"
+                              aria-label="Delete master"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -472,259 +387,89 @@ export function ProductSkusPage() {
         </Card>
       </div>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
-          onClick={() => setOpen(false)}
-        >
+      {/* ── Per-master Create Colour SKUs dialog ── */}
+      {colourTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={closeColourDialog}>
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-colour-skus-title"
             className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-              <h3 className="font-display text-lg">
-                {editing ? "Edit colour variant" : "Create product / colour"}
-              </h3>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Close"
-              >
+              <div>
+                <h3 id="create-colour-skus-title" className="font-display text-lg">
+                  Create Colour SKUs — <span className="font-mono text-primary">{colourTarget.masterSku}</span>
+                </h3>
+                <p className="text-xs text-muted-foreground">{colourTarget.productName} · tick colours to generate {colourTarget.masterSku}-CODE</p>
+              </div>
+              <button type="button" onClick={closeColourDialog} className="text-muted-foreground hover:text-foreground" aria-label="Close">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                save.mutate();
-              }}
+              onSubmit={(e) => { e.preventDefault(); createColours.mutate(); }}
               className="space-y-5 p-5"
             >
-              {/* ── Identity ── */}
-              <Section title="Product identity">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Product name *" required>
-                    <input
-                      required
-                      maxLength={200}
-                      className="inp"
-                      value={form.name}
-                      onChange={set("name")}
-                    />
-                  </F>
-                  <F label="Item number *" required>
-                    <input
-                      maxLength={120}
-                      className="inp"
-                      value={form.itemNumber}
-                      onChange={set("itemNumber")}
-                    />
-                  </F>
-                  <F label="Brand">
-                    <input
-                      maxLength={60}
-                      className="inp"
-                      value={form.brand}
-                      onChange={set("brand")}
-                      placeholder="e.g. AD"
-                    />
-                  </F>
-                  <F label="Gender">
-                    <select className="inp" value={form.gender} onChange={set("gender")}>
-                      <option value="">—</option>
-                      {["Male", "Female", "Unisex", "Kids", "Boys", "Girls", "Infant"].map((g) => (
-                        <option key={g} value={g}>{g}</option>
-                      ))}
-                    </select>
-                  </F>
-                  <F label="Category">
-                    <input
-                      maxLength={100}
-                      className="inp"
-                      value={form.category}
-                      onChange={set("category")}
-                      placeholder="e.g. T-Shirt"
-                    />
-                  </F>
-                  <F label="Model number">
-                    <input
-                      maxLength={120}
-                      className="inp font-mono"
-                      value={form.modelNumber}
-                      onChange={set("modelNumber")}
-                      placeholder="e.g. TS"
-                    />
-                  </F>
-                  <F label="HSN code">
-                    <input
-                      maxLength={30}
-                      className="inp font-mono"
-                      value={form.hsnCode}
-                      onChange={set("hsnCode")}
-                      placeholder="e.g. 620122"
-                    />
-                  </F>
-                  <F label="Tax % *" required>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        required
-                        className="inp num"
-                        value={form.taxPercent}
-                        onChange={set("taxPercent")}
-                        placeholder="0"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        %
-                      </span>
-                    </div>
-                  </F>
-                </div>
-              </Section>
-
-              {/* ── Unit of measure ── */}
-              <Section title="Unit of measure">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Unit of measure">
-                    <select className="inp" value={form.unitOfMeasure} onChange={set("unitOfMeasure")}>
-                      <option value="">—</option>
-                      {UOM_OPTIONS.map((u) => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
-                  </F>
-                </div>
-              </Section>
-
-              {/* ── Pricing + SKU ── */}
-              <Section title="Pricing & SKU">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Unit cost *" required>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        ₹
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        required
-                        className="inp num pl-7"
-                        value={form.unitCost}
-                        onChange={set("unitCost")}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </F>
-                  <F label="Unit price *" required>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        ₹
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        required
-                        className="inp num pl-7"
-                        value={form.unitPrice}
-                        onChange={set("unitPrice")}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </F>
-                  {editing ? (
-                    <>
-                      <F label="Master SKU (inherited)" required>
-                        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-medium text-primary">
-                          {editing.masterSku}
-                          <span className="text-[10px] font-normal text-muted-foreground">
-                            (inherited)
-                          </span>
-                        </div>
-                      </F>
-                      <F label="Colour code">
-                        <select
-                          className="inp"
-                          value={colourForm.colourCode}
-                          onChange={(e) => setColourForm({ ...colourForm, colourCode: e.target.value })}
-                        >
-                          <option value="">— select colour —</option>
-                          {COLOUR_OPTIONS.map((c) => (
-                            <option key={c} value={c}>{colourLabel(c)} ({c})</option>
-                          ))}
-                        </select>
-                      </F>
-                    </>
-                  ) : (
-                    <F label="Master SKU (read-only)" required>
-                      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-medium text-primary">
-                        {emptyFormMasterSku()}
-                        <span className="text-[10px] font-normal text-muted-foreground">
-                          (auto-generated)
-                        </span>
-                      </div>
-                    </F>
-                  )}
-                  <F label="Gross margin %">
-                    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-medium text-primary">
-                      {Number(form.unitPrice) > 0
-                        ? ((Number(form.unitPrice) - Number(form.unitCost)) / Number(form.unitPrice)) * 100
-                        : 0
-                        .toFixed(2)
-                        .replace(".", "%")}
-                      %
-                    </div>
-                  </F>
-                </div>
-              </Section>
-
-              {/* ── Colour variant detail (shown for a colour being added) ── */}
-              {!editing && (
-                <div className="border-t border-border pt-4">
-                  <h4 className="mb-2 text-xs uppercase tracking-widest text-primary">Colour variant</h4>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <F label="Colour name *" required>
-                      <select
-                        required
-                        className="inp"
-                        value={colourForm.colourCode}
-                        onChange={(e) => setColourForm({ ...colourForm, colourCode: e.target.value })}
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Colours *</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {COLOUR_OPTIONS.map((colour) => {
+                    const alreadyAdded = existingColourCodes.has(colour.code);
+                    const selected = selectedColourCodes.includes(colour.code);
+                    return (
+                      <button
+                        key={colour.code}
+                        type="button"
+                        disabled={alreadyAdded || createColours.isPending}
+                        aria-pressed={selected}
+                        onClick={() => setSelectedColourCodes((cur) =>
+                          cur.includes(colour.code) ? cur.filter((c) => c !== colour.code) : [...cur, colour.code],
+                        )}
+                        className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                          selected ? "border-info bg-info/10 text-foreground ring-1 ring-info/30" : "border-border bg-card hover:border-info/50"
+                        }`}
                       >
-                        <option value="">Select a colour…</option>
-                        {COLOUR_OPTIONS.map((c) => (
-                          <option key={c} value={c}>{colourLabel(c)} ({c})</option>
-                        ))}
-                      </select>
-                    </F>
-                    <F label="Colour SKU (read-only)" required>
-                      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-medium text-primary">
-                        {colourForm.colourCode
-                          ? `${emptyFormMasterSku()}-${colourForm.colourCode.toUpperCase()}`
-                          : "—"}
-                        <span className="text-[10px] font-normal text-muted-foreground">
-                          (auto-generated)
+                        <span className={`h-5 w-5 shrink-0 rounded-full ${colour.swatch}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-medium">{colour.name}</span>
+                          <span className="block font-mono text-[10px] text-muted-foreground">{alreadyAdded ? "Added" : colour.code}</span>
                         </span>
-                      </div>
-                    </F>
+                        {selected && <Check className="h-4 w-4 shrink-0 text-info" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {selectedColourCodes.length > 0 && (
+                <div className="rounded-lg border border-info/30 bg-info/5 p-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-info">SKU Preview</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedColourCodes.map((code) => (
+                      <span key={code} className="rounded-md border border-info/20 bg-card px-2.5 py-1 font-mono text-xs font-medium text-foreground">
+                        {colourTarget.masterSku}-{code}
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
 
+              <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Inherited from {colourTarget.masterSku}:</span>{" "}
+                {fmtMoneyINR(colourTarget.unitCost)} cost · {fmtMoneyINR(colourTarget.unitPrice)} price · {colourTarget.taxPercent}% tax · HSN {colourTarget.hsnCode ?? "—"} · {colourTarget.unitOfMeasure}
+              </div>
+
               <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="rounded-md border border-border px-4 py-2 text-sm"
-                >
-                  Cancel
-                </button>
+                <button type="button" onClick={closeColourDialog} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
                 <button
                   type="submit"
-                  disabled={save.isPending}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60 shadow-sm hover:bg-primary-hover active:bg-primary-active"
+                  disabled={createColours.isPending || selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length === 0}
+                  className="inline-flex items-center gap-2 rounded-md bg-info px-4 py-2 text-sm font-medium text-info-foreground disabled:opacity-60"
                 >
-                  {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {editing ? "Save changes" : "Create"}
+                  {createColours.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageOpen className="h-4 w-4" />}
+                  Create {selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length} SKU{selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length === 1 ? "" : "s"}
                 </button>
               </div>
             </form>
@@ -732,42 +477,5 @@ export function ProductSkusPage() {
         </div>
       )}
     </div>
-  );
-}
-
-// ── Derived SKU helpers ─────────────────────────────────────────────────────
-
-const now = new Date();
-const yearSuffix = String(now.getFullYear()).slice(-2);
-
-function emptyFormMasterSku(): string {
-  return `AD-M-TS-${yearSuffix}001`;
-}
-
-// ── Sections ────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-2 text-xs uppercase tracking-widest text-primary">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function F({
-  label,
-  full,
-  children,
-}: {
-  label: string;
-  full?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className={`block ${full ? "md:col-span-2" : ""}`}>
-      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
-      {children}
-    </label>
   );
 }

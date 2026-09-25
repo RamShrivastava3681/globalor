@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/app/tasks")({
+  validateSearch: (search: Record<string, unknown>): { queue?: string | undefined } => ({
+    queue: (search.queue as string) || undefined,
+  }),
   component: WorkflowQueuePage,
 });
 
@@ -158,11 +161,26 @@ function actionLabel(stage: string): string {
   return "Open";
 }
 
-/** Secondary "Make invoice" hop for order tasks whose primary action is_receiving/proforma. */
+/** Secondary "Make invoice" hop for order tasks whose primary action is receiving/proforma.
+ *  Purchase orders → purchases invoice panel (PO preselected, supplier+amount locked).
+ *  Sales orders at dispatch/invoice stage → sales invoice modal (SO preselected, customer+lines locked).
+ *  If the order carries advance payment terms the caller should route to Make proforma first
+ *  (see resolveTaskRoute create_proforma branches); this hop is the direct-invoice path. */
 function makeInvoiceRoute(t: Task): { to: string; search: Record<string, string> } | null {
-  if (t.workflow_type === "purchase_order" && (t.stage === "await_goods" || t.stage === "create_grn" || t.stage === "record_supplier_invoice")) {
+  const stage = t.stage.toLowerCase();
+  if (
+    t.workflow_type === "purchase_order" &&
+    (t.stage === "await_goods" || t.stage === "create_grn" || t.stage === "record_supplier_invoice" || stage.includes("record_supplier_invoice") || stage.includes("await_goods") || stage.includes("create_grn"))
+  ) {
     // The purchases page opens its invoice panel with this PO preselected.
     return { to: "/app/purchases", search: { createFromPo: t.doc_id, fromQueue: "1" } };
+  }
+  if (
+    t.workflow_type === "sales_order" &&
+    (stage.includes("dispatch_invoice") || stage.includes("create_invoice") || stage.includes("await_dispatch") || stage.includes("ready_to_invoice"))
+  ) {
+    // The invoices page opens its from-SO modal with this SO preselected.
+    return { to: "/app/invoices", search: { createFromSo: t.doc_id, fromQueue: "1" } };
   }
   return null;
 }
@@ -188,6 +206,19 @@ function resolveTaskRoute(t: Task): { to: string; search: Record<string, string>
   if (ck && t.owner_role === "checker") {
     return { to: "/app/checker", search: { review: `${ck}:${id}` } };
   }
+  // Treasury-owned payment stages open the funding-queue payment modal directly.
+  // Treasury-only roles are blocked from /app/invoices and /app/purchases by the
+  // role wall, so routing them there would bounce and drop the deep-link.
+  // (Non-payment stages fall through to the document pages for ops/admin users.)
+  const isPayStage =
+    stage.includes("record_utr") ||
+    stage.includes("await_payment") ||
+    stage.includes("record_payment") ||
+    stage.includes("settle") ||
+    stage.includes("pay");
+  if (t.owner_role === "treasury" && isPayStage && (t.workflow_type === "sales_invoice" || t.workflow_type === "purchase_invoice")) {
+    return { to: "/app/queue", search: { paymentFor: `${t.workflow_type}:${id}`, fromQueue: "1" } };
+  }
   if (t.workflow_type === "sales_order") {
     if (stage.includes("submit") || stage.includes("warehouse") || stage.includes("checker"))
       return { to: "/app/sales-orders", search: {} };
@@ -201,12 +232,12 @@ function resolveTaskRoute(t: Task): { to: string; search: Record<string, string>
     t.workflow_type === "sales_invoice" &&
     (stage.includes("record_utr") || stage.includes("await_payment"))
   )
-    return { to: "/app/invoices", search: { utrFor: id } };
+    return { to: "/app/invoices", search: { utrFor: id, fromQueue: "1" } };
   if (
     t.workflow_type === "sales_invoice" &&
     (stage.includes("prepare_dispatch") || stage.includes("confirm_dispatch"))
   )
-    return { to: "/app/dispatches", search: { createFromInvoice: id } };
+    return { to: "/app/dispatches", search: { createFromInvoice: id, fromQueue: "1" } };
   if (t.workflow_type === "purchase_order" && stage.includes("create_proforma"))
     return { to: "/app/proformas", search: { createFromPo: id, fromQueue: "1" } };
   if (t.workflow_type === "purchase_order" && stage.includes("record_supplier_invoice"))
@@ -216,13 +247,16 @@ function resolveTaskRoute(t: Task): { to: string; search: Record<string, string>
     t.workflow_type === "purchase_order" &&
     (stage.includes("await_goods") || stage.includes("create_grn"))
   )
-    return { to: "/app/goods-receipts", search: { createFromPo: id } };
+    return { to: "/app/goods-receipts", search: { createFromPo: id, fromQueue: "1" } };
   if (t.workflow_type === "purchase_invoice")
-    return { to: "/app/purchases", search: { openInvoice: id } };
-  if (t.workflow_type === "proforma") return { to: "/app/proformas", search: {} };
+    return { to: "/app/purchases", search: { openInvoice: id, fromQueue: "1" } };
+  // Proforma tasks deep-open the exact proforma detail (approve/fund actions live there).
+  if (t.workflow_type === "proforma") return { to: "/app/proformas", search: { view: id, fromQueue: "1" } };
+  // GRN / dispatch pages have no ?view= detail modal — land on the list (confirm actions live there).
   if (t.workflow_type === "grn") return { to: "/app/goods-receipts", search: {} };
   if (t.workflow_type === "dispatch") return { to: "/app/dispatches", search: {} };
-  if (t.workflow_type === "payment") return { to: "/app/queue", search: {} };
+  // Payment tasks deep-open the funding queue payment modal for that invoice.
+  if (t.workflow_type === "payment") return { to: "/app/queue", search: { paymentFor: `${t.doc_type}:${id}`, fromQueue: "1" } };
   return { to: "/app/dashboard", search: {} };
 }
 
@@ -258,10 +292,11 @@ export function WorkflowQueuePage() {
   const meEmail = user?.email ?? "";
   const meId = user?.id ?? "";
   const today = todayYMD();
+  const routeQueue = (Route.useSearch() as { queue?: string })?.queue;
 
   const [filter, setFilter] = useState<FilterKey>("pending");
   const [workflow, setWorkflow] = useState<"all" | WorkflowType>("all");
-  const [queue, setQueue] = useState<string>("all");
+  const [queue, setQueue] = useState<string>(routeQueue ?? "all");
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<"smart" | "newest" | "due">("smart");
 
@@ -347,8 +382,17 @@ export function WorkflowQueuePage() {
   }, [openTasks]);
 
   // ── Role-aware default queue: land checkers/treasury/ops on their own
-  // non-empty queue on first load; never overrides an explicit selection.
-  const queueTouchedRef = useRef(false);
+  // non-empty queue on first load; never overrides an explicit selection or ?queue= deep-link.
+  const queueTouchedRef = useRef(!!routeQueue && routeQueue !== "all");
+  useEffect(() => {
+    if (routeQueue && routeQueue !== "all" && queue === "all") setQueue(routeQueue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeQueue]);
+  const setQueuePersist = (v: string) => {
+    queueTouchedRef.current = true;
+    setQueue(v);
+    navigate({ to: "/app/tasks", search: v === "all" ? {} : { queue: v }, replace: true } as never);
+  };
   useEffect(() => {
     if (queueTouchedRef.current || queue !== "all" || roles.length === 0 || openTasks.length === 0) return;
     const counts = new Map<string, number>();
@@ -390,8 +434,9 @@ export function WorkflowQueuePage() {
       return [...rows].sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
     }
     return [...rows].sort((a, b) => {
-      const ao = isOverdueTask(a, today) ? 0 : 0 + (isDueTodayTask(a, today) ? 1 : 2);
-      const bo = isOverdueTask(b, today) ? 0 : 0 + (isDueTodayTask(b, today) ? 1 : 2);
+      const rank = (t: Task) => (isOverdueTask(t, today) ? 0 : isDueTodayTask(t, today) ? 1 : 2);
+      const ao = rank(a);
+      const bo = rank(b);
       if (ao !== bo) return ao - bo;
       const ap = PRIORITY_RANK[a.priority ?? "normal"] ?? 2;
       const bp = PRIORITY_RANK[b.priority ?? "normal"] ?? 2;
@@ -502,7 +547,7 @@ export function WorkflowQueuePage() {
             </select>
             <select
               value={queue}
-              onChange={(e) => { queueTouchedRef.current = true; setQueue(e.target.value); }}
+              onChange={(e) => setQueuePersist(e.target.value)}
               aria-label="Filter by queue"
               className="h-9 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground focus:border-primary focus:outline-none"
             >

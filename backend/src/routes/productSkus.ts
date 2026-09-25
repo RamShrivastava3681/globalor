@@ -2,7 +2,6 @@ import { Router, Response } from "express";
 import { z } from "zod";
 import {
   putItem,
-  getItem,
   updateItem,
   deleteItem,
   scanTable,
@@ -102,6 +101,23 @@ function calcMargin(cost: number, price: number): number {
   return Math.round(((price - cost) / price) * 10000) / 100;
 }
 
+function productSkuKey(sku: ProductSku): { id: string; masterSku: string } {
+  return { id: sku.id, masterSku: sku.masterSku };
+}
+
+async function findProductSkuById(req: AuthRequest, id: string): Promise<ProductSku | undefined> {
+  const companyFilter = getCompanyFilter(req.user!);
+  const rows = await scanTable<ProductSku>(TABLES.PRODUCT_SKUS, {
+    ...companyFilter,
+    filterExpression: `${companyFilter.filterExpression ? `${companyFilter.filterExpression} AND ` : ""}id = :id`,
+    expressionAttributeValues: {
+      ...(companyFilter.expressionAttributeValues ?? {}),
+      ":id": id,
+    },
+  });
+  return rows[0];
+}
+
 const uomOptions: UnitOfMeasure[] = [
   "Piece", "Kg", "Litre", "Box", "Set", "Pair", "Carton", "Dozen", "Bottle", "Roll", "Meter", "Gram",
 ];
@@ -197,7 +213,7 @@ router.get("/next-sku", requireAuth, async (req: AuthRequest, res: Response) => 
 
 router.get("/master/:masterId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const master = await getItem(TABLES.PRODUCT_SKUS, { id: req.params.masterId }) as ProductSku | undefined;
+    const master = await findProductSkuById(req, String(req.params.masterId));
     if (!master) { res.status(404).json({ error: "Master product not found" }); return; }
     if (req.user!.company_id && master.company_id !== req.user!.company_id) {
       res.status(404).json({ error: "Master product not found" });
@@ -224,7 +240,7 @@ router.get("/master/:masterId", requireAuth, async (req: AuthRequest, res: Respo
 
 router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const sku = await getItem(TABLES.PRODUCT_SKUS, { id: req.params.id }) as ProductSku | undefined;
+    const sku = await findProductSkuById(req, String(req.params.id));
     if (!sku) { res.status(404).json({ error: "Product SKU not found" }); return; }
     if (req.user!.company_id && sku.company_id !== req.user!.company_id) {
       res.status(404).json({ error: "Product SKU not found" });
@@ -305,7 +321,7 @@ router.post("/", requireAuth, requireWriteAccess("products"), async (req: AuthRe
 
     // ── Colour variant ──
     const parsed = colourCreateSchema.parse(req.body);
-    const master = await getItem(TABLES.PRODUCT_SKUS, { id: parsed.parentProductId }) as ProductSku | undefined;
+    const master = allSkuRows.find((row) => row.id === parsed.parentProductId);
     if (!master) { res.status(404).json({ error: "Master product not found" }); return; }
     if (master.productType !== "MASTER") { res.status(400).json({ error: "Parent record is not a master product" }); return; }
     if (master.company_id && master.company_id !== companyId) {
@@ -385,7 +401,7 @@ router.post("/", requireAuth, requireWriteAccess("products"), async (req: AuthRe
 
 router.patch("/:id", requireAuth, requireWriteAccess("products"), async (req: AuthRequest, res: Response) => {
   try {
-    const existing = await getItem(TABLES.PRODUCT_SKUS, { id: req.params.id }) as ProductSku | undefined;
+    const existing = await findProductSkuById(req, String(req.params.id));
     if (!existing) { res.status(404).json({ error: "Product SKU not found" }); return; }
     if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
       res.status(404).json({ error: "Product SKU not found" });
@@ -421,7 +437,7 @@ router.patch("/:id", requireAuth, requireWriteAccess("products"), async (req: Au
         if (parsed.unitCost != null) (updates as any).unitCost = Math.round(newCost * 100) / 100;
         if (parsed.unitPrice != null) (updates as any).unitPrice = Math.round(newPrice * 100) / 100;
       }
-      const updated = await updateItem(TABLES.PRODUCT_SKUS, { id: req.params.id }, updates);
+      const updated = await updateItem(TABLES.PRODUCT_SKUS, productSkuKey(existing), updates);
       res.json(updated);
       return;
     }
@@ -446,7 +462,7 @@ router.patch("/:id", requireAuth, requireWriteAccess("products"), async (req: Au
       if (parsed.unitCost != null) (updates as any).unitCost = Math.round(newCost * 100) / 100;
       if (parsed.unitPrice != null) (updates as any).unitPrice = Math.round(newPrice * 100) / 100;
     }
-    const updated = await updateItem(TABLES.PRODUCT_SKUS, { id: req.params.id }, updates);
+    const updated = await updateItem(TABLES.PRODUCT_SKUS, productSkuKey(existing), updates);
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -462,13 +478,13 @@ router.patch("/:id", requireAuth, requireWriteAccess("products"), async (req: Au
 
 router.delete("/:id", requireAuth, requireWriteAccess("products"), async (req: AuthRequest, res: Response) => {
   try {
-    const existing = await getItem(TABLES.PRODUCT_SKUS, { id: req.params.id }) as ProductSku | undefined;
+    const existing = await findProductSkuById(req, String(req.params.id));
     if (!existing) { res.status(404).json({ error: "Product SKU not found" }); return; }
     if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
       res.status(404).json({ error: "Product SKU not found" });
       return;
     }
-    await deleteItem(TABLES.PRODUCT_SKUS, { id: req.params.id });
+    await deleteItem(TABLES.PRODUCT_SKUS, productSkuKey(existing));
     res.json({ success: true });
   } catch (err) {
     console.error("Delete product SKU error:", err);

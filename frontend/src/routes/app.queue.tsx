@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState, useRef, useMemo } from "react";
+import { Fragment, useState, useRef, useMemo, useEffect } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -18,6 +18,10 @@ import { TaskDetailDrawer } from "@/components/workflow/task-detail-drawer";
 import { CreateProformaModal, CreateInvoiceModal, PaymentModal } from "@/components/workflow/workflow-modals";
 
 export const Route = createFileRoute("/app/queue")({
+  validateSearch: (search: Record<string, unknown>): { paymentFor?: string | undefined; fromQueue?: string | undefined } => ({
+    paymentFor: (search.paymentFor as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
+  }),
   component: QueuePage,
 });
 
@@ -101,6 +105,29 @@ export function QueuePage() {
     queryFn: async () => (await api.get<any[]>("/workflow-tasks?status=open")) ?? [],
     refetchInterval: 15000,
   });
+
+  // Deep-link from My Queue: ?paymentFor=<doc_type>:<doc_id> auto-opens the
+  // payment modal for that invoice so treasury lands directly on the pay action.
+  const navigate = useNavigate();
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { paymentFor?: string; fromQueue?: string } });
+  const routePaymentFor = (routerSearch as any)?.paymentFor as string | undefined;
+  useEffect(() => {
+    if (!routePaymentFor) return;
+    const [docType, ...rest] = String(routePaymentFor).split(":");
+    const docId = rest.join(":");
+    if (!docId) {
+      navigate({ to: "/app/queue", search: {}, replace: true });
+      return;
+    }
+    const tasks = (workflowQ.data ?? []) as any[];
+    const match =
+      tasks.find((t: any) => t.doc_id === docId) ??
+      ({ doc_id: docId, doc_type: docType || "sales_invoice", doc_number: docId, amount: null } as any);
+    setActiveTab("workflow");
+    setPaymentTask(match);
+    navigate({ to: "/app/queue", search: {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routePaymentFor, workflowQ.data]);
 
   // Payment history
   const [payHistoryOpen, setPayHistoryOpen] = useState(false);

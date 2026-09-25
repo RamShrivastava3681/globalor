@@ -115,8 +115,15 @@ export interface DashboardInvoice {
   paid_date: string | null;
   short_payment?: number;
   late_days?: number;
-  vendor_id?: string;
-  customer_id?: string;
+  vendor_id?: string | null;
+  supplier_id?: string | null;
+  customer_id?: string | null;
+  vendor_name?: string | null;
+  supplier_name?: string | null;
+  customer_name?: string | null;
+  party_name?: string | null;
+  vendor?: { name?: string | null } | null;
+  customer?: { name?: string | null } | null;
 }
 
 export interface DashboardParty {
@@ -142,12 +149,61 @@ export function CounterpartyDashboard({
 }) {
   // ── Computed analytics ──
   const analytics = useMemo(() => {
-    const nameKey = kind === "supplier" ? "company_name" : "name";
     const idKey = kind === "supplier" ? "vendor_id" : "customer_id";
 
-    // Party name map
+    const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const cleanName = (v: unknown) => {
+      const s = String(v ?? "").trim();
+      return s && s.toLowerCase() !== "unknown" ? s : "";
+    };
+
+    // Party name map — fall back across both `company_name` and `name`
+    // because callers merge vendors + suppliers under different shapes.
     const partyMap = new Map<string, string>();
-    parties.forEach((p) => partyMap.set(p.id, (p as any)[nameKey] || "Unknown"));
+    const nameToPartyId = new Map<string, string>();
+    parties.forEach((p) => {
+      const display = cleanName((p as any).company_name) || cleanName((p as any).name) || "";
+      if (!display) return;
+      partyMap.set(p.id, display);
+      const key = norm(display);
+      if (key && !nameToPartyId.has(key)) nameToPartyId.set(key, p.id);
+    });
+
+    const invoiceDisplayName = (i: DashboardInvoice): string => {
+      const pid = (i as any)[idKey] ?? (i as any).vendor_id ?? (i as any).supplier_id ?? (i as any).customer_id;
+      if (pid && partyMap.get(String(pid))) return partyMap.get(String(pid))!;
+      const raw =
+        cleanName((i as any).party_name) ||
+        cleanName((i as any).vendor_name) ||
+        cleanName((i as any).supplier_name) ||
+        cleanName((i as any).customer_name) ||
+        cleanName((i as any).vendor?.name) ||
+        cleanName((i as any).customer?.name) ||
+        "";
+      // If the invoice's counterparty name matches a known party by name
+      // (vendors vs suppliers tables have different ids), attribute it.
+      if (raw && nameToPartyId.has(norm(raw))) {
+        return partyMap.get(nameToPartyId.get(norm(raw))!)!;
+      }
+      return raw || (pid && partyMap.get(String(pid))) || "Unknown";
+    };
+
+    const canonicalKey = (i: DashboardInvoice): string | null => {
+      const pid = (i as any)[idKey] ?? (i as any).vendor_id ?? (i as any).supplier_id ?? (i as any).customer_id;
+      if (pid && partyMap.has(String(pid))) return String(pid);
+      const raw =
+        cleanName((i as any).party_name) ||
+        cleanName((i as any).vendor_name) ||
+        cleanName((i as any).supplier_name) ||
+        cleanName((i as any).customer_name) ||
+        cleanName((i as any).vendor?.name) ||
+        cleanName((i as any).customer?.name) ||
+        "";
+      if (raw && nameToPartyId.has(norm(raw))) return nameToPartyId.get(norm(raw))!;
+      if (pid) return String(pid);
+      if (raw) return `name::${norm(raw)}`;
+      return null;
+    };
 
     // Basic totals
     const totalAmount = invoices.reduce((s, i) => s + Number(i.amount), 0);
@@ -169,23 +225,28 @@ export function CounterpartyDashboard({
     const avgPayDays = payDays.length > 0 ? Math.round(payDays.reduce((a, b) => a + b, 0) / payDays.length) : 0;
     const collectionRate = totalAmount > 0 ? +((collected / totalAmount) * 100).toFixed(1) : 0;
 
-    // Spending/Revenue by party (top 8)
-    const partySpend = new Map<string, { total: number; count: number; outstanding: number }>();
+    // Spending/Revenue by party (top 8) — groups by canonical party id when
+    // resolvable (including by matching vendor name → supplier name), else by
+    // the invoice's own counterparty name so we never bucket as "Unknown"
+    // while a real name is available.
+    const partySpend = new Map<string, { total: number; count: number; outstanding: number; display: string }>();
     invoices.forEach((i) => {
-      const pid = (i as any)[idKey];
-      if (!pid) return;
-      const existing = partySpend.get(pid) ?? { total: 0, count: 0, outstanding: 0 };
+      const key = canonicalKey(i);
+      if (!key) return;
+      const display = invoiceDisplayName(i);
+      const existing = partySpend.get(key) ?? { total: 0, count: 0, outstanding: 0, display };
       existing.total += Number(i.amount);
       existing.count += 1;
+      if (display && display !== "Unknown") existing.display = display;
       if (i.status !== "paid" && i.status !== "rejected") existing.outstanding += Number(i.amount);
-      partySpend.set(pid, existing);
+      partySpend.set(key, existing);
     });
     const topParties = [...partySpend.entries()]
       .sort(([, a], [, b]) => b.total - a.total)
       .slice(0, 8)
-      .map(([pid, data]) => ({
-        name: (partyMap.get(pid) || "Unknown").slice(0, 16),
-        fullName: partyMap.get(pid) || "Unknown",
+      .map(([, data]) => ({
+        name: data.display.slice(0, 16),
+        fullName: data.display,
         total: data.total,
         count: data.count,
         outstanding: data.outstanding,
@@ -241,8 +302,8 @@ export function CounterpartyDashboard({
       .filter(([, d]) => d.outstanding > 0)
       .sort(([, a], [, b]) => b.outstanding - a.outstanding)
       .slice(0, 5)
-      .map(([pid, data]) => ({
-        name: partyMap.get(pid) || "Unknown",
+      .map(([, data]) => ({
+        name: data.display,
         outstanding: data.outstanding,
         count: data.count,
       }));

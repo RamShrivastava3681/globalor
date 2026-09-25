@@ -10,9 +10,10 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/goods-receipts")({
-  validateSearch: (search: Record<string, unknown>): { po?: string; createFromPo?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { po?: string; createFromPo?: string; fromQueue?: string } => ({
     po: typeof search?.po === "string" ? search.po : undefined,
     createFromPo: typeof search?.createFromPo === "string" ? search.createFromPo : undefined,
+    fromQueue: typeof search?.fromQueue === "string" ? search.fromQueue : undefined,
   }),
   component: GoodsReceiptsPage,
 });
@@ -85,7 +86,7 @@ const GRN_STATUS: Record<GRN["status"], string> = {
 
 export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselectedPoProp }: { embedded?: boolean; preselectedPo?: string } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string; createFromPo?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string; createFromPo?: string; fromQueue?: string } });
   const linkPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
   const preselectedPo = preselectedPoProp ?? (embedded ? undefined : (((routerSearch as any)?.po ?? linkPo) as string | undefined));
   const navigate = useNavigate();
@@ -274,7 +275,12 @@ export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselected
           onClose={() => {
             setOpen(false);
             if (!embedded && linkPo) {
-              navigate({ to: "/app/goods-receipts", search: { po: undefined, createFromPo: undefined }, replace: true });
+              if ((routerSearch as any)?.fromQueue) {
+                // Queue-driven flow: the task completes server-side on create — return to My Queue.
+                navigate({ to: "/app/tasks", replace: true });
+              } else {
+                navigate({ to: "/app/goods-receipts", search: { po: undefined, createFromPo: undefined }, replace: true });
+              }
             }
           }}
         />

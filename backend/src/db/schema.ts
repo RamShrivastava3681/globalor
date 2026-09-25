@@ -201,7 +201,6 @@ const tableDefs = [
       { AttributeName: "masterSku", AttributeType: "S" },
       { AttributeName: "parentId", AttributeType: "S" },
       { AttributeName: "parentSku", AttributeType: "S" },
-      { AttributeName: "productType", AttributeType: "S" },
       { AttributeName: "company_id", AttributeType: "S" },
     ],
     GlobalSecondaryIndexes: [

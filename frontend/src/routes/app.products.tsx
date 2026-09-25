@@ -1,11 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import {
-  Plus, Loader2, Save, Trash2, X, Package, Boxes, CircleDollarSign, Percent, ImageIcon,
+  Plus, Loader2, Save, Trash2, X, Package, PackageOpen, Check,
+  Boxes, CircleDollarSign, Percent, Pen, ChevronDown, ChevronRight, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,313 +14,249 @@ export const Route = createFileRoute("/app/products")({
   component: ProductsPage,
 });
 
-type Product = {
+// ── Master / Colour SKU type (mirrors /product-skus API) ──
+type ProductSku = {
   id: string;
-  sku: string;
-  name: string;
-  description: string | null;
-  barcode: string | null;
-  barcode_type: "EAN-13" | "UPC-A" | "QR" | null;
-  category: string | null;
-  subcategory: string | null;
+  masterSku: string;
+  parentId: string | null;
+  parentSku: string | null;
+  productName: string;
+  itemNumber: string;
   brand: string | null;
   gender: string | null;
-  size: string | null;
-  color: string | null;
-  model: string | null;
-  season: string | null;
-  image_url: string | null;
-  unit_price: number;
-  unit_cost: number;
-  mrp: number | null;
-  minimum_gross_margin_percentage: number | null;
-  gst_rate: number | null;
-  unit_of_measure: string;
-  units_per_carton: number | null;
-  reorder_level: number | null;
-  max_stock: number | null;
-  lead_time_days: number;
-  safety_stock_days: number;
-  supplier_id: string | null;
-  supplier_name?: string | null;
-  supplier_product_code: string | null;
-  minimum_order_quantity: number | null;
-  order_multiple: number | null;
-  hsn_code: string | null;
-  status: "active" | "inactive";
+  category: string | null;
+  modelNumber: string | null;
+  hsnCode: string | null;
+  taxPercent: number;
+  unitOfMeasure: string;
+  unitCost: number;
+  unitPrice: number;
+  grossMargin: number;
+  productType: "MASTER" | "COLOUR";
+  status: "ACTIVE" | "INACTIVE";
+  colourName: string | null;
+  colourCode: string | null;
+  colourSku: string | null;
   created_at: string;
 };
 
-type CatalogueSettings = {
-  id: string;
-  default_minimum_margin: number;
+const COLOUR_OPTIONS = [
+  { name: "Black", code: "BLK", swatch: "bg-black" },
+  { name: "White", code: "WHT", swatch: "border border-border bg-white" },
+  { name: "Red", code: "RED", swatch: "bg-red-600" },
+  { name: "Green", code: "GRN", swatch: "bg-green-600" },
+  { name: "Grey", code: "GRY", swatch: "bg-gray-500" },
+  { name: "Blue", code: "BLU", swatch: "bg-blue-600" },
+  { name: "Navy Blue", code: "NVY", swatch: "bg-blue-950" },
+  { name: "Yellow", code: "YLW", swatch: "bg-yellow-400" },
+  { name: "Orange", code: "ORG", swatch: "bg-orange-500" },
+  { name: "Pink", code: "PNK", swatch: "bg-pink-500" },
+  { name: "Purple", code: "PUR", swatch: "bg-purple-600" },
+  { name: "Brown", code: "BRN", swatch: "bg-amber-800" },
+] as const;
+
+const STATUS_STYLES: Record<string, string> = {
+  ACTIVE: "border-success/40 bg-success/10 text-success",
+  INACTIVE: "border-border bg-muted text-muted-foreground",
 };
-
-type SupplierOption = { id: string; name: string };
-
-const emptyForm = {
-  name: "",
-  sku: "",
-  description: "",
-  barcode: "",
-  barcode_type: "",
-  category: "",
-  subcategory: "",
-  brand: "",
-  gender: "",
-  size: "",
-  color: "",
-  model: "",
-  season: "",
-  image_url: "",
-  unit_price: "",
-  unit_cost: "",
-  mrp: "",
-  minimum_gross_margin_percentage: "", // percent, e.g. "40"; blank = inherit
-  gst_rate: "0",
-  unit_of_measure: "piece",
-  units_per_carton: "",
-  reorder_level: "",
-  max_stock: "",
-  lead_time_days: "30",
-  safety_stock_days: "30",
-  supplier_id: "",
-  supplier_product_code: "",
-  minimum_order_quantity: "",
-  order_multiple: "",
-  hsn_code: "",
-  status: "active",
-};
-
-const UOM_OPTIONS = ["piece", "pair", "carton", "box", "dozen", "set", "roll", "meter", "kg", "gram", "litre", "bottle", "pack"];
 
 function ProductsPage() {
   const { canWrite } = useAuth();
   const canEdit = canWrite("products");
+  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState(emptyForm);
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "ACTIVE" | "INACTIVE">("all");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const productsQ = useQuery({
-    queryKey: ["products"],
-    queryFn: async () => (await api.get<Product[]>("/products")) ?? [],
-  });
-  const settingsQ = useQuery({
-    queryKey: ["catalogue-settings"],
-    queryFn: async () => (await api.get<CatalogueSettings>("/catalogue-settings")) ?? { default_minimum_margin: 0.4 },
-  });
-  const suppliersQ = useQuery({
-    queryKey: ["supplier-options"],
-    queryFn: async () => {
-      const [suppliers, vendors] = await Promise.all([
-        api.get<any[]>("/suppliers").catch(() => []),
-        api.get<any[]>("/vendors").catch(() => []),
-      ]);
-      const opts: SupplierOption[] = [
-        ...(suppliers ?? []).map((s) => ({ id: s.id, name: s.company_name })),
-        ...(vendors ?? []).map((v) => ({ id: v.id, name: v.name })),
-      ];
-      return opts;
-    },
+  // ── Dialog state ──
+  // Button 2 (per-master): which master are we adding colour SKUs to?
+  const [colourTargetId, setColourTargetId] = useState<string | null>(null);
+  const [selectedColourCodes, setSelectedColourCodes] = useState<string[]>([]);
+  // Optimised edits
+  const [editingMaster, setEditingMaster] = useState<ProductSku | null>(null);
+  const [editingColour, setEditingColour] = useState<ProductSku | null>(null);
+
+  const skusQ = useQuery({
+    queryKey: ["product-skus"],
+    queryFn: async () => (await api.get<ProductSku[]>("/product-skus")) ?? [],
   });
 
-  const defaultMargin = settingsQ.data?.default_minimum_margin ?? 0.4;
-  const supplierOptions = suppliersQ.data ?? [];
-  const supplierName = (id: string | null) => supplierOptions.find((s) => s.id === id)?.name ?? null;
-
-  const effectiveMargin = (p: Product) => p.minimum_gross_margin_percentage ?? defaultMargin;
-
-  const save = useMutation({
-    mutationFn: async () => {
-      const name = form.name.trim();
-      if (!name) throw new Error("Product name is required");
-      const unitPrice = Number(form.unit_price);
-      const unitCost = Number(form.unit_cost);
-      if (Number.isNaN(unitPrice) || unitPrice < 0) throw new Error("Unit price must be a valid number >= 0");
-      if (Number.isNaN(unitCost) || unitCost < 0) throw new Error("Unit cost must be a valid number >= 0");
-
-      // Optional numeric fields: blank → null; non-numeric → null (never NaN).
-      const num = (v: string) => {
-        const t = v.trim();
-        if (t === "") return null;
-        const n = Number(t);
-        return Number.isFinite(n) ? n : null;
-      };
-      const int = (v: string) => {
-        const n = num(v);
-        return n == null ? null : Math.trunc(n);
-      };
-
-      const margin = num(form.minimum_gross_margin_percentage);
-      if (margin !== null && (margin < 1 || margin > 99)) {
-        throw new Error("Margin must be between 1% and 99%");
+  const rows = skusQ.data ?? [];
+  const masters = useMemo(() => rows.filter((r) => r.productType === "MASTER"), [rows]);
+  const variantsByParent = useMemo(() => {
+    const map = new Map<string, ProductSku[]>();
+    for (const r of rows) {
+      if (r.productType === "COLOUR" && r.parentId) {
+        const list = map.get(r.parentId) ?? [];
+        list.push(r);
+        map.set(r.parentId, list);
       }
+    }
+    for (const list of map.values()) list.sort((a, b) => (a.colourSku ?? "").localeCompare(b.colourSku ?? ""));
+    return map;
+  }, [rows]);
 
-      const payload = {
-        name,
-        sku: form.sku.trim() || null,
-        description: form.description.trim() || null,
-        barcode: form.barcode.trim() || null,
-        barcode_type: form.barcode_type || null,
-        category: form.category.trim() || null,
-        subcategory: form.subcategory.trim() || null,
-        brand: form.brand.trim() || null,
-        gender: form.gender.trim() || null,
-        size: form.size.trim() || null,
-        color: form.color.trim() || null,
-        model: form.model.trim() || null,
-        season: form.season.trim() || null,
-        image_url: form.image_url.trim() || null,
-        unit_price: unitPrice,
-        unit_cost: unitCost,
-        mrp: num(form.mrp),
-        minimum_gross_margin_percentage: margin === null ? null : margin / 100,
-        gst_rate: num(form.gst_rate),
-        unit_of_measure: form.unit_of_measure.trim() || "piece",
-        units_per_carton: num(form.units_per_carton),
-        reorder_level: num(form.reorder_level),
-        max_stock: num(form.max_stock),
-        lead_time_days: int(form.lead_time_days) ?? 30,
-        safety_stock_days: int(form.safety_stock_days) ?? 30,
-        supplier_id: form.supplier_id || null,
-        supplier_product_code: form.supplier_product_code.trim() || null,
-        minimum_order_quantity: num(form.minimum_order_quantity),
-        order_multiple: num(form.order_multiple),
-        hsn_code: form.hsn_code.trim() || null,
-        status: form.status,
-      };
-      if (editing) {
-        await api.patch(`/products/${editing.id}`, payload);
-      } else {
-        await api.post("/products", payload);
-      }
-    },
-    onSuccess: () => {
-      toast.success(editing ? "Product updated" : "Product added to catalogue");
-      qc.invalidateQueries({ queryKey: ["products"] });
-      setOpen(false);
-      setEditing(null);
-      setForm(emptyForm);
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
+  const variantCount = useMemo(() => rows.filter((r) => r.productType === "COLOUR").length, [rows]);
 
-  const [marginInput, setMarginInput] = useState("");
+  const colourTarget = colourTargetId ? (masters.find((m) => m.id === colourTargetId) ?? null) : null;
+  const existingColourCodes = useMemo(() => {
+    if (!colourTarget) return new Set<string>();
+    return new Set(
+      (variantsByParent.get(colourTarget.id) ?? [])
+        .map((v) => (v.colourCode ?? "").toUpperCase())
+        .filter(Boolean),
+    );
+  }, [colourTarget, variantsByParent]);
 
-  const saveSettings = useMutation({
-    mutationFn: async () => {
-      const margin = Number(marginInput);
-      if (Number.isNaN(margin) || margin < 1 || margin > 99) throw new Error("Default margin must be between 1% and 99%");
-      await api.put("/catalogue-settings", { default_minimum_margin: margin / 100 });
-    },
-    onSuccess: () => {
-      toast.success("Catalogue default margin updated");
-      qc.invalidateQueries({ queryKey: ["catalogue-settings"] });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const remove = useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/products/${id}`);
-    },
-    onSuccess: () => {
-      toast.success("Product removed");
-      qc.invalidateQueries({ queryKey: ["products"] });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const openNew = () => {
-    setEditing(null);
-    setForm(emptyForm);
-    setOpen(true);
-  };
-
-  const openEdit = (p: Product) => {
-    setEditing(p);
-    setForm({
-      name: p.name,
-      sku: p.sku,
-      description: p.description ?? "",
-      barcode: p.barcode ?? "",
-      barcode_type: p.barcode_type ?? "",
-      category: p.category ?? "",
-      subcategory: p.subcategory ?? "",
-      brand: p.brand ?? "",
-      gender: p.gender ?? "",
-      size: p.size ?? "",
-      color: p.color ?? "",
-      model: p.model ?? "",
-      season: p.season ?? "",
-      image_url: p.image_url ?? "",
-      unit_price: String(p.unit_price),
-      unit_cost: String(p.unit_cost),
-      mrp: p.mrp != null ? String(p.mrp) : "",
-      minimum_gross_margin_percentage: p.minimum_gross_margin_percentage != null ? String(Math.round(p.minimum_gross_margin_percentage * 100)) : "",
-      gst_rate: p.gst_rate != null ? String(p.gst_rate) : "0",
-      unit_of_measure: p.unit_of_measure,
-      units_per_carton: p.units_per_carton != null ? String(p.units_per_carton) : "",
-      reorder_level: p.reorder_level != null ? String(p.reorder_level) : "",
-      max_stock: p.max_stock != null ? String(p.max_stock) : "",
-      lead_time_days: String(p.lead_time_days ?? 30),
-      safety_stock_days: String(p.safety_stock_days ?? 30),
-      supplier_id: p.supplier_id ?? "",
-      supplier_product_code: p.supplier_product_code ?? "",
-      minimum_order_quantity: p.minimum_order_quantity != null ? String(p.minimum_order_quantity) : "",
-      order_multiple: p.order_multiple != null ? String(p.order_multiple) : "",
-      hsn_code: p.hsn_code ?? "",
-      status: p.status,
+  const toggleExpand = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-    setOpen(true);
+  const expandAll = (ids: string[]) => setExpanded(new Set(ids));
+  const collapseAll = () => setExpanded(new Set());
+
+  const openColourDialog = (masterId: string) => {
+    setColourTargetId(masterId);
+    setSelectedColourCodes([]);
+    setExpanded((prev) => new Set(prev).add(masterId));
+  };
+  const closeColourDialog = () => {
+    if (createColourSkus.isPending) return;
+    setColourTargetId(null);
+    setSelectedColourCodes([]);
   };
 
-  const products = productsQ.data ?? [];
+  const invalidate = (masterId?: string) => {
+    qc.invalidateQueries({ queryKey: ["product-skus"] });
+    if (masterId) qc.invalidateQueries({ queryKey: ["product-sku-master", masterId] });
+  };
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return products.filter((p) => {
-      if (statusFilter !== "all" && p.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.sku.toLowerCase().includes(q) ||
-        (p.brand ?? "").toLowerCase().includes(q) ||
-        (p.category ?? "").toLowerCase().includes(q) ||
-        (p.subcategory ?? "").toLowerCase().includes(q) ||
-        (p.supplier_name ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q)
+  // ── Button 2 action: create colour-coded SKUs under the row's master ──
+  const createColourSkus = useMutation({
+    mutationFn: async () => {
+      if (!colourTarget) throw new Error("Select a master SKU");
+      const colours = COLOUR_OPTIONS.filter(
+        (c) => selectedColourCodes.includes(c.code) && !existingColourCodes.has(c.code),
       );
-    });
-  }, [products, searchQuery, statusFilter]);
+      if (colours.length === 0) throw new Error("Select at least one available colour");
+      const results = await Promise.allSettled(
+        colours.map((c) =>
+          api.post<ProductSku>("/product-skus", {
+            parentProductId: colourTarget.id,
+            colourName: c.name,
+            colourCode: c.code,
+            status: "ACTIVE",
+          }),
+        ),
+      );
+      return {
+        created: results.filter((r) => r.status === "fulfilled").length,
+        failed: results.flatMap((r, i) =>
+          r.status === "rejected"
+            ? [{ code: colours[i].code, message: r.reason instanceof Error ? r.reason.message : "Unknown error" }]
+            : [],
+        ),
+      };
+    },
+    onSuccess: ({ created, failed }) => {
+      invalidate(colourTarget?.id);
+      if (created > 0) toast.success(`${created} SKU${created === 1 ? "" : "s"} created under ${colourTarget?.masterSku}`);
+      if (failed.length > 0) {
+        setSelectedColourCodes(failed.map((f) => f.code));
+        toast.error(`${failed.length} could not be created: ${failed[0].message}`);
+        return;
+      }
+      setColourTargetId(null);
+      setSelectedColourCodes([]);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create SKUs"),
+  });
 
-  const stats = useMemo(() => {
-    const active = products.filter((p) => p.status === "active");
-    const below = active.filter((p) => (p.minimum_gross_margin_percentage ?? defaultMargin) < defaultMargin);
-    return {
-      total: products.length,
-      active: active.length,
-      inactive: products.length - active.length,
-      below,
-    };
-  }, [products, defaultMargin]);
+  // ── Optimised edit: master (only backend-editable fields) ──
+  const patchMaster = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      if (!editingMaster) throw new Error("No master selected");
+      await api.patch(`/product-skus/${editingMaster.id}`, payload);
+    },
+    onSuccess: () => {
+      toast.success("Master SKU updated");
+      invalidate(editingMaster?.id);
+      setEditingMaster(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update master"),
+  });
 
-  const set = (k: keyof typeof emptyForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm({ ...form, [k]: e.target.value });
+  // ── Optimised edit: colour variant ──
+  const patchColour = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      if (!editingColour) throw new Error("No colour selected");
+      await api.patch(`/product-skus/${editingColour.id}`, payload);
+    },
+    onSuccess: () => {
+      toast.success("Colour SKU updated");
+      invalidate(editingColour?.parentId ?? undefined);
+      setEditingColour(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update colour"),
+  });
+
+  const removeSku = useMutation({
+    mutationFn: async (sku: ProductSku) => {
+      if (sku.productType === "MASTER" && (variantsByParent.get(sku.id) ?? []).length > 0) {
+        throw new Error("Remove its colour variants first");
+      }
+      await api.delete(`/product-skus/${sku.id}`);
+    },
+    onSuccess: (_d, sku) => {
+      toast.success(sku.productType === "MASTER" ? "Master SKU removed" : `Colour ${sku.colourSku} removed`);
+      invalidate(sku.parentId ?? sku.id);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const filteredMasters = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return masters
+      .filter((m) => {
+        if (statusFilter !== "all" && m.status !== statusFilter) return false;
+        if (!q) return true;
+        const variants = variantsByParent.get(m.id) ?? [];
+        return (
+          m.productName.toLowerCase().includes(q) ||
+          m.masterSku.toLowerCase().includes(q) ||
+          (m.itemNumber ?? "").toLowerCase().includes(q) ||
+          (m.brand ?? "").toLowerCase().includes(q) ||
+          (m.category ?? "").toLowerCase().includes(q) ||
+          variants.some(
+            (v) =>
+              (v.colourSku ?? "").toLowerCase().includes(q) ||
+              (v.colourName ?? "").toLowerCase().includes(q) ||
+              (v.colourCode ?? "").toLowerCase().includes(q),
+          )
+        );
+      })
+      .sort((a, b) => a.masterSku.localeCompare(b.masterSku));
+  }, [masters, variantsByParent, searchQuery, statusFilter]);
 
   return (
     <div>
       <PageHeader
         eyebrow="Catalogue"
-        title="Products"
-        description="The master data every purchase order, GRN, quotation, sales order, dispatch and invoice references. Line items are snapshots — editing a product never alters old documents."
+        title="Product Catalogue"
+        description="Master SKU is the parent. Expand a master to see its nested colour-coded SKUs. Use the per-row button to add colours."
         actions={
           canEdit ? (
-            <button onClick={openNew} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              <Plus className="h-4 w-4" /> Add product
+            <button
+              onClick={() => navigate({ to: "/app/products-create" })}
+              title="Create a Master SKU — productName, itemNumber, brand, gender, category, model, HSN, tax, UOM, cost, price"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
+            >
+              <Package className="h-4 w-4" /> Create Master SKU
             </button>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
@@ -330,61 +267,28 @@ function ProductsPage() {
       <div className="p-6 md:p-10 space-y-6">
         {/* ── Stats ── */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile icon={<Boxes className="h-4 w-4 text-primary" />} label="Total SKUs" value={String(stats.total)} />
-          <StatTile icon={<Package className="h-4 w-4 text-success" />} label="Active" value={String(stats.active)} />
-          <StatTile icon={<CircleDollarSign className="h-4 w-4 text-muted-foreground" />} label="Inactive" value={String(stats.inactive)} />
+          <StatTile icon={<Boxes className="h-4 w-4 text-primary" />} label="Master SKUs" value={String(masters.length)} />
+          <StatTile icon={<PackageOpen className="h-4 w-4 text-info" />} label="Colour SKUs" value={String(variantCount)} />
+          <StatTile icon={<CircleDollarSign className="h-4 w-4 text-success" />} label="Inventory value" value={fmtMoney(rows.reduce((s, p) => s + p.unitPrice, 0))} />
           <StatTile
             icon={<Percent className="h-4 w-4 text-warning" />}
-            label="Below default margin"
-            value={String(stats.below.length)}
-            hint={stats.below.length > 0 ? "Products with no floor protection" : "All products covered"}
+            label="Avg margin"
+            value={rows.length ? `${(rows.reduce((s, p) => s + (p.grossMargin ?? 0), 0) / rows.length).toFixed(1)}%` : "—"}
           />
         </div>
 
-        {/* ── Catalogue settings ── */}
-        {canEdit && (
-          <Card>
-            <div className="flex flex-wrap items-center gap-4 p-5">
-              <div className="flex-1 min-w-[220px]">
-                <div className="text-sm font-medium">Default minimum margin</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Products without their own margin inherit this floor ({Math.round(defaultMargin * 100)}% today). The floor protects your pricing strategy.
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder={`${Math.round(defaultMargin * 100)}%`}
-                  value={marginInput}
-                  onChange={(e) => setMarginInput(e.target.value)}
-                  className="h-10 w-28 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                />
-                <button
-                  onClick={() => saveSettings.mutate()}
-                  disabled={saveSettings.isPending || marginInput.trim() === ""}
-                  className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
-                >
-                  {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save
-                </button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* ── List ── */}
+        {/* ── Nested Master → Colour catalogue ── */}
         <Card>
-          <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center">
             <input
               type="text"
-              placeholder="Search by name, SKU, brand, category, barcode, supplier..."
+              placeholder="Search masters, colours, brand, category…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 w-full rounded-lg border border-border bg-background pl-4 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-all sm:max-w-md"
+              className="h-10 w-full rounded-lg border border-border bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 lg:max-w-md"
             />
             <div className="flex gap-1 rounded-lg border border-border p-1">
-              {(["all", "active", "inactive"] as const).map((s) => (
+              {(["all", "ACTIVE", "INACTIVE"] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
@@ -392,221 +296,253 @@ function ProductsPage() {
                     statusFilter === s ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                   }`}
                 >
-                  {s}
+                  {s === "all" ? s : s.toLowerCase()}
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-xs text-muted-foreground">{filtered.length} of {products.length}</span>
+            <div className="flex items-center gap-2 lg:ml-auto">
+              <span className="text-xs text-muted-foreground">{filteredMasters.length} of {masters.length} masters</span>
+              <button onClick={() => expandAll(filteredMasters.map((m) => m.id))} className="rounded-md border border-border px-2.5 py-1.5 text-xs hover:border-primary hover:text-primary">Expand all</button>
+              <button onClick={collapseAll} className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground">Collapse</button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-left">Product</th>
-                  <th className="px-3 py-3 text-left">Category</th>
-                  <th className="px-3 py-3 text-right">Sale / Cost</th>
-                  <th className="px-3 py-3 text-right">Margin</th>
-                  <th className="px-3 py-3 text-right">GST</th>
-                  <th className="px-3 py-3 text-left">Supplier</th>
-                  <th className="px-3 py-3 text-right">Reorder</th>
-                  <th className="px-3 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {productsQ.isLoading && (
-                  <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Loading…</td></tr>
-                )}
-                {!productsQ.isLoading && filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="p-10 text-center text-muted-foreground">
-                      {products.length === 0 ? (
-                        <>No products yet. Click <span className="text-foreground">Add product</span> to start your catalogue.</>
-                      ) : (
-                        "No products match your filters."
-                      )}
-                    </td>
-                  </tr>
-                )}
-                {filtered.map((p) => {
-                  const margin = effectiveMargin(p);
-                  const belowFloor = margin < defaultMargin;
-                  return (
-                    <tr key={p.id} className={`border-b border-border/60 hover:bg-muted/30 ${p.status === "inactive" ? "opacity-60" : ""}`}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/40">
-                            {p.image_url ? (
-                              <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
-                            ) : (
-                              <ImageIcon className="h-4 w-4 text-muted-foreground/60" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate font-medium">{p.name}</span>
-                              {p.status === "inactive" && (
-                                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">Inactive</span>
-                              )}
-                            </div>
-                            <div className="font-mono text-[10px] text-muted-foreground">{p.sku}{p.barcode ? ` · ${p.barcode}` : ""}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground">
-                        <div>{[p.brand, p.category].filter(Boolean).join(" · ") || "—"}</div>
-                        <div className="text-[10px]">{[p.color, p.size, p.model].filter(Boolean).join(" / ") || ""}</div>
-                      </td>
-                      <td className="px-3 py-3 text-right num">
-                        <div>{fmtMoney(p.unit_price)}</div>
-                        <div className="text-[10px] text-muted-foreground">cost {fmtMoney(p.unit_cost)}</div>
-                      </td>
-                      <td className="px-3 py-3 text-right num">
-                        <span className={belowFloor ? "text-warning" : ""}>
-                          {p.minimum_gross_margin_percentage != null ? `${Math.round(margin * 100)}%` : `${Math.round(margin * 100)}%*`}
+          {skusQ.isLoading && <div className="p-10 text-center text-sm text-muted-foreground">Loading catalogue…</div>}
+          {!skusQ.isLoading && filteredMasters.length === 0 && (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              {masters.length === 0 ? (
+                <span>No master SKUs yet. Click <span className="text-foreground">Create Master SKU</span> above.</span>
+              ) : (
+                "No masters match your filters."
+              )}
+            </div>
+          )}
+
+          <div className="divide-y divide-border">
+            {filteredMasters.map((m) => {
+              const variants = variantsByParent.get(m.id) ?? [];
+              const isOpen = expanded.has(m.id);
+              return (
+                <div key={m.id} className={m.status === "INACTIVE" ? "opacity-70" : ""}>
+                  {/* Master row */}
+                  <div className="flex flex-col gap-3 p-4 hover:bg-muted/20 md:flex-row md:items-center">
+                    <button onClick={() => toggleExpand(m.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-expanded={isOpen}>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+                        {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </span>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+                        <Package className="h-4 w-4 text-primary" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{m.productName}</span>
+                        <span className="block font-mono text-[11px] font-semibold text-primary">{m.masterSku}</span>
+                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                          #{m.itemNumber} · {[m.brand, m.gender, m.category, m.modelNumber].filter(Boolean).join(" · ")}
                         </span>
-                        {belowFloor && <div className="text-[10px] text-warning">below default</div>}
-                      </td>
-                      <td className="px-3 py-3 text-right num">{p.gst_rate != null ? `${p.gst_rate}%` : "—"}</td>
-                      <td className="px-3 py-3 text-xs">{p.supplier_name ?? (p.supplier_id ? supplierName(p.supplier_id) ?? "—" : "—")}</td>
-                      <td className="px-3 py-3 text-right num">
-                        {p.reorder_level != null ? p.reorder_level : "—"}
-                        {p.lead_time_days > 0 && <div className="text-[10px] text-muted-foreground">LT {p.lead_time_days}d</div>}
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        {canEdit && (
-                          <>
-                            <button onClick={() => openEdit(p)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
-                            <button
-                              onClick={() => { if (confirm(`Remove ${p.name} (${p.sku})? Existing documents keep their snapshots.`)) remove.mutate(p.id); }}
-                              className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
-                              aria-label="Remove"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
+                      </span>
+                    </button>
+
+                    <div className="flex shrink-0 items-center gap-4 text-right">
+                      <div className="num text-sm">
+                        <div>{fmtMoney(m.unitPrice)}</div>
+                        <div className="text-[10px] text-muted-foreground">cost {fmtMoney(m.unitCost)} · {m.grossMargin.toFixed(1)}%</div>
+                      </div>
+                      <span className={`hidden rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase md:inline-flex ${STATUS_STYLES[m.status]}`}>{m.status}</span>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">{variants.length} colour{variants.length === 1 ? "" : "s"}</span>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {canEdit && (
+                        <button
+                          onClick={() => openColourDialog(m.id)}
+                          title={`Create colour-coded SKUs under ${m.masterSku}`}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-info px-3 py-1.5 text-xs font-medium text-info-foreground hover:opacity-90"
+                        >
+                          <PackageOpen className="h-3.5 w-3.5" /> Add Colours
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button
+                          onClick={() => setEditingMaster(m)}
+                          title="Edit master pricing / identity"
+                          className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                        >
+                          <Pen className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => navigate({ to: "/app/product-sku-detail", search: { id: m.id } as never })}
+                        title="Open master detail"
+                        className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Nested colours */}
+                  {isOpen && (
+                    <div className="border-t border-border/60 bg-muted/10 px-4 py-3 md:ml-14 md:mr-4 md:rounded-lg md:border md:mb-4">
+                      {variants.length === 0 ? (
+                        <div className="flex flex-wrap items-center gap-3 py-2 text-xs text-muted-foreground">
+                          <span>No colour variants yet under <span className="font-mono font-medium text-foreground">{m.masterSku}</span>.</span>
+                          {canEdit && (
+                            <button onClick={() => openColourDialog(m.id)} className="inline-flex items-center gap-1.5 rounded-md bg-info px-3 py-1.5 text-xs font-medium text-info-foreground">
+                              <Plus className="h-3.5 w-3.5" /> Create first colour
                             </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="px-4 py-2.5 text-[10px] text-muted-foreground">
-            * inherits the catalogue default margin
+                          )}
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                              <tr className="border-b border-border/60">
+                                <th className="px-3 py-2 text-left">Colour</th>
+                                <th className="px-3 py-2 text-left">Colour SKU</th>
+                                <th className="px-3 py-2 text-right">Cost</th>
+                                <th className="px-3 py-2 text-right">Price</th>
+                                <th className="px-3 py-2 text-right">Margin</th>
+                                <th className="px-3 py-2 text-left">HSN / Tax</th>
+                                <th className="px-3 py-2 text-center">Status</th>
+                                <th className="px-3 py-2 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {variants.map((v) => (
+                                <tr key={v.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
+                                  <td className="px-3 py-2">
+                                    <span className="font-medium">{v.colourName}</span>{" "}
+                                    <span className="font-mono text-[10px] text-muted-foreground">{v.colourCode}</span>
+                                  </td>
+                                  <td className="px-3 py-2 font-mono text-xs font-medium text-primary">{v.colourSku}</td>
+                                  <td className="px-3 py-2 text-right num">{fmtMoney(v.unitCost)}</td>
+                                  <td className="px-3 py-2 text-right num">{fmtMoney(v.unitPrice)}</td>
+                                  <td className="px-3 py-2 text-right num font-medium">{v.grossMargin.toFixed(2)}%</td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">{v.hsnCode ?? "—"} · {v.taxPercent}%</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLES[v.status]}`}>{v.status}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <div className="flex justify-end gap-1">
+                                      {canEdit && (
+                                        <button onClick={() => setEditingColour(v)} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary" title="Edit colour">
+                                          <Pen className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                      {canEdit && (
+                                        <button
+                                          onClick={() => { if (confirm(`Remove colour ${v.colourSku}?`)) removeSku.mutate(v); }}
+                                          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                          title="Remove colour"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </Card>
       </div>
 
-      {/* ── Create / Edit modal ── */}
-      {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={() => setOpen(false)}>
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {/* ── Button-2 dialog: per-master Create Colour SKUs ── */}
+      {colourTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={closeColourDialog}>
+          <div role="dialog" aria-modal="true" className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-              <h3 className="font-display text-lg">{editing ? `Edit ${editing.name}` : "Add product to catalogue"}</h3>
-              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+              <div>
+                <h3 className="font-display text-lg">Create Colour SKUs — <span className="font-mono text-info">{colourTarget.masterSku}</span></h3>
+                <p className="text-xs text-muted-foreground">{colourTarget.productName} · tick colours to generate {colourTarget.masterSku}-CODE</p>
+              </div>
+              <button type="button" onClick={closeColourDialog} className="text-muted-foreground hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
             </div>
-            <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
-              {/* ── Identity ── */}
-              <Section title="Identity">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Product name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></F>
-                  <F label="SKU (blank = auto-generate)"><input maxLength={64} placeholder="SKU-XXXXXXXX" className="inp font-mono" value={form.sku} onChange={set("sku")} /></F>
-                  <F label="Description" full><textarea rows={2} maxLength={2000} className="inp" value={form.description} onChange={set("description")} /></F>
-                  <F label="Category"><input maxLength={100} className="inp" value={form.category} onChange={set("category")} /></F>
-                  <F label="Subcategory"><input maxLength={100} className="inp" value={form.subcategory} onChange={set("subcategory")} /></F>
-                  <F label="Brand"><input maxLength={120} className="inp" value={form.brand} onChange={set("brand")} /></F>
-                  <F label="Model"><input maxLength={120} className="inp" value={form.model} onChange={set("model")} /></F>
-                  <F label="Gender"><select className="inp" value={form.gender} onChange={set("gender")}>
-                    <option value="">—</option>
-                    {["Male", "Female", "Unisex", "Kids", "Boys", "Girls", "Infant"].map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select></F>
-                  <F label="Size"><input maxLength={40} placeholder="S / M / L / XL / 42" className="inp" value={form.size} onChange={set("size")} /></F>
-                  <F label="Color"><input maxLength={60} className="inp" value={form.color} onChange={set("color")} /></F>
-                  <F label="Season"><input maxLength={40} className="inp" value={form.season} onChange={set("season")} /></F>
-                  <F label="Image URL (signed S3 or CDN)"><input maxLength={500} className="inp" value={form.image_url} onChange={set("image_url")} /></F>
+            <form onSubmit={(e) => { e.preventDefault(); createColourSkus.mutate(); }} className="space-y-5 p-5">
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Colours *</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {COLOUR_OPTIONS.map((colour) => {
+                    const alreadyAdded = existingColourCodes.has(colour.code);
+                    const selected = selectedColourCodes.includes(colour.code);
+                    return (
+                      <button
+                        key={colour.code}
+                        type="button"
+                        disabled={alreadyAdded || createColourSkus.isPending}
+                        aria-pressed={selected}
+                        onClick={() => setSelectedColourCodes((cur) => (cur.includes(colour.code) ? cur.filter((c) => c !== colour.code) : [...cur, colour.code]))}
+                        className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                          selected ? "border-info bg-info/10 ring-1 ring-info/30" : "border-border bg-card hover:border-info/50"
+                        }`}
+                      >
+                        <span className={`h-5 w-5 shrink-0 rounded-full ${colour.swatch}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-medium">{colour.name}</span>
+                          <span className="block font-mono text-[10px] text-muted-foreground">{alreadyAdded ? "Added" : colour.code}</span>
+                        </span>
+                        {selected && <Check className="h-4 w-4 shrink-0 text-info" />}
+                      </button>
+                    );
+                  })}
                 </div>
-              </Section>
-
-              {/* ── Barcode ── */}
-              <Section title="Barcode">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Barcode value"><input maxLength={64} placeholder="Scan or type" className="inp font-mono" value={form.barcode} onChange={set("barcode")} /></F>
-                  <F label="Barcode type"><select className="inp" value={form.barcode_type} onChange={set("barcode_type")}>
-                    <option value="">—</option>
-                    <option value="EAN-13">EAN-13</option>
-                    <option value="UPC-A">UPC-A</option>
-                    <option value="QR">QR</option>
-                  </select></F>
+              </div>
+              {selectedColourCodes.length > 0 && (
+                <div className="rounded-lg border border-info/30 bg-info/5 p-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-info">SKU Preview</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedColourCodes.map((code) => (
+                      <span key={code} className="rounded-md border border-info/20 bg-card px-2.5 py-1 font-mono text-xs font-medium">{colourTarget.masterSku}-{code}</span>
+                    ))}
+                  </div>
                 </div>
-              </Section>
-
-              {/* ── Pricing ── */}
-              <Section title="Pricing">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <F label="Selling price *"><input type="text" inputMode="decimal" required className="inp num" value={form.unit_price} onChange={set("unit_price")} /></F>
-                  <F label="Purchase cost *"><input type="text" inputMode="decimal" required className="inp num" value={form.unit_cost} onChange={set("unit_cost")} /></F>
-                  <F label="MRP (max retail)"><input type="text" inputMode="decimal" className="inp num" value={form.mrp} onChange={set("mrp")} /></F>
-                  <F label="Min gross margin % (blank = inherit)">
-                    <div className="relative">
-                      <input type="text" inputMode="decimal" placeholder={`${Math.round(defaultMargin * 100)}%`} className="inp num pr-8" value={form.minimum_gross_margin_percentage} onChange={set("minimum_gross_margin_percentage")} />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-                    </div>
-                  </F>
-                  <F label="GST rate"><select className="inp" value={form.gst_rate} onChange={set("gst_rate")}>
-                    {["0", "5", "12", "18", "28"].map((g) => <option key={g} value={g}>{g}%</option>)}
-                  </select></F>
-                  <F label="HSN code"><input maxLength={30} className="inp font-mono" value={form.hsn_code} onChange={set("hsn_code")} /></F>
-                </div>
-                {form.minimum_gross_margin_percentage.trim() === "" && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Inherits the catalogue default of {Math.round(defaultMargin * 100)}%.
-                  </p>
-                )}
-              </Section>
-
-              {/* ── Logistics ── */}
-              <Section title="Logistics & stock">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <F label="Unit of measure">
-                    <input list="uom-options" maxLength={40} className="inp" value={form.unit_of_measure} onChange={set("unit_of_measure")} />
-                    <datalist id="uom-options">{UOM_OPTIONS.map((u) => <option key={u} value={u} />)}</datalist>
-                  </F>
-                  <F label="Units per carton"><input type="text" inputMode="decimal" className="inp num" value={form.units_per_carton} onChange={set("units_per_carton")} /></F>
-                  <F label="Reorder level"><input type="text" inputMode="decimal" className="inp num" value={form.reorder_level} onChange={set("reorder_level")} /></F>
-                  <F label="Max stock"><input type="text" inputMode="decimal" className="inp num" value={form.max_stock} onChange={set("max_stock")} /></F>
-                  <F label="Lead time (days)"><input type="text" inputMode="numeric" className="inp num" value={form.lead_time_days} onChange={set("lead_time_days")} /></F>
-                  <F label="Safety stock (days)"><input type="text" inputMode="numeric" className="inp num" value={form.safety_stock_days} onChange={set("safety_stock_days")} /></F>
-                  <F label="Supplier">
-                    <select className="inp" value={form.supplier_id} onChange={set("supplier_id")}>
-                      <option value="">—</option>
-                      {supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </F>
-                  <F label="Supplier product code"><input maxLength={100} className="inp" value={form.supplier_product_code} onChange={set("supplier_product_code")} /></F>
-                  <F label="Min order qty"><input type="text" inputMode="decimal" className="inp num" value={form.minimum_order_quantity} onChange={set("minimum_order_quantity")} /></F>
-                  <F label="Order multiple"><input type="text" inputMode="decimal" className="inp num" value={form.order_multiple} onChange={set("order_multiple")} /></F>
-                  <F label="Status">
-                    <select className="inp" value={form.status} onChange={set("status")}>
-                      <option value="active">Active — appears in pickers</option>
-                      <option value="inactive">Inactive — hidden from pickers</option>
-                    </select>
-                  </F>
-                </div>
-              </Section>
-
+              )}
+              <div className="rounded-lg border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Inherited from {colourTarget.masterSku}:</span>{" "}
+                {fmtMoney(colourTarget.unitCost)} cost · {fmtMoney(colourTarget.unitPrice)} price · {colourTarget.taxPercent}% tax · HSN {colourTarget.hsnCode ?? "—"} · {colourTarget.unitOfMeasure}
+              </div>
               <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
-                <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-                <button type="submit" disabled={save.isPending}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-                  {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {editing ? "Save changes" : "Add product"}
+                <button type="button" onClick={closeColourDialog} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={createColourSkus.isPending || selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length === 0}
+                  className="inline-flex items-center gap-2 rounded-md bg-info px-4 py-2 text-sm font-medium text-info-foreground disabled:opacity-60"
+                >
+                  {createColourSkus.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageOpen className="h-4 w-4" />}
+                  Create {selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length} SKU{selectedColourCodes.filter((c) => !existingColourCodes.has(c)).length === 1 ? "" : "s"}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── Optimised edit: master ── */}
+      {editingMaster && (
+        <MasterEditDialog
+          master={editingMaster}
+          pending={patchMaster.isPending}
+          onClose={() => setEditingMaster(null)}
+          onSave={(payload) => patchMaster.mutate(payload)}
+        />
+      )}
+
+      {/* ── Optimised edit: colour ── */}
+      {editingColour && (
+        <ColourEditDialog
+          colour={editingColour}
+          pending={patchColour.isPending}
+          onClose={() => setEditingColour(null)}
+          onSave={(payload) => patchColour.mutate(payload)}
+        />
       )}
 
       <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
@@ -617,25 +553,141 @@ function ProductsPage() {
 function StatTile({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
-        {icon}
-        <span>{label}</span>
-      </div>
+      <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">{icon}<span>{label}</span></div>
       <div className="mt-2 font-display text-2xl">{value}</div>
       {hint && <div className="mt-0.5 text-[10px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function F({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+// Master edit: only backend-editable fields (system SKU parts are read-only)
+function MasterEditDialog({ master, pending, onSave, onClose }: { master: ProductSku; pending: boolean; onSave: (p: Record<string, unknown>) => void; onClose: () => void }) {
+  const [f, setF] = useState({
+    productName: master.productName,
+    itemNumber: master.itemNumber,
+    hsnCode: master.hsnCode ?? "",
+    taxPercent: String(master.taxPercent),
+    unitOfMeasure: master.unitOfMeasure,
+    unitCost: String(master.unitCost),
+    unitPrice: String(master.unitPrice),
+    status: master.status,
+  });
+  const margin = Number(f.unitPrice) > 0 ? ((Number(f.unitPrice) - Number(f.unitCost)) / Number(f.unitPrice)) * 100 : 0;
   return (
-    <div>
-      <div className="mb-2 text-xs uppercase tracking-widest text-primary">{title}</div>
-      {children}
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">Edit Master — <span className="font-mono text-primary">{master.masterSku}</span></h3>
+          <button onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></button>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave({
+              productName: f.productName.trim(),
+              itemNumber: f.itemNumber.trim(),
+              hsnCode: f.hsnCode.trim(),
+              taxPercent: Number(f.taxPercent),
+              unitOfMeasure: f.unitOfMeasure.trim(),
+              unitCost: Number(f.unitCost),
+              unitPrice: Number(f.unitPrice),
+              status: f.status,
+            });
+          }}
+          className="space-y-4 p-5"
+        >
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs">
+            <span className="text-muted-foreground">Master SKU:</span> <span className="font-semibold text-primary">{master.masterSku}</span>{" "}
+            <span className="text-muted-foreground">(read-only · {master.brand} · {master.gender} · {master.category} · {master.modelNumber})</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <F label="Product Name *"><input required className="inp" value={f.productName} onChange={(e) => setF({ ...f, productName: e.target.value })} /></F>
+            <F label="Item Number *"><input required className="inp font-mono" value={f.itemNumber} onChange={(e) => setF({ ...f, itemNumber: e.target.value })} /></F>
+            <F label="HSN Code"><input className="inp font-mono" value={f.hsnCode} onChange={(e) => setF({ ...f, hsnCode: e.target.value })} /></F>
+            <F label="Tax %"><input className="inp num" inputMode="decimal" value={f.taxPercent} onChange={(e) => setF({ ...f, taxPercent: e.target.value })} /></F>
+            <F label="Unit of Measure"><input className="inp" value={f.unitOfMeasure} onChange={(e) => setF({ ...f, unitOfMeasure: e.target.value })} /></F>
+            <F label="Status">
+              <select className="inp" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as "ACTIVE" | "INACTIVE" })}>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </F>
+            <F label="Unit Cost *"><input required className="inp num" inputMode="decimal" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></F>
+            <F label="Unit Price *"><input required className="inp num" inputMode="decimal" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></F>
+          </div>
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-semibold text-success">{margin.toFixed(2)}% margin (auto)</div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+            <button type="submit" disabled={pending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save master
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
-function F({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
-  return <label className={`block ${full ? "md:col-span-2" : ""}`}><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+function ColourEditDialog({ colour, pending, onSave, onClose }: { colour: ProductSku; pending: boolean; onSave: (p: Record<string, unknown>) => void; onClose: () => void }) {
+  const [f, setF] = useState({
+    colourName: colour.colourName ?? "",
+    unitCost: String(colour.unitCost),
+    unitPrice: String(colour.unitPrice),
+    taxPercent: String(colour.taxPercent),
+    hsnCode: colour.hsnCode ?? "",
+    status: colour.status,
+  });
+  const margin = Number(f.unitPrice) > 0 ? ((Number(f.unitPrice) - Number(f.unitCost)) / Number(f.unitPrice)) * 100 : 0;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg">Edit Colour — {colour.colourName} ({colour.colourCode})</h3>
+          <button onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></button>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave({
+              colourName: f.colourName.trim(),
+              unitCost: Number(f.unitCost),
+              unitPrice: Number(f.unitPrice),
+              taxPercent: Number(f.taxPercent),
+              hsnCode: f.hsnCode.trim() || null,
+              status: f.status,
+            });
+          }}
+          className="space-y-4 p-5"
+        >
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-xs">
+            <span className="text-muted-foreground">Colour SKU:</span> <span className="font-semibold text-primary">{colour.colourSku}</span> <span className="text-muted-foreground">(read-only)</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <F label="Colour Name"><input className="inp" value={f.colourName} onChange={(e) => setF({ ...f, colourName: e.target.value })} /></F>
+            <F label="Status">
+              <select className="inp" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as "ACTIVE" | "INACTIVE" })}>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </F>
+            <F label="Unit Cost"><input className="inp num" inputMode="decimal" value={f.unitCost} onChange={(e) => setF({ ...f, unitCost: e.target.value })} /></F>
+            <F label="Unit Price"><input className="inp num" inputMode="decimal" value={f.unitPrice} onChange={(e) => setF({ ...f, unitPrice: e.target.value })} /></F>
+            <F label="Tax %"><input className="inp num" inputMode="decimal" value={f.taxPercent} onChange={(e) => setF({ ...f, taxPercent: e.target.value })} /></F>
+            <F label="HSN Code"><input className="inp font-mono" value={f.hsnCode} onChange={(e) => setF({ ...f, hsnCode: e.target.value })} /></F>
+          </div>
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-sm font-semibold text-success">{margin.toFixed(2)}% margin (auto)</div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+            <button type="submit" disabled={pending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save colour
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }

@@ -10,9 +10,10 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/dispatches")({
-  validateSearch: (search: Record<string, unknown>): { so?: string; createFromInvoice?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { so?: string; createFromInvoice?: string; fromQueue?: string } => ({
     so: typeof search?.so === "string" ? search.so : undefined,
     createFromInvoice: typeof search?.createFromInvoice === "string" ? search.createFromInvoice : undefined,
+    fromQueue: typeof search?.fromQueue === "string" ? search.fromQueue : undefined,
   }),
   component: DispatchesPage,
 });
@@ -106,7 +107,7 @@ const DSP_STATUS: Record<DSP["status"], string> = {
 
 export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoProp }: { embedded?: boolean; preselectedSo?: string } = {}) {
   // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
-  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string; createFromInvoice?: string } });
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string; createFromInvoice?: string; fromQueue?: string } });
   const linkInvoice = embedded ? undefined : ((routerSearch as any)?.createFromInvoice as string | undefined);
   const preselectedSo = preselectedSoProp ?? (embedded ? undefined : ((routerSearch as any)?.so as string | undefined));
   const navigate = useNavigate();
@@ -337,7 +338,12 @@ export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoP
           onClose={() => {
             setOpen(false);
             if (!embedded && linkInvoice) {
-              navigate({ to: "/app/dispatches", search: { so: undefined, createFromInvoice: undefined }, replace: true });
+              if ((routerSearch as any)?.fromQueue) {
+                // Queue-driven flow: the task completes server-side on create — return to My Queue.
+                navigate({ to: "/app/tasks", replace: true });
+              } else {
+                navigate({ to: "/app/dispatches", search: { so: undefined, createFromInvoice: undefined }, replace: true });
+              }
             }
           }}
         />

@@ -16,6 +16,7 @@ import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
+import { DocActions } from "@/components/workflow/doc-actions";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -1469,6 +1470,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
     });
   };
   const clearPo = () => setLinkedPoId("");
+  // Queue-locked: opened from My Queue with a PO preselected — order + supplier stay linked
+  // so the advance chain (PO → proforma → invoice) cannot break.
+  const queueLocked = !!presetPoId && !!linkedPoId;
 
   // Deep-link preset: auto-apply the linked PO once options resolve.
   const presetAppliedRef = useRef(false);
@@ -1600,10 +1604,18 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
 
           {!editing && (
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order (optional)</div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order{queueLocked ? " — linked from My Queue (locked)" : " (optional)"}</div>
+              {queueLocked && linkedPo && (
+                <div className="mb-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                  <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+                  <span className="font-mono">{linkedPo.po_number}</span> · {linkedPo.supplier_name ?? ""}
+                  {" — order and supplier are locked to keep the advance chain intact."}
+                </div>
+              )}
               <L label="Link purchase order — fetches supplier, lines & totals">
                 <select
                   className="inp"
+                  disabled={queueLocked}
                   value={linkedPoId}
                   onChange={(e) => {
                     const po = billablePos.find((p: any) => p.id === e.target.value);
@@ -1628,9 +1640,11 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
                         {linkedPo.supplier_name ?? ""} · {linkedPo.lines?.length ?? 0} line{(linkedPo.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedPo.grand_total)}
                       </span>
                     </div>
-                    <button type="button" onClick={clearPo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
-                      Unlink
-                    </button>
+                    {!queueLocked && (
+                      <button type="button" onClick={clearPo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                        Unlink
+                      </button>
+                    )}
                   </div>
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Supplier, PO ref/date, amount{linkedPo.payment_terms ? " and payment terms" : ""} filled from the PO — you can still edit them below. PO lines are snapshotted to this invoice on save.
@@ -1697,6 +1711,11 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
               <div className="flex justify-between font-medium border-t border-border pt-1 mt-1">
                 <span>Balance due to supplier</span><span className="num">{fmtMoney(balanceDue)}</span>
               </div>
+              {advancesTotal > 0 && (
+                <div className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-[11px] text-warning">
+                  Advance detected — a purchase proforma sits between the PO and this invoice (PO → proforma → invoice). The advance auto-deducts on save; keep the PO linked.
+                </div>
+              )}
             </div>
           )}
 
@@ -2021,6 +2040,9 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
               </div>
             )}
           </div>
+
+          {/* Inline checker (approve/dispute) / treasury (pay) — same actions as desk + queue */}
+          <DocActions kind="purchase" doc={invoice} onDone={onClose} />
 
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>

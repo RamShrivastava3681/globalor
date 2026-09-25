@@ -85,7 +85,9 @@ export function CustomersPage() {
             issue_date: i.issue_date,
             due_date: i.due_date,
             paid_date: i.paid_date,
-            customer_id: i.customer_id,
+            customer_id: i.customer_id ?? i.customerId ?? null,
+            customer_name: i.customer_name ?? i.customer?.name ?? null,
+            customer: i.customer ?? null,
           }))}
           loading={customersQ.isLoading || invoicesQ.isLoading}
         />

@@ -168,6 +168,34 @@ export function SuppliersPage() {
   const suppliers = suppliersQ.data ?? [];
   const purchaseInvoices = purchaseInvoicesQ.data ?? [];
 
+  // Purchase invoices reference the vendors table (vendor_id), while this page
+  // lists the suppliers table — ids rarely match. Match by id OR by
+  // normalized vendor name → supplier company_name so invoices resolve
+  // instead of falling back to "Unknown".
+  const piVendorName = (pi: any): string =>
+    String(pi?.vendor?.name ?? pi?.vendor_name ?? pi?.supplier_name ?? "").trim();
+  const piBelongsToSupplier = (pi: any, supplier: any): boolean => {
+    if (!supplier) return false;
+    if (pi?.vendor_id && supplier?.id && pi.vendor_id === supplier.id) return true;
+    if (pi?.supplier_id && supplier?.id && pi.supplier_id === supplier.id) return true;
+    const a = piVendorName(pi).toLowerCase();
+    const b = String(supplier?.company_name ?? "").trim().toLowerCase();
+    return !!a && !!b && a === b;
+  };
+  const dashboardInvoices = purchaseInvoices.map((pi: any) => ({
+    id: pi.id,
+    amount: pi.amount,
+    status: pi.status,
+    issue_date: pi.issue_date,
+    due_date: pi.due_date,
+    paid_date: pi.paid_date,
+    vendor_id: pi.vendor_id ?? pi.supplier_id ?? null,
+    supplier_id: pi.supplier_id ?? null,
+    vendor_name: piVendorName(pi) || null,
+    supplier_name: pi.supplier_name ?? null,
+    vendor: pi.vendor ?? null,
+  }));
+
   return (
     <div>
       <PageHeader
@@ -190,15 +218,7 @@ export function SuppliersPage() {
         <CounterpartyDashboard
           kind="supplier"
           parties={suppliers}
-          invoices={purchaseInvoices.map((pi: any) => ({
-            id: pi.id,
-            amount: pi.amount,
-            status: pi.status,
-            issue_date: pi.issue_date,
-            due_date: pi.due_date,
-            paid_date: pi.paid_date,
-            vendor_id: pi.vendor_id,
-          }))}
+          invoices={dashboardInvoices}
           loading={suppliersQ.isLoading || purchaseInvoicesQ.isLoading}
         />
 
@@ -252,7 +272,7 @@ export function SuppliersPage() {
                     const q = searchQuery.toLowerCase();
                     return s.company_name?.toLowerCase().includes(q) || s.industry?.toLowerCase().includes(q) || s.contact_name?.toLowerCase().includes(q) || s.contact_email?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q);
                   }).map((s: any) => {
-                    const supplierInvoices = purchaseInvoices.filter((pi: any) => pi.vendor_id === s.id);
+                    const supplierInvoices = purchaseInvoices.filter((pi: any) => piBelongsToSupplier(pi, s));
                     const totalSpend = supplierInvoices.reduce((sum: number, pi: any) => sum + Number(pi.amount), 0);
                     const outstandingSpend = supplierInvoices
                       .filter((pi: any) => pi.status !== "paid" && pi.status !== "rejected")
@@ -306,7 +326,7 @@ export function SuppliersPage() {
       {viewing && (
         <SupplierDetailModal
           supplier={viewing}
-          invoices={purchaseInvoices.filter((pi: any) => pi.vendor_id === viewing.id)}
+          invoices={purchaseInvoices.filter((pi: any) => piBelongsToSupplier(pi, viewing))}
           onClose={() => setViewing(null)}
         />
       )}

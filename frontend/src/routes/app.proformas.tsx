@@ -10,6 +10,7 @@ import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle
 import { toast } from "sonner";
 
 import { z } from "zod";
+import { DocActions } from "@/components/workflow/doc-actions";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { getToken } from "@/lib/api-client";
 import * as XLSX from "xlsx";
@@ -534,6 +535,7 @@ function NewProformaModal({ side, presetOrderId, onClose }: { side: "sales" | "p
         if (o.supplier_id) next.party_id = o.supplier_id;
         if (o.grand_total != null) next.amount = String(o.grand_total);
       } else {
+        next.po_number = o.so_number ?? o.po_number ?? prev.po_number;
         if (o.customer_id) next.party_id = o.customer_id;
         if (o.grand_total != null) next.amount = String(o.grand_total);
       }
@@ -580,9 +582,19 @@ function NewProformaModal({ side, presetOrderId, onClose }: { side: "sales" | "p
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const queueLocked = !!presetOrderId && !!linkedOrder;
   return (
-    <Modal title={`New ${side} proforma`} onClose={onClose}>
+    <Modal title={`New ${side} proforma${queueLocked ? " — from order" : ""}`} onClose={onClose}>
       <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
+        {queueLocked && (
+          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+            <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+            <span className="font-mono">{side === "purchase" ? linkedOrder.po_number : (linkedOrder.so_number ?? linkedOrder.po_number)}</span>
+            {" · "}
+            {side === "purchase" ? linkedOrder.supplier_name : linkedOrder.customer_name}
+            {" — order and party are locked to keep the advance chain intact."}
+          </div>
+        )}
         <div>
           <L label={side === "purchase" ? "Link purchase order (optional) — fetches supplier & amount" : "Link sales order (optional) — fetches customer & amount"}>
             <select
@@ -623,10 +635,10 @@ function NewProformaModal({ side, presetOrderId, onClose }: { side: "sales" | "p
             </div>
           )}
         </div>
-        <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
+        <L label="PO number *"><input required disabled={queueLocked} className="inp disabled:opacity-70" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
         <L label={side === "sales" ? "Customer *" : "Supplier *"}>
-          <select required className="inp" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
+          <select required disabled={queueLocked} className="inp disabled:opacity-70" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
             <option value="">Select…</option>
             {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
             {(() => {
@@ -873,6 +885,9 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
               </div>
             </div>
           )}
+
+          {/* Inline checker/treasury actions — approve when pending review, fund when approved */}
+          <DocActions kind="proforma" doc={proforma} onDone={onClose} />
 
           <div className="flex items-center justify-between gap-2 pt-2">
             <div>

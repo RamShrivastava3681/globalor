@@ -17,6 +17,7 @@ import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfS
 import { defaultAddressFor } from "@/lib/customerAddresses";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
+import { DocActions } from "@/components/workflow/doc-actions";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -2870,6 +2871,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             )}
           </div>
 
+          {/* Inline checker (approve) / treasury (record receipt) — same actions as desk + queue */}
+          <DocActions kind="sale" doc={invoice} onDone={onClose} />
+
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => exportSalesInvoicePdf(invoice, inventory)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs hover:border-primary hover:text-primary transition-colors">
               <Printer className="h-3.5 w-3.5" /> Download PDF
@@ -3332,8 +3336,15 @@ function CreateFromSoModal({ onClose, presetSoId }: { onClose: () => void; prese
         </div>
 
         <div className="space-y-5 p-5">
+          {presetSoId && selectedSo && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+              <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+              <span className="font-mono">{selectedSo.so_number}</span> · {selectedSo.customer_name ?? ""}
+              {" — order and customer are locked to keep the advance chain intact."}
+            </div>
+          )}
           <Field label="Sales order (confirmed, not yet invoiced)">
-            <select value={soId} onChange={(e) => pickSo(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+            <select value={soId} disabled={!!presetSoId && !!selectedSo} onChange={(e) => pickSo(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm disabled:opacity-70">
               <option value="">Select a sales order…</option>
               {invoicable.map((so: any) => (
                 <option key={so.id} value={so.id}>
@@ -3451,6 +3462,11 @@ function CreateFromSoModal({ onClose, presetSoId }: { onClose: () => void; prese
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   Advance deduction uses the higher of received advances on the linked proforma and grand total × advance rate. Invoicing never changes stock — only a confirmed dispatch debits inventory.
                 </p>
+                {totals.receivedAdvances > 0 && (
+                  <div className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-[11px] text-warning">
+                    Advance detected — a sales proforma sits between the order and this invoice (SO → proforma → invoice). The advance auto-deducts on save; keep the SO linked.
+                  </div>
+                )}
               </div>
             </>
           )}
