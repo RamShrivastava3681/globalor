@@ -113,12 +113,20 @@ function fmtDateShort(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+const AMOUNT_EPS = 0.005;
+
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function outstanding(inv: InvoiceInfo): number {
-  return inv.amount_received != null ? Math.max(0, inv.amount - inv.amount_received) : inv.amount;
+  const raw = inv.amount_received != null ? Math.max(0, inv.amount - inv.amount_received) : inv.amount;
+  return roundCents(raw);
 }
 
 function outstandingPurchase(inv: PurchaseInvoiceInfo): number {
-  return inv.amount_paid != null ? Math.max(0, inv.amount - inv.amount_paid) : inv.amount;
+  const raw = inv.amount_paid != null ? Math.max(0, inv.amount - inv.amount_paid) : inv.amount;
+  return roundCents(raw);
 }
 
 // ── FIFO Preview (strict — no partials) ──
@@ -133,7 +141,7 @@ function computeFifoPreview<T extends { id: string; due_date: string | null }>(
   skipped: T[];
   remaining: number;
 } {
-  let remaining = amount;
+  let remaining = roundCents(amount);
   const closed: Array<{ inv: T; amount: number; lateDays: number; isFuture: boolean }> = [];
   const skipped: T[] = [];
 
@@ -148,9 +156,9 @@ function computeFifoPreview<T extends { id: string; due_date: string | null }>(
     for (const inv of overdue) {
       if (remaining <= 0) { skipped.push(inv); continue; }
       const bal = outstandingFn(inv);
-      if (remaining >= bal) {
+      if (remaining + AMOUNT_EPS >= bal) {
         closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate), isFuture: false });
-        remaining -= bal;
+        remaining = roundCents(remaining - bal);
       } else {
         skipped.push(inv);
       }
@@ -159,9 +167,9 @@ function computeFifoPreview<T extends { id: string; due_date: string | null }>(
     for (const inv of future) {
       if (remaining <= 0) { skipped.push(inv); continue; }
       const bal = outstandingFn(inv);
-      if (remaining >= bal) {
+      if (remaining + AMOUNT_EPS >= bal) {
         closed.push({ inv, amount: bal, lateDays: 0, isFuture: true });
-        remaining -= bal;
+        remaining = roundCents(remaining - bal);
       } else {
         skipped.push(inv);
       }
@@ -170,16 +178,16 @@ function computeFifoPreview<T extends { id: string; due_date: string | null }>(
     for (const inv of sorted) {
       if (remaining <= 0) { skipped.push(inv); continue; }
       const bal = outstandingFn(inv);
-      if (remaining >= bal) {
+      if (remaining + AMOUNT_EPS >= bal) {
         closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate), isFuture: false });
-        remaining -= bal;
+        remaining = roundCents(remaining - bal);
       } else {
         skipped.push(inv);
       }
     }
   }
 
-  return { closed, skipped, remaining };
+  return { closed, skipped, remaining: roundCents(remaining) };
 }
 
 // ── Manual Preview (process in due_date order, allow partials) ──
@@ -201,7 +209,7 @@ function computeManualPreview<T extends { id: string; due_date: string | null }>
       (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")
     );
 
-  let remaining = amount;
+  let remaining = roundCents(amount);
   const closed: Array<{ inv: T; amount: number; lateDays: number }> = [];
   const partiallyPaid: Array<{ inv: T; amountPaid: number; remainingBalance: number }> = [];
 
@@ -209,18 +217,18 @@ function computeManualPreview<T extends { id: string; due_date: string | null }>
     if (remaining <= 0) break;
     const bal = outstandingFn(inv);
 
-    if (remaining >= bal) {
+    if (remaining + AMOUNT_EPS >= bal) {
       closed.push({ inv, amount: bal, lateDays: daysLateCalc(inv.due_date, paymentDate) });
-      remaining -= bal;
+      remaining = roundCents(remaining - bal);
     } else {
-      partiallyPaid.push({ inv, amountPaid: remaining, remainingBalance: bal - remaining });
+      partiallyPaid.push({ inv, amountPaid: remaining, remainingBalance: roundCents(bal - remaining) });
       remaining = 0;
     }
   }
 
   const untouched = invoices.filter((inv) => !selectedIds.has(inv.id));
 
-  return { closed, partiallyPaid, untouched, remaining };
+  return { closed, partiallyPaid, untouched, remaining: roundCents(remaining) };
 }
 
 // ── Page Component ──

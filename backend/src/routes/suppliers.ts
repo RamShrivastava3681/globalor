@@ -10,7 +10,7 @@ import {
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, nowISO } from "../utils/helpers.js";
-import type { Supplier } from "../types/index.js";
+import type { Supplier, Vendor } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
 
 const router = Router();
@@ -80,6 +80,29 @@ router.post("/", requireAuth, requireWriteAccess("suppliers"), async (req: AuthR
 
     await putItem(TABLES.SUPPLIERS, supplier as any);
 
+    // Sync to VENDORS table so supplier appears in bulk payments and purchase invoices
+    const vendor: Vendor = {
+      id,
+      client_id: req.user!.id,
+      company_id: req.user!.company_id,
+      name: parsed.company_name,
+      industry: parsed.industry || null,
+      address_line: parsed.address_line || null,
+      city: parsed.city || null,
+      country: parsed.country || null,
+      postal_code: parsed.postal_code || null,
+      phone: parsed.phone || null,
+      website: parsed.website || null,
+      contact_name: parsed.contact_name || null,
+      contact_email: parsed.contact_email || null,
+      contact_designation: parsed.contact_designation || null,
+      contact_phone: parsed.contact_phone || null,
+      notes: parsed.notes || null,
+      created_at: now,
+      updated_at: now,
+    };
+    await putItem(TABLES.VENDORS, vendor as any).catch((e) => console.error("Vendor sync error:", e));
+
     // Create activity alert
     createActivityAlert({
       client_id: req.user!.id,
@@ -110,6 +133,25 @@ router.patch("/:id", requireAuth, requireWriteAccess("suppliers"), async (req: A
 
     const updated = await updateItem(TABLES.SUPPLIERS, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Supplier not found" }); return; }
+
+    // Sync updates to VENDORS table
+    const vendorUpdates: Record<string, unknown> = { updated_at: nowISO() };
+    if (updates.company_name) vendorUpdates.name = updates.company_name;
+    if (updates.industry) vendorUpdates.industry = updates.industry;
+    if (updates.address_line) vendorUpdates.address_line = updates.address_line;
+    if (updates.city) vendorUpdates.city = updates.city;
+    if (updates.country) vendorUpdates.country = updates.country;
+    if (updates.postal_code) vendorUpdates.postal_code = updates.postal_code;
+    if (updates.phone) vendorUpdates.phone = updates.phone;
+    if (updates.website) vendorUpdates.website = updates.website;
+    if (updates.contact_name) vendorUpdates.contact_name = updates.contact_name;
+    if (updates.contact_email) vendorUpdates.contact_email = updates.contact_email;
+    if (updates.contact_designation) vendorUpdates.contact_designation = updates.contact_designation;
+    if (updates.contact_phone) vendorUpdates.contact_phone = updates.contact_phone;
+    if (updates.notes) vendorUpdates.notes = updates.notes;
+
+    await updateItem(TABLES.VENDORS, { id: req.params.id }, vendorUpdates).catch((e) => console.error("Vendor sync error:", e));
+
     res.json(updated);
   } catch (err) {
     console.error("Update supplier error:", err);
