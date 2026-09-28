@@ -70,6 +70,7 @@ export function StatusPill({ status }: { status: string }) {
     rejected: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
     critical: "bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]",
     warning: "bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]",
+    partial: "bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]",
     info: "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
     funded: "bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]",
     cancelled: "bg-[#F8F9FA] text-[#6B7280] border-[#E5E7EB]",
