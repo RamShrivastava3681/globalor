@@ -402,6 +402,7 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
           statusOptions={[
             { label: "All statuses", value: "all" },
             { label: "Open (Approved)", value: "approved" },
+            { label: "Partial", value: "partial" },
             { label: "Closed", value: "closed" },
           ]}
           statusValue={filter}
