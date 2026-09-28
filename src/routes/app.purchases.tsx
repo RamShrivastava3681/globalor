@@ -35,7 +35,7 @@ const datePresets = [
   { label: "This year", getRange: () => { const n = new Date(); const f = new Date(n.getFullYear(), 0, 1).toISOString().slice(0, 10); const t = new Date(n.getFullYear(), 11, 31).toISOString().slice(0, 10); return { from: f, to: t }; } },
 ];
 
-const statusFilters = ["all", "draft", "submitted", "approved", "paid", "overdue", "disputed"];
+const statusFilters = ["all", "draft", "submitted", "approved", "paid", "overdue", "disputed", "partial"];
 
 // ── Main Page Component ──
 
@@ -82,6 +82,12 @@ function PurchasesPage() {
     const overdueAmount = overdue.reduce((s: number, p: any) => s + Number(p.amount), 0);
     const disputed = allPi.filter((p: any) => p.status === "disputed");
     const disputedAmount = disputed.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const partial = allPi.filter((p: any) => {
+      const paidAmt = Number(p.amount_paid ?? 0);
+      const totalAmt = Number(p.amount ?? 0);
+      return paidAmt > 0 && paidAmt < totalAmt && p.status !== "paid";
+    });
+    const partialAmount = partial.reduce((s: number, p: any) => s + Number(p.amount), 0);
     const suppliersUsed = new Set(allPi.map((p: any) => p.vendor_id).filter(Boolean)).size;
     const openPayables = allPi.filter((p: any) => !["paid", "disputed"].includes(p.status));
     const openPayablesAmount = openPayables.reduce((s: number, p: any) => s + Number(p.amount), 0);
@@ -95,6 +101,7 @@ function PurchasesPage() {
       paidCount: paid.length, paidAmount,
       overdueCount: overdue.length, overdueAmount,
       disputedCount: disputed.length, disputedAmount,
+      partialCount: partial.length, partialAmount,
       suppliersUsed,
       openPayablesCount: openPayables.length, openPayablesAmount,
     };
@@ -199,6 +206,11 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     const paid = inv.filter((p: any) => p.status === "paid");
     const overdue = inv.filter((p: any) => p.status === "overdue");
     const disputed = inv.filter((p: any) => p.status === "disputed");
+    const partial = inv.filter((p: any) => {
+      const paidAmt = Number(p.amount_paid ?? 0);
+      const totalAmt = Number(p.amount ?? 0);
+      return paidAmt > 0 && paidAmt < totalAmt && p.status !== "paid";
+    });
     const openPayables = inv.filter((p: any) => !["paid", "disputed"].includes(p.status));
     return {
       total,
@@ -211,6 +223,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
       paidCount: paid.length, paidAmount: paid.reduce((s: number, p: any) => s + Number(p.amount), 0),
       overdueCount: overdue.length, overdueAmount: overdue.reduce((s: number, p: any) => s + Number(p.amount), 0),
       disputedCount: disputed.length, disputedAmount: disputed.reduce((s: number, p: any) => s + Number(p.amount), 0),
+      partialCount: partial.length, partialAmount: partial.reduce((s: number, p: any) => s + Number(p.amount), 0),
       suppliersUsed: new Set(inv.map((p: any) => p.vendor_id).filter(Boolean)).size,
       openPayablesCount: openPayables.length,
       openPayablesAmount: openPayables.reduce((s: number, p: any) => s + Number(p.amount), 0),
@@ -224,7 +237,16 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     const amounts: Record<string, number> = {};
     for (const status of statusFilters) {
       if (status === "all") continue;
-      const items = filteredInvoices.filter((i: any) => i.status === status);
+      let items: any[];
+      if (status === "partial") {
+        items = filteredInvoices.filter((i: any) => {
+          const paid = Number(i.amount_paid ?? 0);
+          const total = Number(i.amount ?? 0);
+          return paid > 0 && paid < total && i.status !== "paid";
+        });
+      } else {
+        items = filteredInvoices.filter((i: any) => i.status === status);
+      }
       counts[status] = items.length;
       amounts[status] = items.reduce((s: number, i: any) => s + Number(i.amount), 0);
     }
@@ -309,9 +331,10 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
       </div>
 
       {/* Secondary KPI */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Awaiting Checker" value={String(displayStats.awaitingCheckerCount)} delta={fmtMoney(displayStats.awaitingCheckerAmount)} tone="warn" />
         <Stat label="In Funding Queue" value={String(displayStats.fundingCount)} delta={fmtMoney(displayStats.fundingAmount)} tone="neutral" />
+        <Stat label="Partially Paid" value={String(displayStats.partialCount)} delta={fmtMoney(displayStats.partialAmount)} tone="warn" />
         <Stat label="Overdue" value={String(displayStats.overdueCount)} delta={fmtMoney(displayStats.overdueAmount)} tone={displayStats.overdueCount > 0 ? "bad" : "good"} />
         <Stat label="Disputed" value={String(displayStats.disputedCount)} delta={fmtMoney(displayStats.disputedAmount)} tone={displayStats.disputedCount > 0 ? "bad" : "good"} />
       </div>
@@ -585,7 +608,15 @@ function ListView({ piQ, vendorsQ, salesQ, isAdmin, canEdit, canCreate, canRevie
   });
 
   const filtered = (piQ.data ?? []).filter((p: any) => {
-    if (filter !== "all" && p.status !== filter) return false;
+    if (filter !== "all") {
+      if (filter === "partial") {
+        const paid = Number(p.amount_paid ?? 0);
+        const total = Number(p.amount ?? 0);
+        if (!(paid > 0 && paid < total && p.status !== "paid")) return false;
+      } else if (p.status !== filter) {
+        return false;
+      }
+    }
     if (issueDateFrom && p.issue_date && p.issue_date < issueDateFrom) return false;
     if (issueDateTo && p.issue_date && p.issue_date > issueDateTo) return false;
     const q = searchQuery.toLowerCase();

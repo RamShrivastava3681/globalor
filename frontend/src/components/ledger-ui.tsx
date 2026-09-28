@@ -106,6 +106,8 @@ export function StatusPill({ status }: { status: string }) {
       case "warning":
       case "sent":
         return "warning";
+      case "partial":
+        return "warning";
       case "cancelled":
       case "not_sent":
       default:
