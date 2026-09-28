@@ -140,7 +140,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           // Partial payment — reduce balance, keep open
           await partiallyPayInvoice(inv, remainingAfterProcessing, now);
@@ -148,7 +148,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
             id: inv.id,
             invoice_number: inv.invoice_number,
             amount_paid: remainingAfterProcessing,
-            remaining: balance - remainingAfterProcessing,
+            remaining: Math.round((balance - remainingAfterProcessing) * 100) / 100,
           });
           remainingAfterProcessing = 0;
         }
@@ -170,7 +170,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (FIFO strict)" });
         }
@@ -189,7 +189,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 1)" });
         }
@@ -214,7 +214,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
             updated_at: now,
           });
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
@@ -925,14 +925,14 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           await partiallyPayPurchaseInvoice(inv, remainingAfterProcessing, now);
           partiallyPaid.push({
             id: inv.id,
             invoice_number: inv.invoice_number,
             amount_paid: remainingAfterProcessing,
-            remaining: balance - remainingAfterProcessing,
+            remaining: Math.round((balance - remainingAfterProcessing) * 100) / 100,
           });
           remainingAfterProcessing = 0;
         }
@@ -952,7 +952,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (FIFO strict)" });
         }
@@ -969,7 +969,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 1)" });
         }
@@ -989,7 +989,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
             updated_at: now,
           });
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
