@@ -298,6 +298,9 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
     if (filter !== "all") {
       if (filter === "closed") {
         if (!closedStatuses.includes(p.status)) return false;
+      } else if (filter === "partial") {
+        const received = Number(p.amount_received ?? 0);
+        if (!(received > 0 && p.status !== "paid")) return false;
       } else if (p.status !== filter) return false;
     }
     return true;
@@ -1427,7 +1430,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
     po_date: editing?.po_date ?? "",
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
-    payment_terms_days: String(editing?.payment_terms_days ?? "30"),
+    payment_terms_days: String(editing?.payment_terms_days ?? "60"),
     has_contractual_due_date: editing?.has_contractual_due_date ?? false,
     bl_date: editing?.bl_date ?? "",
     due_date_source: editing?.due_date_source ?? "invoice",
@@ -1491,7 +1494,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
 
   const [hasDueDate, setHasDueDate] = useState(() => {
     if (editing?.due_date) return true;
-    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const terms = Number(editing?.payment_terms_days ?? 60) || 60;
     const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
     return !!base;
   });
@@ -1519,7 +1522,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
 
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
-  const termsDays = Number(form.payment_terms_days) || 30;
+  const termsDays = Number(form.payment_terms_days) || 60;
   const computedDue = (() => {
     const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
     if (!base) return "";
@@ -1543,7 +1546,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, pre
         po_date: form.po_date || null,
         issue_date: form.issue_date,
         due_date: hasDueDate ? effectiveDue : null,
-        payment_terms_days: Number(form.payment_terms_days) || 30,
+        payment_terms_days: Number(form.payment_terms_days) || 60,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
         notes: form.notes || null,
@@ -2177,7 +2180,7 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        payment_terms_days: Number(paymentTermsDays) || 30,
+        payment_terms_days: Number(paymentTermsDays) || 60,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
         po_number: poNumber.trim() || null,

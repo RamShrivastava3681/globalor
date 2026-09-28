@@ -78,7 +78,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           })
           .filter(Boolean);
       }
-      return { ...pi, vendor, client, linkedSales };
+      return { ...pi, vendor, client, linkedSales, amount_received: (pi as any).amount_received ?? 0 };
     };
 
     // Server-side search filtering (including vendor name)
@@ -257,7 +257,7 @@ const createSchema = z.object({
   goods_purchase_order_id: z.string().trim().max(200).nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
@@ -513,7 +513,7 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
 // ── POST /api/purchase-invoices/batch ── (mass import from Excel)
 const batchPurchaseInvoiceSchema = z.object({
   vendor_id: z.string().min(1),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
   bl_date: z.string().nullable().optional(),
@@ -626,7 +626,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
 
 // ── POST /api/purchase-invoices/batch-with-suppliers ── (mass import with supplier auto-creation/matching)
 const batchWithSuppliersSchema = z.object({
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
   bl_date: z.string().nullable().optional(),

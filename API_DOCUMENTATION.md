@@ -433,7 +433,7 @@ const createInvoiceSchema = z.object({
   fee_rate: z.number().min(0).optional().default(0),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
@@ -608,7 +608,7 @@ const createSchema = z.object({
   po_date: z.string().nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
@@ -634,7 +634,7 @@ const createSchema = z.object({
 ```typescript
 const batchPurchaseInvoiceSchema = z.object({
   vendor_id: z.string().min(1),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
   bl_date: z.string().nullable().optional(),
