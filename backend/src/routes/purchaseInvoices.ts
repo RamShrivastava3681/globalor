@@ -78,7 +78,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           })
           .filter(Boolean);
       }
-      return { ...pi, vendor, client, linkedSales, amount_received: (pi as any).amount_received ?? 0 };
+      return { ...pi, vendor, client, linkedSales, amount_paid: pi.amount_paid ?? null, amount_received: pi.amount_paid ?? 0 };
     };
 
     // Server-side search filtering (including vendor name)
@@ -192,7 +192,8 @@ router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
       id: pi.id,
       invoice_number: pi.invoice_number,
       amount: Number(pi.amount) || 0,
-      amount_received: Number((pi as any).amount_received) || 0,
+      amount_paid: Number(pi.amount_paid) || 0,
+      amount_received: Number(pi.amount_paid) || 0,
       status: pi.status,
       issue_date: pi.issue_date ?? null,
       due_date: (pi as any).due_date ?? null,
@@ -469,6 +470,19 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
         ...l,
         line_total: Math.round((Number(l.invoice_qty || 0) * Number(l.unit_price || 0)) * 100) / 100,
       }));
+    }
+
+    // Auto-calculate status based on payment amount
+    const existing = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
+    if (existing && (updates.amount_paid != null || updates.amount != null)) {
+      const amount = Number(updates.amount ?? existing.amount);
+      const amountPaid = Number(updates.amount_paid ?? existing.amount_paid ?? 0);
+      if (amountPaid >= amount && amount > 0) {
+        updates.status = "paid";
+        if (!updates.paid_date) updates.paid_date = nowISO().slice(0, 10);
+      } else if (amountPaid > 0 && amountPaid < amount) {
+        updates.status = "partial";
+      }
     }
 
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, updates);

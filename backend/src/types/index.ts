@@ -28,7 +28,7 @@ export interface InvoiceLine {
   line_total: number;
 }
 export type NoaStatus = "not_sent" | "sent" | "accepted" | "rejected" | "commented";
-export type PurchaseInvoiceStatus = "draft" | "submitted" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded";
+export type PurchaseInvoiceStatus = "draft" | "submitted" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded" | "partial";
 
 export type AdvanceSide = "sales" | "purchase";
 export type MovementDirection = "in" | "out";

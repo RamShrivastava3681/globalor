@@ -299,8 +299,9 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
       if (filter === "closed") {
         if (!closedStatuses.includes(p.status)) return false;
       } else if (filter === "partial") {
-        const received = Number(p.amount_received ?? 0);
-        if (!(received > 0 && p.status !== "paid")) return false;
+        const received = Number(p.amount_received ?? p.amount_paid ?? 0);
+        const total = Number(p.amount ?? 0);
+        if (!(p.status === "partial" || (received > 0 && received < total && p.status !== "paid"))) return false;
       } else if (p.status !== filter) return false;
     }
     return true;
@@ -515,6 +516,7 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
                     <th className="px-5 py-2 text-left font-normal">PO</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Paid Amount</th>
                     <th className="px-5 py-2 text-left font-normal">ERP Due Date</th>
                     <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
@@ -560,6 +562,7 @@ export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {})
                         </td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-5 py-3 text-right num text-muted-foreground">{p.amount_paid != null ? fmtMoney(p.amount_paid) : p.amount_received != null ? fmtMoney(p.amount_received) : "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
@@ -1891,6 +1894,9 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Purchase invoice details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
+              {invoice.amount_paid != null && invoice.amount_paid > 0 && (
+                <Detail label="Paid Amount" value={fmtMoney(invoice.amount_paid)} />
+              )}
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="ERP Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
