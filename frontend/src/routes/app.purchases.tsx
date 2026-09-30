@@ -1077,7 +1077,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                      <td className="px-6 py-3">{i.vendor_name || i.vendor?.name || "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${i.daysPastDue > 60 ? "bg-destructive/15 text-destructive" : i.daysPastDue > 30 ? "bg-warning/15 text-warning" : "bg-warning/15 text-warning"}`}>
@@ -1112,7 +1112,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                  <td className="px-6 py-3">{i.vendor_name || i.vendor?.name || "—"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
