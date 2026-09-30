@@ -403,6 +403,7 @@ export const ADMIN_CAT_LABELS: Record<string, string> = {
   "employee-gross-salary": "Employee Gross Salary",
   "employer-pension-contributions": "Employer Pension Contributions",
   "fx-realised-gains-and-losses": "FX Realised Gains and Losses",
+  "fx-unrealised-gains-and-losses": "FX Unrealised Gains and Losses",
   "insurances-other": "Insurance",
   "it-expenses": "IT Expenses",
   "it-platform-and-support": "IT Platform and Support",

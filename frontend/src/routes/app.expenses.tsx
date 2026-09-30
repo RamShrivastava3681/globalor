@@ -23,6 +23,7 @@ const CATS = [
   { id: "employee-gross-salary", label: "Employee Gross Salary" },
   { id: "employer-pension-contributions", label: "Employer Pension contributions" },
   { id: "fx-realised-gains-and-losses", label: "FX realised gains and losses" },
+  { id: "fx-unrealised-gains-and-losses", label: "FX unrealised gains and losses" },
   { id: "insurances-other", label: "Insurances - other" },
   { id: "it-expenses", label: "IT Expenses" },
   { id: "it-platform-and-support", label: "IT platform and support" },
