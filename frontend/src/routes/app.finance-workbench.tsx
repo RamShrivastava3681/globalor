@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/ledger-ui";
 import { WorkbenchTabs, KpiCard, FilterPills, StatSkeleton, TableSkeleton, SectionCard } from "@/components/workbench";
 import type { WorkItem } from "@/components/workbench";
 import { WorkItemsTable } from "@/components/work-items-table";
-import { Wallet, BarChart3, Banknote, Send, ClipboardList, FileText, FileSignature, Truck, ArrowRight } from "lucide-react";
+import { Wallet, BarChart3, Banknote, Send, ClipboardList, FileText, FileSignature, Truck, ArrowRight, Receipt } from "lucide-react";
 
 export const Route = createFileRoute("/app/finance-workbench")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -27,6 +27,7 @@ const AdvancesEmbedded = lazy(() => import("@/routes/app.advances").then((m) => 
 const PurchasesEmbedded = lazy(() => import("@/routes/app.purchases").then((m) => ({ default: () => <m.PurchasesPage embedded /> })));
 const DispatchesEmbedded = lazy(() => import("@/routes/app.dispatches").then((m) => ({ default: () => <m.DispatchesPage embedded /> })));
 const ActivityPanel = lazy(() => import("@/components/wb-panels").then((m) => ({ default: m.GenericActivityPanel })));
+const ExpensesEmbedded = lazy(() => import("@/routes/app.expenses").then((m) => ({ default: m.ExpensesPage })));
 
 const TABS = [
   { id: "workbench", label: "Workbench", icon: BarChart3 },
@@ -38,6 +39,7 @@ const TABS = [
   { id: "proforma", label: "Proforma Invoices", icon: FileSignature },
   { id: "advances", label: "Advances", icon: Banknote },
   { id: "pinvoices", label: "Purchase Invoices", icon: FileText },
+  { id: "expenses", label: "Expenses", icon: Receipt },
   { id: "dispatch", label: "Dispatch Orders", icon: Truck },
   { id: "activity", label: "Activity History", icon: ClipboardList },
 ];
@@ -189,6 +191,9 @@ function FinanceWorkbenchPage() {
         )}
         {section === "dispatch" && (
           <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><DispatchesEmbedded /></Suspense>
+        )}
+        {section === "expenses" && (
+          <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ExpensesEmbedded /></Suspense>
         )}
         {section === "activity" && (
           <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Finance activity" onAction={openItemBelow} /></Suspense>

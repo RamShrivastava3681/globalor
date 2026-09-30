@@ -63,6 +63,7 @@ type Row = {
   balance: number;
   due_date: string | null;
   issue_date: string | null;
+  created_at: string | null;
   has_contractual_due_date?: boolean;
   status: string;
   party: string;
@@ -91,7 +92,7 @@ export function QueuePage() {
   // ── Filters ──
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState<"issue" | "due">("due");
+  const [sortField, setSortField] = useState<"issue" | "due" | "created">("due");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const [activeTab, setActiveTab] = useState<"workflow" | "funding">("workflow");
@@ -264,7 +265,7 @@ export function QueuePage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount,
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
-        due_date: i.due_date, issue_date: i.issue_date,
+        due_date: i.due_date, issue_date: i.issue_date, created_at: i.created_at ?? null,
         status: i.status, party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
         has_contractual_due_date: i.has_contractual_due_date,
       };
@@ -276,7 +277,7 @@ export function QueuePage() {
         kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount,
         po_number: p.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
-        due_date: p.due_date, issue_date: p.issue_date,
+        due_date: p.due_date, issue_date: p.issue_date, created_at: p.created_at ?? null,
         status: p.status, party: p.vendor?.name ?? "—", client: p.client?.company_name || p.client?.contact_name || "—",
         has_contractual_due_date: p.has_contractual_due_date,
       };
@@ -291,6 +292,7 @@ export function QueuePage() {
       balance: Number(p.amount),
       due_date: null,
       issue_date: p.proforma_date ?? p.issue_date,
+      created_at: p.created_at ?? null,
       status: p.proforma_status,
       party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
@@ -316,8 +318,13 @@ export function QueuePage() {
       return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
     })
     .sort((a, b) => {
-      const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
-      const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+      const getVal = (r: Row) => {
+        if (sortField === "issue") return r.issue_date ?? "9999";
+        if (sortField === "due") return r.due_date ?? "9999";
+        return r.created_at ?? "9999";
+      };
+      const aVal = getVal(a);
+      const bVal = getVal(b);
       const cmp = aVal.localeCompare(bVal);
       return sortOrder === "asc" ? cmp : -cmp;
     }), [allRows, side, searchQuery, sortField, sortOrder]);
@@ -569,14 +576,35 @@ export function QueuePage() {
                     placeholder="Search invoices, PO, counterparty..."
                     className="h-8 w-56 rounded-lg border border-border bg-card pl-7 pr-3 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
                   />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </div>
-                {/* Filter pills */}
-                {(["all", "sale", "purchase", "proforma"] as const).map((f) => {
+{searchQuery && (
+                      <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Sort dropdown */}
+                  <select
+                    value={sortField}
+                    onChange={(e) => setSortField(e.target.value as "issue" | "due" | "created")}
+                    className="h-8 rounded-lg border border-border bg-card px-3 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
+                  >
+                    <option value="due">Due first</option>
+                    <option value="issue">Issue first</option>
+                    <option value="created">Created first</option>
+                  </select>
+                  <button
+                    onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+                    className="h-8 w-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:border-input transition-all flex items-center justify-center"
+                    title={sortOrder === "asc" ? "Descending" : "Ascending"}
+                  >
+                    {sortOrder === "asc" ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  {/* Filter pills */}
+                  {(["all", "sale", "purchase", "proforma"] as const).map((f) => {
                   const labels = { all: "All", sale: "Sales", purchase: "Purchases", proforma: "Proformas" };
                   return (
                     <button

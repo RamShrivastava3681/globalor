@@ -239,20 +239,18 @@ export function SuppliersPage() {
                     <th className="px-4 py-3 text-left">Company</th>
                     <th className="px-4 py-3 text-left">Contact</th>
                     <th className="px-4 py-3 text-left">Location</th>
-                    <th className="px-4 py-3 text-right">Advance</th>
-                    <th className="px-4 py-3 text-right">Fee</th>
                     <th className="px-4 py-3 text-right" />
                   </tr>
                 </thead>
                 <tbody>
                   {suppliersQ.isLoading && (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-muted-foreground">Loading…</td>
+                      <td colSpan={5} className="p-6 text-center text-muted-foreground">Loading…</td>
                     </tr>
                   )}
                   {!suppliersQ.isLoading && suppliers.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td colSpan={5} className="p-10 text-center text-muted-foreground">
                         No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to add the first one.
                       </td>
                     </tr>
@@ -296,8 +294,6 @@ export function SuppliersPage() {
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {[s.city, s.country].filter(Boolean).join(", ") || "—"}
                         </td>
-                        <td className="px-4 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
-                        <td className="px-4 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => setViewing(s)} className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary mr-1">
                             <Eye className="mr-0.5 inline h-3 w-3" />View
