@@ -93,21 +93,23 @@ function FinanceWorkbenchPage() {
     const list: (WorkItem & { fam: string })[] = [
       ...sinvs.filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({
         fam: "sales", id: `si-${i.id}`, docNumber: i.invoice_number ?? i.id.slice(0, 8), docKind: "Sales invoice",
-        counterparty: i.party ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
+        counterparty: i.customer?.name ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
         nextStep: "Approve and fund", owner: "Treasury", dueDate: i.due_date ?? i.created_at,
         overdue: i.status === "overdue", priority: (i.status === "overdue" ? "high" : "normal") as WorkItem["priority"],
         actionLabel: "Open", openTo: "/app/invoices",
       })),
       ...pinvs.filter((i: any) => !["paid", "rejected"].includes(i.status)).map((i: any) => ({
         fam: "purchase", id: `pi-${i.id}`, docNumber: i.invoice_number ?? i.id.slice(0, 8), docKind: "Purchase invoice",
-        counterparty: i.party ?? i.supplier_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
+        counterparty: i.vendor?.name ?? i.supplier_name ?? i.vendor_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
         nextStep: "Approve supplier payment", owner: "Treasury", dueDate: i.due_date ?? i.created_at,
         overdue: i.status === "overdue", priority: (i.status === "overdue" ? "high" : "normal") as WorkItem["priority"],
         actionLabel: "Open", openTo: "/app/purchases",
       })),
       ...advs.filter((a: any) => !["paid", "settled", "closed"].includes(String(a.status ?? ""))).map((a: any) => ({
         fam: "payments", id: `ad-${a.id}`, docNumber: a.advance_number ?? a.id.slice(0, 8), docKind: "Advance",
-        counterparty: a.party ?? a.customer_name ?? a.supplier_name ?? "—", value: Number(a.amount ?? 0), status: a.status ?? "pending",
+        counterparty: (a.side === "sales"
+          ? (a.order?.customer?.name ?? a.invoice?.customer?.name)
+          : (a.order?.vendor?.name ?? a.purchase?.vendor?.name)) ?? "—", value: Number(a.amount ?? 0), status: a.status ?? "pending",
         nextStep: "Release advance", owner: "Treasury", dueDate: a.due_date ?? a.created_at,
         overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/advances",
       })),

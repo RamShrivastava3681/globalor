@@ -227,6 +227,6 @@ export function DispatchOrdersPanel() {
   );
 }
 
-export function GenericActivityPanel({ items, title, onAction }: { items: WorkItem[]; title: string; onAction?: (item: WorkItem) => void }) {
-  return <WorkItemsTable items={items} title={title} subtitle="Unified queue filtered to this family." onAction={onAction} />;
+export function GenericActivityPanel({ items, title, partyLabel, onAction }: { items: WorkItem[]; title: string; partyLabel?: string; onAction?: (item: WorkItem) => void }) {
+  return <WorkItemsTable items={items} title={title} subtitle="Unified queue filtered to this family." partyLabel={partyLabel} onAction={onAction} />;
 }

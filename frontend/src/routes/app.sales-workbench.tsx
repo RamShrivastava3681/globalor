@@ -36,7 +36,7 @@ function SalesWorkbenchPage() {
 
   const soQ = useQuery({ queryKey: ["goods_so"], queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [] });
   const invQ = useQuery({ queryKey: ["invoices"], queryFn: async () => (await api.get<any[]>("/invoices")) ?? [] });
-  const proQ = useQuery({ queryKey: ["proformas"], queryFn: async () => (await api.get<any[]>("/proformas")) ?? [] });
+  const proQ = useQuery({ queryKey: ["proformas"], queryFn: async () => (await api.get<any[]>("/purchase-orders")) ?? [] });
   const advQ = useQuery({ queryKey: ["advances"], queryFn: async () => (await api.get<any[]>("/advances")) ?? [] });
   const cnQ = useQuery({ queryKey: ["credit-debit-notes"], queryFn: async () => (await api.get<any[]>("/credit-debit-notes")) ?? [] });
 
@@ -66,22 +66,22 @@ function SalesWorkbenchPage() {
         owner: "Sales", dueDate: s.expected_delivery_date ?? s.created_at, overdue: false,
         priority: "normal" as const, actionLabel: "Open", openTo: "/app/sales-orders",
       })),
-      ...pros.map((p: any) => ({
-        fam: "proforma", id: `pro-${p.id}`, docNumber: p.proforma_number ?? p.id.slice(0, 8), docKind: "Proforma",
-        counterparty: p.party ?? p.customer_name ?? "—", value: Number(p.amount ?? 0), status: p.status ?? "pending",
-        nextStep: "Collect advance payment", owner: "Sales", dueDate: p.due_date ?? p.created_at,
+      ...pros.filter((p: any) => p.side === "sales").map((p: any) => ({
+        fam: "proforma", id: `pro-${p.id}`, docNumber: p.proforma_number ?? p.po_number ?? p.id.slice(0, 8), docKind: "Proforma",
+        counterparty: p.customer?.name ?? p.customer_name ?? "—", value: Number(p.amount ?? 0), status: p.proforma_status ?? p.status ?? "pending",
+        nextStep: "Collect advance payment", owner: "Sales", dueDate: p.expected_date ?? p.created_at,
         overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/proformas",
       })),
       ...invs.filter((i: any) => i.status !== "paid").map((i: any) => ({
         fam: "invoices", id: `inv-${i.id}`, docNumber: i.invoice_number ?? i.id.slice(0, 8), docKind: "Sales invoice",
-        counterparty: i.party ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
+        counterparty: i.customer?.name ?? i.customer_name ?? "—", value: Number(i.amount ?? 0), status: i.status,
         nextStep: "Submit for approval", owner: "Sales", dueDate: i.due_date ?? i.created_at,
         overdue: i.status === "overdue", priority: (i.status === "overdue" ? "high" : "normal") as WorkItem["priority"],
         actionLabel: "Open", openTo: "/app/invoices",
       })),
       ...cns.map((n: any) => ({
         fam: "credit", id: `cn-${n.id}`, docNumber: n.note_number ?? n.id.slice(0, 8), docKind: "Credit note",
-        counterparty: n.party ?? "—", value: Number(n.amount ?? 0), status: n.status ?? "pending",
+        counterparty: n.customer_supplier_name ?? n.supplier?.name ?? "—", value: Number(n.amount ?? 0), status: n.status ?? "pending",
         nextStep: "Review credit note", owner: "Sales", dueDate: n.created_at,
         overdue: false, priority: "normal" as const, actionLabel: "Open", openTo: "/app/credit-debit-notes",
       })),
@@ -157,7 +157,7 @@ function SalesWorkbenchPage() {
         {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformaEmbedded /></Suspense>}
         {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><InvoicesEmbedded /></Suspense>}
         {section === "credit" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><CreditNotesEmbedded /></Suspense>}
-        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Sales activity" onAction={openItemBelow} /></Suspense>}
+        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Sales activity" partyLabel="Customers" onAction={openItemBelow} /></Suspense>}
       </div>
       <p className="mt-3 text-xs text-muted-foreground">Sales-rep tools stay in the sidebar (<Link to="/app/crm" className="font-semibold text-primary hover:underline">Leads</Link>).</p>
     </div>

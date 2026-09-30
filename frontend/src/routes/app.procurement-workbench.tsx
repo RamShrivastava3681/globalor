@@ -69,7 +69,7 @@ function ProcurementWorkbenchPage() {
       })),
       ...pinvs.filter((p: any) => !["paid", "rejected"].includes(p.status)).map((p: any) => ({
         fam: "invoices", id: `pi-${p.id}`, docNumber: p.invoice_number ?? p.id.slice(0, 8), docKind: "Purchase invoice",
-        counterparty: p.party ?? p.supplier_name ?? "—", value: Number(p.amount ?? 0), status: p.status ?? "pending",
+        counterparty: p.vendor?.name ?? p.supplier_name ?? p.vendor_name ?? "—", value: Number(p.amount ?? 0), status: p.status ?? "pending",
         nextStep: "Submit for approval", owner: "Procurement", dueDate: p.due_date ?? p.created_at,
         overdue: p.status === "overdue", priority: "normal" as const, actionLabel: "Open", openTo: "/app/purchases",
       })),
@@ -154,7 +154,7 @@ function ProcurementWorkbenchPage() {
         {section === "proforma" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ProformasEmbedded /></Suspense>}
         {section === "invoices" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><PurchasesEmbedded /></Suspense>}
         {section === "grn" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><GrnEmbedded /></Suspense>}
-        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Procurement activity" onAction={openItemBelow} /></Suspense>}
+        {section === "activity" && <Suspense fallback={<TableSkeleton rows={6} cols={8} />}><ActivityPanel items={items} title="Procurement activity" partyLabel="Suppliers" onAction={openItemBelow} /></Suspense>}
       </div>
     </div>
   );
