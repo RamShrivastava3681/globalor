@@ -50,17 +50,11 @@ function ReportViewPage() {
   const [buyerId, setBuyerId] = useState("");
   const [filterBulkPay, setFilterBulkPay] = useState(false);
   const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
-  const [bulkCustomerId, setBulkCustomerId] = useState("");
-  const [bulkVendorId, setBulkVendorId] = useState("");
+  const [bulkPartyType, setBulkPartyType] = useState<"all" | "buyers" | "suppliers">("all");
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
-  });
-
-  const { data: vendors = [] } = useQuery({
-    queryKey: ["vendors"],
-    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
   });
 
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
@@ -160,9 +154,8 @@ function ReportViewPage() {
         }
         if (fromDate) params.set("from", toISODateString(fromDate));
         if (toDate) params.set("to", toISODateString(toDate));
-        if (tabId === "bulk-payments") {
-          if (bulkCustomerId) params.set("customer", bulkCustomerId);
-          else if (bulkVendorId) params.set("customer", `vendor_${bulkVendorId}`);
+        if (tabId === "bulk-payments" && bulkPartyType !== "all") {
+          params.set("party_type", bulkPartyType);
         }
         const qs = params.toString();
         const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
@@ -189,7 +182,7 @@ function ReportViewPage() {
     } finally {
       setLoading(false);
     }
-        }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay, bulkCustomerId, bulkVendorId]);
+        }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType]);
 
   useEffect(() => {
     fetchData();
@@ -219,7 +212,7 @@ function ReportViewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay, bulkCustomerId, bulkVendorId]);
+  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType]);
 
   useEffect(() => {
     setSelectedYear(null);
@@ -264,9 +257,8 @@ function ReportViewPage() {
     }
     if (fromDate) params.set("from", toISODateString(fromDate));
     if (toDate) params.set("to", toISODateString(toDate));
-    if (tabId === "bulk-payments") {
-      if (bulkCustomerId) params.set("customer", bulkCustomerId);
-      else if (bulkVendorId) params.set("customer", `vendor_${bulkVendorId}`);
+    if (tabId === "bulk-payments" && bulkPartyType !== "all") {
+      params.set("party_type", bulkPartyType);
     }
     const qs = params.toString();
     const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
@@ -721,37 +713,23 @@ function ReportViewPage() {
               </div>
             )}
 
-            {/* Customer Filter (Bulk Payments only) */}
+            {/* Party Type Filter (Bulk Payments only) */}
             {tabId === "bulk-payments" && (
               <div className="flex items-center gap-1.5">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                <select
-                  value={bulkCustomerId}
-                  onChange={(e) => { setBulkCustomerId(e.target.value); setBulkVendorId(""); }}
-                  className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  <option value="">All customers</option>
-                  {customers.map((d: any) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Supplier Filter (Bulk Payments only) */}
-            {tabId === "bulk-payments" && (
-              <div className="flex items-center gap-1.5">
-                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <select
-                  value={bulkVendorId}
-                  onChange={(e) => { setBulkVendorId(e.target.value); setBulkCustomerId(""); }}
-                  className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
-                >
-                  <option value="">All suppliers</option>
-                  {vendors.map((d: any) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Party type:</span>
+                {(["all", "buyers", "suppliers"] as const).map((pt) => (
+                  <button
+                    key={pt}
+                    onClick={() => setBulkPartyType(pt)}
+                    className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider transition-all ${
+                      bulkPartyType === pt
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    {pt === "all" ? "All" : pt === "buyers" ? "Buyers" : "Suppliers"}
+                  </button>
+                ))}
               </div>
             )}
 

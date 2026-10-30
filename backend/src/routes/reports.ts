@@ -586,7 +586,7 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
 router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    const customerFilter = (req.query.customer as string) || "";
+    const partyType = (req.query.party_type as string) || "";
 
     const [payments, allInvoices] = await Promise.all([
       scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
@@ -598,8 +598,11 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
     const enriched = payments
       .filter((p) => isInRange(p.payment_date))
       .filter((p) => {
-        if (!customerFilter) return true;
-        return p.customer_id === customerFilter;
+        if (!partyType) return true;
+        const isSupplier = String(p.customer_id ?? "").startsWith("vendor_");
+        if (partyType === "suppliers") return isSupplier;
+        if (partyType === "buyers") return !isSupplier;
+        return true;
       })
       .sort((a, b) => (b.payment_date ?? "").localeCompare(a.payment_date ?? ""))
       .map((p) => {
