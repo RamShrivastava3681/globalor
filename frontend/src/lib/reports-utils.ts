@@ -289,8 +289,6 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "mode", label: "Mode", render: (r: any) => (r.mode ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) },
         { key: "remaining", label: "Remaining", render: (r: any) => fmtMoney(r.remaining ?? 0) },
         { key: "balance_consumed", label: "Balance Consumed", render: (r: any) => fmtMoney(r.balance_consumed ?? 0) },
-        { key: "credit_applied", label: "Credit Applied", render: (r: any) => fmtMoney(r.credit_applied ?? 0) },
-        { key: "remaining_added", label: "Remaining Added to Payment", render: (r: any) => fmtMoney(((r.balance_consumed ?? 0) + (r.credit_applied ?? 0))) },
         { key: "invoices_closed", label: "Invoices Closed", render: (r: any) => (r.invoices_closed ?? 0).toLocaleString() },
         { key: "closed_invoices", label: "Closed Invoices (# · Amount · Date)", render: (r: any) => {
             const list = (r.closed_invoices ?? []).map((ci: any) => `${ci.invoice_number ?? "—"} · ${fmtMoney(ci.amount ?? 0)} · ${fmtDate(ci.issue_date)}`).join(" | ");

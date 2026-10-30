@@ -1151,8 +1151,6 @@ export interface PaymentRecord {
   remaining: number;
   /** Amount of previous unapplied balance consumed to boost this payment (added to close invoices). */
   balance_consumed?: number;
-  /** Amount of unapplied credit notes applied to boost this payment (added to close invoices). */
-  credit_applied?: number;
   invoices_closed: number;
   /** Array of invoice data for invoices that were fully closed (paid) by this payment */
   closed_invoices: Array<{ id: string; invoice_number: string; amount: number }>;

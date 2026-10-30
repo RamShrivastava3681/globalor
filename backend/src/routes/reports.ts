@@ -634,6 +634,41 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
         };
       });
 
+    // ── Derive balance_consumed for records that never stored it ──
+    const byCustomer = new Map<string, typeof enriched>();
+    for (const p of enriched) {
+      const list = byCustomer.get(p.customer_id) ?? [];
+      list.push(p);
+      byCustomer.set(p.customer_id, list);
+    }
+    for (const payments of byCustomer.values()) {
+      payments.sort((a, b) => {
+        const d = (a.payment_date ?? "").localeCompare(b.payment_date ?? "");
+        if (d !== 0) return d;
+        return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+      });
+      let carriedBalance = 0;
+      for (const p of payments) {
+        const totalApplied =
+          ((p.closed_invoices ?? []) as Array<{ amount: number }>[]).reduce((s, ci) => s + Number(ci.amount ?? 0), 0) +
+          (((p as any).partial_invoices ?? []) as Array<{ amount_paid: number }>[]).reduce(
+            (s, pi) => s + Number(pi.amount_paid ?? 0),
+            0
+          );
+
+        let derived = 0;
+        if (p.mode !== "on_account") {
+          derived = Math.round(Math.min(carriedBalance, totalApplied) * 100) / 100;
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(p, "balance_consumed") || p.balance_consumed == null) {
+          (p as any).balance_consumed = derived;
+        }
+
+        carriedBalance = Number(p.remaining ?? 0);
+      }
+    }
+
     res.json(enriched);
   } catch (err) {
     console.error("Reports bulk-payments error:", err);

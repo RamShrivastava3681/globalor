@@ -79,7 +79,6 @@ interface PaymentHistoryRecord {
   payment_date: string;
   remaining: number;
   balance_consumed?: number;
-  credit_applied?: number;
   invoices_closed: number;
   credit_note_ids: string[];
   mode: "manual" | "fifo" | "two_pass_fifo" | "on_account";
@@ -91,7 +90,6 @@ interface PaymentResult {
   amount: number;
   remaining: number;
   balance_consumed?: number;
-  credit_applied?: number;
   supplier_name?: string;
   closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }>;
   partially_paid: Array<{ id: string; invoice_number: string; amount_paid: number; remaining: number }>;
@@ -1130,10 +1128,10 @@ export function BulkPaymentsPage() {
                   <div className="text-xs text-muted-foreground mt-1">Remaining balance</div>
                 </div>
                 <div className={`rounded-lg border p-4 text-center ${
-                  ((result.balance_consumed ?? 0) + (result.credit_applied ?? 0)) > 0 ? "border-info/30 bg-info/5" : "border-border bg-background/40"
+                  (result.balance_consumed ?? 0) > 0 ? "border-info/30 bg-info/5" : "border-border bg-background/40"
                 }`}>
-                  <div className={`text-2xl font-display ${((result.balance_consumed ?? 0) + (result.credit_applied ?? 0)) > 0 ? "text-info" : "text-muted-foreground"}`}>
-                    {fmtMoney((result.balance_consumed ?? 0) + (result.credit_applied ?? 0))}
+                  <div className={`text-2xl font-display ${(result.balance_consumed ?? 0) > 0 ? "text-info" : "text-muted-foreground"}`}>
+                    {fmtMoney(result.balance_consumed ?? 0)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">Added to balance</div>
                 </div>
@@ -1327,8 +1325,8 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
           </div>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
-        <td className={`px-5 py-3 text-right font-mono text-xs ${((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) > 0 ? "text-info font-medium" : "text-muted-foreground"}`}>
-          {((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) > 0 ? fmtMoney((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) : "—"}
+        <td className={`px-5 py-3 text-right font-mono text-xs ${(payment.balance_consumed ?? 0) > 0 ? "text-info font-medium" : "text-muted-foreground"}`}>
+          {(payment.balance_consumed ?? 0) > 0 ? fmtMoney(payment.balance_consumed ?? 0) : "—"}
         </td>
         <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-warning font-medium" : "text-muted-foreground"}`}>
           {payment.remaining > 0 ? fmtMoney(payment.remaining) : "—"}
