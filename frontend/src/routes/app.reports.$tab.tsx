@@ -51,6 +51,10 @@ function ReportViewPage() {
   const [filterBulkPay, setFilterBulkPay] = useState(false);
   const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
   const [bulkPartyType, setBulkPartyType] = useState<"all" | "buyers" | "suppliers">("all");
+  const [bulkCustomerId, setBulkCustomerId] = useState("");
+
+  const [bulkSummary, setBulkSummary] = useState<any[]>([]);
+  const [bulkValidation, setBulkValidation] = useState<any>(null);
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
@@ -157,6 +161,9 @@ function ReportViewPage() {
         if (tabId === "bulk-payments" && bulkPartyType !== "all") {
           params.set("party_type", bulkPartyType);
         }
+        if (tabId === "bulk-payments" && bulkCustomerId) {
+          params.set("customer_id", bulkCustomerId);
+        }
         const qs = params.toString();
         const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
         const result = await api.get<any>(url);
@@ -166,9 +173,13 @@ function ReportViewPage() {
           setTotalItems(result.total ?? 0);
           setTotalPages(result.totalPages ?? 1);
         } else {
-          setData(Array.isArray(result) ? result : (result ?? []));
-          const arr = Array.isArray(result) ? result : (result ?? []);
-          setTotalItems(arr.length);
+          const rows = result?.rows ?? (Array.isArray(result) ? result : (result ?? []));
+          setData(rows);
+          if (tabId === "bulk-payments") {
+            setBulkSummary(result?.summary ?? []);
+            setBulkValidation(result?.validation ?? null);
+          }
+          setTotalItems(rows.length);
           setTotalPages(1);
         }
       }
@@ -182,7 +193,7 @@ function ReportViewPage() {
     } finally {
       setLoading(false);
     }
-        }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType]);
+        }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType, bulkCustomerId]);
 
   useEffect(() => {
     fetchData();
@@ -212,7 +223,7 @@ function ReportViewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType]);
+  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay, bulkPartyType, bulkCustomerId]);
 
   useEffect(() => {
     setSelectedYear(null);
@@ -260,10 +271,13 @@ function ReportViewPage() {
     if (tabId === "bulk-payments" && bulkPartyType !== "all") {
       params.set("party_type", bulkPartyType);
     }
+    if (tabId === "bulk-payments" && bulkCustomerId) {
+      params.set("customer_id", bulkCustomerId);
+    }
     const qs = params.toString();
     const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
     const result = await api.get<any>(url);
-    const allData = Array.isArray(result) ? result : (result?.data ?? result ?? []);
+    const allData = result?.rows ?? (Array.isArray(result) ? result : (result?.data ?? result ?? []));
     return allData.filter((row: any) => {
       if (statusFilter !== "all") {
         const rowStatus = (row.status ?? row.proforma_status ?? "").toLowerCase();
@@ -733,6 +747,23 @@ function ReportViewPage() {
               </div>
             )}
 
+            {/* Customer Filter (Bulk Payments only) */}
+            {tabId === "bulk-payments" && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Customer:</span>
+                <select
+                  value={bulkCustomerId}
+                  onChange={(e) => setBulkCustomerId(e.target.value)}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="">All customers</option>
+                  {customers.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Payment Type Filter (Sales Invoices only) */}
             {tabId === "sales-invoices" && (
               <div className="flex items-center gap-1.5">
@@ -892,6 +923,21 @@ function ReportViewPage() {
           <PortfolioView data={data} exportPortfolioPdf={exportPortfolioPdf} />
         ) : tabId === "inventory-tracking" ? (
           <InventoryTrackingView data={filtered} columns={visibleColumnsList} loading={loading} />
+        ) : tabId === "bulk-payments" ? (
+          <div className="space-y-4">
+            <BulkPaymentsSummary summary={bulkSummary} validation={bulkValidation} />
+            <TableView
+              data={filtered}
+              columns={visibleColumnsList}
+              tabId={tabId}
+              loading={loading}
+              page={page}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              isPaginated={isPaginated}
+              onPageChange={setPage}
+            />
+          </div>
         ) : (
           <TableView
             data={filtered}
@@ -1238,6 +1284,118 @@ function InventoryTrackingView({ data, columns, loading }: { data: any[]; column
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function BulkPaymentsSummary({
+  summary,
+  validation,
+}: {
+  summary: any[];
+  validation: any;
+}) {
+  if (!summary || summary.length === 0) return null;
+
+  const totals = summary.reduce(
+    (acc, s) => ({
+      total_payments_received: acc.total_payments_received + Number(s.total_payments_received ?? 0),
+      total_applied_to_invoices: acc.total_applied_to_invoices + Number(s.total_applied_to_invoices ?? 0),
+      total_unapplied_balance: acc.total_unapplied_balance + Number(s.total_unapplied_balance ?? 0),
+      total_invoice_balance_outstanding:
+        acc.total_invoice_balance_outstanding + Number(s.total_invoice_balance_outstanding ?? 0),
+      opening_balance: acc.opening_balance + Number(s.opening_balance ?? 0),
+      closing_balance: acc.closing_balance + Number(s.closing_balance ?? 0),
+    }),
+    { total_payments_received: 0, total_applied_to_invoices: 0, total_unapplied_balance: 0, total_invoice_balance_outstanding: 0, opening_balance: 0, closing_balance: 0 },
+  );
+
+  const allOk = validation
+    ? Object.values(validation).every((v: any) => v === true)
+    : null;
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between w-full">
+        <div>
+          <div className="font-display font-semibold">Customer balance summary</div>
+          <div className="text-xs font-normal text-muted-foreground mt-0.5">
+            Opening + payments − applications = closing · per customer, carried forward across dates
+          </div>
+        </div>
+        {validation && (
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`rounded-md px-2 py-0.5 font-medium ${
+                allOk ? "bg-success/10 text-success border border-success/20" : "bg-destructive/10 text-destructive border border-destructive/20"
+              }`}
+            >
+              {allOk ? "Validation: all checks passed" : "Validation: review failures"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+        {[
+          { label: "Total payments received", value: totals.total_payments_received },
+          { label: "Total applied to invoices", value: totals.total_applied_to_invoices },
+          { label: "Total unapplied balance", value: totals.total_unapplied_balance },
+          { label: "Total invoice balance outstanding", value: totals.total_invoice_balance_outstanding },
+          { label: "Opening balance", value: totals.opening_balance },
+          { label: "Closing balance", value: totals.closing_balance },
+        ].map((m) => (
+          <div key={m.label} className="rounded-lg border border-border bg-muted/20 p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{m.label}</div>
+            <div className="mt-1 text-sm font-bold tracking-tight">{fmtMoney(m.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="-mx-4 overflow-x-auto mt-4">
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="px-6 py-3 text-left">Customer</th>
+              <th className="px-6 py-3 text-right">Payments received</th>
+              <th className="px-6 py-3 text-right">Applied to invoices</th>
+              <th className="px-6 py-3 text-right">Unapplied balance</th>
+              <th className="px-6 py-3 text-right">Invoice balance outstanding</th>
+              <th className="px-6 py-3 text-right">Opening</th>
+              <th className="px-6 py-3 text-right">Closing</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map((s) => (
+              <tr key={s.customer_id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-2.5">{s.customer_name}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.total_payments_received ?? 0)}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.total_applied_to_invoices ?? 0)}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.total_unapplied_balance ?? 0)}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.total_invoice_balance_outstanding ?? 0)}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.opening_balance ?? 0)}</td>
+                <td className="px-6 py-2.5 text-right">{fmtMoney(s.closing_balance ?? 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {validation && (
+        <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
+          <div className="font-semibold mb-1">Validation checks</div>
+          <div className="space-y-1">
+            {Object.entries(validation).map(([key, val]) => (
+              <div key={key} className="flex justify-between">
+                <span className="text-muted-foreground">{key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</span>
+                <span className={`font-medium ${val === true ? "text-success" : "text-destructive"}`}>
+                  {val === true ? "PASS" : "FAIL"}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </Card>

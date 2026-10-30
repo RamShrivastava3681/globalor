@@ -282,24 +282,20 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
       ];
     case "bulk-payments":
       return [
-        { key: "id", label: "Payment ID", render: (r: any) => r.id?.slice(0, 8) ?? "" },
         { key: "customer_name", label: "Customer", render: (r: any) => r.customer_name ?? "—" },
-        { key: "amount", label: "Payment Amount", render: (r: any) => fmtMoney(r.amount ?? 0) },
-        { key: "payment_date", label: "Payment Date", render: (r: any) => fmtDate(r.payment_date) },
-        { key: "mode", label: "Mode", render: (r: any) => (r.mode ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) },
-        { key: "balance", label: "Balance (Sum of Closed)", render: (r: any) => { const v = r.balance ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
-        { key: "remaining", label: "Remaining (Unapplied)", render: (r: any) => { const v = Number(r.amount ?? 0) - Number(r.balance_consumed ?? 0); return v > 0 ? fmtMoney(v) : "—"; } },
-        { key: "balance_consumed", label: "Remaining (Balance − Payment)", render: (r: any) => { const v = r.balance_consumed ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
-        { key: "invoices_closed", label: "Invoices Closed", render: (r: any) => (r.invoices_closed ?? 0).toLocaleString() },
-        { key: "closed_invoices", label: "Closed Invoices (# · Amount · Date)", render: (r: any) => {
-            const list = (r.closed_invoices ?? []).map((ci: any) => `${ci.invoice_number ?? "—"} · ${fmtMoney(ci.amount ?? 0)} · ${fmtDate(ci.issue_date)}`).join(" | ");
-            return list || "—";
-          } },
-        { key: "partial_invoices", label: "Partial Invoices (# · Paid · Date)", render: (r: any) => {
-            const list = (r.partial_invoices ?? []).map((pi: any) => `${pi.invoice_number ?? "—"} · ${fmtMoney(pi.amount_paid ?? 0)} · ${fmtDate(pi.issue_date)}`).join(" | ");
-            return list || "—";
-          } },
-        { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
+        { key: "payment_id", label: "Payment ID", render: (r: any) => r.payment_id?.slice(0, 8) ?? "" },
+        { key: "event_date", label: "Event date", render: (r: any) => fmtDate(r.event_date) },
+        { key: "event_type", label: "Event type", render: (r: any) => r.event_type ?? "—" },
+        { key: "opening_balance", label: "Opening available balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.opening_balance ?? 0) },
+        { key: "new_payment_received", label: "New payment received", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.new_payment_received ?? 0) },
+        { key: "amount_applied_to_invoices", label: "Amount applied to invoices", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.amount_applied_to_invoices ?? 0) },
+        { key: "unapplied_balance", label: "Unapplied balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.unapplied_balance ?? 0) },
+        { key: "closing_balance", label: "Closing available balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.closing_balance ?? 0) },
+        { key: "invoice_number", label: "Invoice number", render: (r: any) => r.invoice_number ?? "—" },
+        { key: "invoice_amount_applied", label: "Invoice amount applied", render: (r: any) => { const v = r.invoice_amount_applied ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
+        { key: "invoice_date", label: "Invoice date", render: (r: any) => fmtDate(r.invoice_date) },
+        { key: "allocation_method", label: "Allocation method", render: (r: any) => (r.allocation_method ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "—" },
+        { key: "created_date", label: "Created date", render: (r: any) => fmtDate(r.created_date) },
       ];
     default:
       return common;

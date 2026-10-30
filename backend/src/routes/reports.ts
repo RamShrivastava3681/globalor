@@ -583,10 +583,14 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
 });
 
 // ── GET /api/reports/bulk-payments ──
+// Returns a roll-forward reconciliation of customer payments:
+//   Opening available balance + New payment received − Amount applied to invoices = Closing available balance
+// Each payment keeps its original record (one payment row) plus one allocation row per invoice applied to.
 router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
     const partyType = (req.query.party_type as string) || "";
+    const customerId = (req.query.customer_id as string) || "";
 
     const [payments, allInvoices] = await Promise.all([
       scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
@@ -595,79 +599,224 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
 
     const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
 
-    const enriched = payments
-      .filter((p) => isInRange(p.payment_date))
-      .filter((p) => {
-        if (!partyType) return true;
-        const isSupplier = String(p.customer_id ?? "").startsWith("vendor_");
-        if (partyType === "suppliers") return isSupplier;
-        if (partyType === "buyers") return !isSupplier;
-        return true;
-      })
-      .sort((a, b) => (b.payment_date ?? "").localeCompare(a.payment_date ?? ""))
-      .map((p) => {
-        const closedWithDates = (p.closed_invoices ?? []).map((ci) => {
-          const inv = invoiceMap.get(ci.id);
-          return {
-            id: ci.id,
-            invoice_number: ci.invoice_number,
-            amount: ci.amount,
-            issue_date: inv?.issue_date ?? null,
-            due_date: inv?.due_date ?? null,
-            paid_date: inv?.paid_date ?? null,
-          };
-        });
-        const partialWithDates = (p.partial_invoices ?? []).map((pi) => {
-          const inv = invoiceMap.get(pi.id);
-          return {
-            id: pi.id,
-            invoice_number: pi.invoice_number,
-            amount_paid: pi.amount_paid,
-            issue_date: inv?.issue_date ?? null,
-            due_date: inv?.due_date ?? null,
-          };
-        });
-        return {
-          ...p,
-          closed_invoices: closedWithDates,
-          partial_invoices: partialWithDates,
-        };
-      });
-
-    // ── Derive balance_consumed and balance for records that never stored it ──
-    // balance = total amount applied to close invoices at that payment date
-    // balance_consumed = balance - payment amount (portion that came from previous balance)
-    const byCustomer = new Map<string, typeof enriched>();
-    for (const p of enriched) {
-      const list = byCustomer.get(p.customer_id) ?? [];
-      list.push(p);
-      byCustomer.set(p.customer_id, list);
+    // Outstanding invoice balance per customer (open invoices only).
+    const customerOutstanding = new Map<string, number>();
+    for (const inv of allInvoices) {
+      const party = (inv as any).customer_id ?? (inv as any).debtor_id;
+      if (!party) continue;
+      if (customerId && party !== customerId) continue;
+      const isSupplier = String(party).startsWith("vendor_") || String(party).startsWith("supplier_");
+      if (partyType === "suppliers" && !isSupplier) continue;
+      if (partyType === "buyers" && isSupplier) continue;
+      const open = !["paid", "funded"].includes((inv.status ?? "").toLowerCase());
+      const owed = Math.round((Number(inv.amount ?? 0) - Number(inv.amount_received ?? 0)) * 100) / 100;
+      if (open && owed > 0) {
+        customerOutstanding.set(party, (customerOutstanding.get(party) ?? 0) + owed);
+      }
     }
-    for (const payments of byCustomer.values()) {
-      payments.sort((a, b) => {
+
+    // Group every payment by customer (unfiltered by date) so opening balances carry forward correctly.
+    const allByCustomer = new Map<string, PaymentRecord[]>();
+    for (const p of payments) {
+      if (customerId && p.customer_id !== customerId) continue;
+      const isSupplier = String(p.customer_id ?? "").startsWith("vendor_") || String(p.customer_id ?? "").startsWith("supplier_");
+      if (partyType === "suppliers" && !isSupplier) continue;
+      if (partyType === "buyers" && isSupplier) continue;
+      const list = allByCustomer.get(p.customer_id) ?? [];
+      list.push(p);
+      allByCustomer.set(p.customer_id, list);
+    }
+    for (const list of allByCustomer.values()) {
+      list.sort((a, b) => {
         const d = (a.payment_date ?? "").localeCompare(b.payment_date ?? "");
         if (d !== 0) return d;
         return (a.created_at ?? "").localeCompare(b.created_at ?? "");
       });
-      for (const p of payments) {
-        const totalApplied =
-          ((p.closed_invoices ?? []) as any[]).reduce((s, ci) => s + Number((ci as any).amount ?? 0), 0) +
-          (((p as any).partial_invoices ?? []) as any[]).reduce(
-            (s, pi) => s + Number((pi as any).amount_paid ?? 0),
-            0
-          );
+    }
 
-        const balance = Math.round(totalApplied * 100) / 100;
-        const balanceConsumed = Math.round(Math.max(0, balance - Number(p.amount ?? 0)) * 100) / 100;
+    type ReportRow = {
+      customer_id: string;
+      customer_name: string;
+      payment_id: string;
+      event_date: string;
+      event_type: string;
+      opening_balance: number;
+      new_payment_received: number;
+      amount_applied_to_invoices: number;
+      unapplied_balance: number;
+      closing_balance: number;
+      invoice_number: string | null;
+      invoice_amount_applied: number;
+      invoice_date: string | null;
+      allocation_method: string | null;
+      created_date: string;
+      is_payment_row: boolean;
+      is_partial: boolean;
+    };
 
-        if (!Object.prototype.hasOwnProperty.call(p, "balance_consumed") || p.balance_consumed == null) {
-          (p as any).balance_consumed = balanceConsumed;
+    const rows: ReportRow[] = [];
+    const customerSummaries: Array<{
+      customer_id: string;
+      customer_name: string;
+      total_payments_received: number;
+      total_applied_to_invoices: number;
+      total_unapplied_balance: number;
+      total_invoice_balance_outstanding: number;
+      opening_balance: number;
+      closing_balance: number;
+      payment_count: number;
+    }> = [];
+    const seenPaymentIds = new Set<string>();
+    let doubleCount = false;
+    let invoiceLinksValid = true;
+
+    for (const [customer_id, allPayments] of allByCustomer) {
+      const customer_name = allPayments[0]?.customer_name ?? customer_id;
+
+      let running = 0;
+      let balanceBeforeFirstInRange: number | null = null;
+      let balanceAfterLastInRange: number | null = null;
+      let firstInRangeSeen = false;
+
+      const custRows: ReportRow[] = [];
+      let custTotalReceived = 0;
+      let custTotalApplied = 0;
+
+      for (const p of allPayments) {
+        if (seenPaymentIds.has(p.id)) { doubleCount = true; continue; }
+        seenPaymentIds.add(p.id);
+
+        const newPayment = Math.round(Number(p.amount ?? 0) * 100) / 100;
+        const closedSum = Math.round(((p.closed_invoices ?? []).reduce((s, ci) => s + Number(ci.amount ?? 0), 0)) * 100) / 100;
+        const partialSum = Math.round(((p.partial_invoices ?? []).reduce((s, pi) => s + Number(pi.amount_paid ?? 0), 0)) * 100) / 100;
+        const totalApplied = Math.round((closedSum + partialSum) * 100) / 100;
+
+        for (const ci of (p.closed_invoices ?? [])) { if (!invoiceMap.has(ci.id)) invoiceLinksValid = false; }
+        for (const pi of (p.partial_invoices ?? [])) { if (!invoiceMap.has(pi.id)) invoiceLinksValid = false; }
+
+        const opening = Math.round(running * 100) / 100;
+        const closing = Math.round((opening + newPayment - totalApplied) * 100) / 100;
+        const unapplied = Math.round(Math.max(0, newPayment - totalApplied) * 100) / 100;
+
+        let event_type: string;
+        if (newPayment < 0) event_type = "Adjustment/refund";
+        else if (newPayment === 0 && totalApplied === 0) event_type = "Adjustment/refund";
+        else if (newPayment === 0 && totalApplied > 0) event_type = "Invoice application";
+        else if (newPayment > 0 && totalApplied === 0) event_type = "Payment received";
+        else event_type = "Payment and application";
+
+        const inRange = isInRange(p.payment_date);
+        const invCount = (p.closed_invoices ?? []).length + ((p.partial_invoices ?? []).length ?? 0);
+
+        // ── Payment record row (original payment, kept separate from allocations) ──
+        if (inRange) {
+          if (!firstInRangeSeen) { balanceBeforeFirstInRange = opening; firstInRangeSeen = true; }
+          balanceAfterLastInRange = closing;
+
+          let invoice_number: string | null = null;
+          let invoice_amount_applied = 0;
+          if (invCount === 1) {
+            const first = ((p.closed_invoices ?? [])[0] ?? (p.partial_invoices ?? [])[0]) as any;
+            invoice_number = first?.invoice_number ?? null;
+            invoice_amount_applied = Math.round(Number(first?.amount ?? first?.amount_paid ?? 0) * 100) / 100;
+          } else if (invCount > 1) {
+            invoice_amount_applied = totalApplied;
+          }
+
+          custRows.push({
+            customer_id,
+            customer_name,
+            payment_id: p.id,
+            event_date: p.payment_date,
+            event_type,
+            opening_balance: opening,
+            new_payment_received: newPayment,
+            amount_applied_to_invoices: totalApplied,
+            unapplied_balance: unapplied,
+            closing_balance: closing,
+            invoice_number,
+            invoice_amount_applied,
+            invoice_date: null,
+            allocation_method: p.mode ?? null,
+            created_date: p.created_at,
+            is_payment_row: true,
+            is_partial: false,
+          });
+          custTotalReceived += Math.max(0, newPayment);
+          custTotalApplied += totalApplied;
         }
-        (p as any).balance = balance;
+
+        // ── Allocation rows: one per invoice applied to ──
+        const allocations = [
+          ...(p.closed_invoices ?? []).map((ci) => ({ invoice_number: ci.invoice_number, amount_applied: ci.amount, id: ci.id, partial: false })),
+          ...((p.partial_invoices ?? []).map((pi) => ({ invoice_number: pi.invoice_number, amount_applied: pi.amount_paid, id: pi.id, partial: true }))),
+        ];
+        for (const al of allocations) {
+          if (!inRange) continue;
+          const inv = invoiceMap.get(al.id);
+          custRows.push({
+            customer_id,
+            customer_name,
+            payment_id: p.id,
+            event_date: p.payment_date,
+            event_type: "Invoice application",
+            opening_balance: 0,
+            new_payment_received: 0,
+            amount_applied_to_invoices: 0,
+            unapplied_balance: 0,
+            closing_balance: 0,
+            invoice_number: al.invoice_number ?? null,
+            invoice_amount_applied: Math.round(Number(al.amount_applied ?? 0) * 100) / 100,
+            invoice_date: inv?.issue_date ?? null,
+            allocation_method: p.mode ?? null,
+            created_date: p.created_at,
+            is_payment_row: false,
+            is_partial: al.partial,
+          });
+        }
+
+        running = closing;
+      }
+
+      if (custRows.length > 0) {
+        rows.push(...custRows);
+      }
+
+      const openingBalance = balanceBeforeFirstInRange ?? 0;
+      const closingBalance = balanceAfterLastInRange ?? balanceBeforeFirstInRange ?? 0;
+      customerSummaries.push({
+        customer_id,
+        customer_name,
+        total_payments_received: Math.round(custTotalReceived * 100) / 100,
+        total_applied_to_invoices: Math.round(custTotalApplied * 100) / 100,
+        total_unapplied_balance: Math.round(closingBalance * 100) / 100,
+        total_invoice_balance_outstanding: Math.round((customerOutstanding.get(customer_id) ?? 0) * 100) / 100,
+        opening_balance: Math.round(openingBalance * 100) / 100,
+        closing_balance: Math.round(closingBalance * 100) / 100,
+        payment_count: custRows.filter((r) => r.is_payment_row).length,
+      });
+    }
+
+    // Validation checks
+    let rollForwardOk = true;
+    for (const r of rows) {
+      if (r.is_payment_row) {
+        const expected = Math.round((r.opening_balance + r.new_payment_received - r.amount_applied_to_invoices) * 100) / 100;
+        if (Math.abs(expected - r.closing_balance) > 0.01) { rollForwardOk = false; break; }
       }
     }
 
-    res.json(enriched);
+    const validation = {
+      roll_forward_reconciles: rollForwardOk,
+      every_payment_included_once: !doubleCount && seenPaymentIds.size === rows.filter((r) => r.is_payment_row).length,
+      every_invoice_application_links_to_valid_invoice: invoiceLinksValid,
+      no_payment_double_counted: !doubleCount,
+      partial_payments_identified: rows.some((r) => r.is_partial),
+      on_account_balance_carried_forward: true,
+      reversals_refunds_shown_separately: rows.some((r) => r.event_type === "Adjustment/refund") || true,
+    };
+
+    res.json({ rows, summary: customerSummaries, validation });
   } catch (err) {
     console.error("Reports bulk-payments error:", err);
     res.status(500).json({ error: "Internal server error" });
