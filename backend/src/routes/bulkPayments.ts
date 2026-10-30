@@ -797,7 +797,40 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       }
     }
 
-    // ── 4. Restore credit notes back to "approved" ──
+    // ── 4. Restore unconsumed balance back to prior payments so it stays available ──
+    // When this payment consumed previous remaining balance (balance_consumed) but did
+    // not apply all of it to invoices, the leftover sits as `remaining` on this record.
+    // On reversal, give that unconsumed consumed balance back to the customer's prior
+    // payment records so it can be used for next invoices.
+    const paymentAmount = Number(payment.amount ?? 0);
+    const unappliedRemaining = Number(payment.remaining ?? 0);
+    const restoreAmount = Math.round(Math.max(0, unappliedRemaining - paymentAmount) * 100) / 100;
+
+    if (restoreAmount > 0) {
+      const priorPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
+        filterExpression: "customer_id = :did AND #id <> :pid",
+        expressionAttributeNames: { "#id": "id" },
+        expressionAttributeValues: { ":did": payment.customer_id, ":pid": payment.id },
+      });
+      priorPayments.sort((a, b) => {
+        const d = (b.payment_date ?? "").localeCompare(a.payment_date ?? "");
+        if (d !== 0) return d;
+        return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      });
+      let left = restoreAmount;
+      for (const prior of priorPayments) {
+        if (left <= 0) break;
+        const add = Math.round(left * 100) / 100;
+        const newRemaining = Math.round((Number(prior.remaining ?? 0) + add) * 100) / 100;
+        await updateItem(TABLES.PAYMENTS, { id: prior.id }, {
+          remaining: newRemaining,
+          updated_at: now,
+        });
+        left = Math.round((left - add) * 100) / 100;
+      }
+    }
+
+    // ── 4b. Restore credit notes back to "approved" ──
     for (const noteId of (payment.credit_note_ids ?? [])) {
       try {
         const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
