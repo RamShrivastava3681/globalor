@@ -2,7 +2,7 @@ import { fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 
 // ── Types ──
 
-export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "customers" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
+export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "customers" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet" | "bulk-payments";
 
 export interface ReportMeta {
   id: ReportTab;
@@ -29,6 +29,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       { id: "balance-sheet" as ReportTab, label: "Balance Sheet", icon: Scale, description: "Snapshot of assets, liabilities, and equity", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
       { id: "profit-loss" as ReportTab, label: "Profit & Loss", icon: TrendingUp, description: "Revenue, costs, and profitability analysis", color: "from-success to-success", bgLight: "bg-success/10", iconBg: "bg-success/10", iconColor: "text-success" },
       { id: "portfolio" as ReportTab, label: "Portfolio Summary", icon: Briefcase, description: "Overview of your entire portfolio performance", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
+      { id: "bulk-payments" as ReportTab, label: "Bulk Payments", icon: CreditCard, description: "Bulk payment amounts, dates, and closed invoices", color: "from-secondary to-secondary-hover", bgLight: "bg-secondary/10", iconBg: "bg-secondary/10", iconColor: "text-secondary" },
     ],
   },
   {
@@ -74,6 +75,7 @@ export const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
   "inventory-tracking": ["all"],
+  "bulk-payments": ["all"],
 };
 
 // ── Tab-specific open/closed statuses ──
@@ -278,6 +280,25 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "extended_cost", label: "Extended Cost", render: (r: any) => fmtMoney(r.extended_cost ?? 0) },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
       ];
+    case "bulk-payments":
+      return [
+        { key: "id", label: "Payment ID", render: (r: any) => r.id?.slice(0, 8) ?? "" },
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer_name ?? "—" },
+        { key: "amount", label: "Payment Amount", render: (r: any) => fmtMoney(r.amount ?? 0) },
+        { key: "payment_date", label: "Payment Date", render: (r: any) => fmtDate(r.payment_date) },
+        { key: "mode", label: "Mode", render: (r: any) => (r.mode ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) },
+        { key: "remaining", label: "Remaining", render: (r: any) => fmtMoney(r.remaining ?? 0) },
+        { key: "invoices_closed", label: "Invoices Closed", render: (r: any) => (r.invoices_closed ?? 0).toLocaleString() },
+        { key: "closed_invoices", label: "Closed Invoices (# · Amount · Date)", render: (r: any) => {
+            const list = (r.closed_invoices ?? []).map((ci: any) => `${ci.invoice_number ?? "—"} · ${fmtMoney(ci.amount ?? 0)} · ${fmtDate(ci.issue_date)}`).join(" | ");
+            return list || "—";
+          } },
+        { key: "partial_invoices", label: "Partial Invoices (# · Paid · Date)", render: (r: any) => {
+            const list = (r.partial_invoices ?? []).map((pi: any) => `${pi.invoice_number ?? "—"} · ${fmtMoney(pi.amount_paid ?? 0)} · ${fmtDate(pi.issue_date)}`).join(" | ");
+            return list || "—";
+          } },
+        { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
+      ];
     default:
       return common;
   }
@@ -431,5 +452,5 @@ export function fmtPnlMoney(val: number): string {
 
 import {
   Scale, TrendingUp, Briefcase, FileText, ShoppingCart, FileSignature,
-  Clock, Users, Building2, Banknote, Wallet, Boxes,
+  Clock, Users, Building2, Banknote, Wallet, Boxes, CreditCard,
 } from "lucide-react";

@@ -7,6 +7,7 @@ import { computeCreditNoteTotals } from "../utils/creditNotes.js";
 import type {
   Invoice, Customer, Profile, PurchaseInvoice, Vendor,
   PurchaseOrder, Advance, Expense, CreditDebitNote, InventoryItem,
+  PaymentRecord,
 } from "../types/index.js";
 
 const router = Router();
@@ -577,6 +578,57 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
     res.json(enriched);
   } catch (err) {
     console.error("Reports expenses error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/bulk-payments ──
+router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { from, to, isInRange } = dateRangeFilter(req);
+
+    const [payments, allInvoices] = await Promise.all([
+      scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+    ]);
+
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+
+    const enriched = payments
+      .filter((p) => isInRange(p.payment_date))
+      .sort((a, b) => (b.payment_date ?? "").localeCompare(a.payment_date ?? ""))
+      .map((p) => {
+        const closedWithDates = (p.closed_invoices ?? []).map((ci) => {
+          const inv = invoiceMap.get(ci.id);
+          return {
+            id: ci.id,
+            invoice_number: ci.invoice_number,
+            amount: ci.amount,
+            issue_date: inv?.issue_date ?? null,
+            due_date: inv?.due_date ?? null,
+            paid_date: inv?.paid_date ?? null,
+          };
+        });
+        const partialWithDates = (p.partial_invoices ?? []).map((pi) => {
+          const inv = invoiceMap.get(pi.id);
+          return {
+            id: pi.id,
+            invoice_number: pi.invoice_number,
+            amount_paid: pi.amount_paid,
+            issue_date: inv?.issue_date ?? null,
+            due_date: inv?.due_date ?? null,
+          };
+        });
+        return {
+          ...p,
+          closed_invoices: closedWithDates,
+          partial_invoices: partialWithDates,
+        };
+      });
+
+    res.json(enriched);
+  } catch (err) {
+    console.error("Reports bulk-payments error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
