@@ -78,6 +78,8 @@ interface PaymentHistoryRecord {
   amount: number;
   payment_date: string;
   remaining: number;
+  balance_consumed?: number;
+  credit_applied?: number;
   invoices_closed: number;
   credit_note_ids: string[];
   mode: "manual" | "fifo" | "two_pass_fifo" | "on_account";
@@ -88,6 +90,8 @@ interface PaymentResult {
   payment_id: string;
   amount: number;
   remaining: number;
+  balance_consumed?: number;
+  credit_applied?: number;
   supplier_name?: string;
   closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }>;
   partially_paid: Array<{ id: string; invoice_number: string; amount_paid: number; remaining: number }>;
@@ -1104,7 +1108,7 @@ export function BulkPaymentsPage() {
         {result && (
           <Card title={`Payment result${result.supplier_name ? ` — ${result.supplier_name}` : ""}`}>
             <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-5 gap-4">
                 <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
                   <div className="text-2xl font-display text-success">{result.closed.length}</div>
                   <div className="text-xs text-muted-foreground mt-1">Closed</div>
@@ -1124,6 +1128,14 @@ export function BulkPaymentsPage() {
                     {fmtMoney(result.remaining)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">Remaining balance</div>
+                </div>
+                <div className={`rounded-lg border p-4 text-center ${
+                  ((result.balance_consumed ?? 0) + (result.credit_applied ?? 0)) > 0 ? "border-info/30 bg-info/5" : "border-border bg-background/40"
+                }`}>
+                  <div className={`text-2xl font-display ${((result.balance_consumed ?? 0) + (result.credit_applied ?? 0)) > 0 ? "text-info" : "text-muted-foreground"}`}>
+                    {fmtMoney((result.balance_consumed ?? 0) + (result.credit_applied ?? 0))}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">Added to balance</div>
                 </div>
                 <div className={`rounded-lg border p-4 text-center ${
                   result.skipped.length > 0 ? "border-destructive/30 bg-destructive/5" : "border-border bg-background/40"
@@ -1234,6 +1246,7 @@ export function BulkPaymentsPage() {
                         <th className="px-5 py-2 text-left font-normal">Date</th>
                         <th className="px-5 py-2 text-left font-normal">Party</th>
                         <th className="px-5 py-2 text-right font-normal">Amount</th>
+                        <th className="px-5 py-2 text-right font-normal">Balance Added</th>
                         <th className="px-5 py-2 text-right font-normal">Remaining</th>
                         <th className="px-5 py-2 text-center font-normal">Mode</th>
                         <th className="px-5 py-2 text-right font-normal">Closed</th>
@@ -1314,6 +1327,9 @@ function HistoryRow({ payment, onReversed }: { payment: PaymentHistoryRecord; on
           </div>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
+        <td className={`px-5 py-3 text-right font-mono text-xs ${((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) > 0 ? "text-info font-medium" : "text-muted-foreground"}`}>
+          {((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) > 0 ? fmtMoney((payment.balance_consumed ?? 0) + (payment.credit_applied ?? 0)) : "—"}
+        </td>
         <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-warning font-medium" : "text-muted-foreground"}`}>
           {payment.remaining > 0 ? fmtMoney(payment.remaining) : "—"}
         </td>

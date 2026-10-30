@@ -92,6 +92,11 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       availableAmount += totalRemaining;
     }
 
+    // Track how much previous remaining balance was consumed to boost this payment
+    const balanceConsumed = parsed.use_balance
+      ? consumedOldPayments.reduce((s, p) => s + Number(p.remaining), 0)
+      : 0;
+
     // ── 2b. Credit notes applied in the UI boost the available amount (Available =
     // payment + previous balance + credit). Add their total here so the backend
     // closes the same invoices the FIFO/manual preview shows.
@@ -277,6 +282,8 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
+      credit_applied: creditBoost,
       invoices_closed: closed.length,
       closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
       partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
@@ -316,6 +323,8 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       payment_id: paymentRecord.id,
       amount: parsed.amount,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
+      credit_applied: creditBoost,
       closed,
       partially_paid: partiallyPaid,
       skipped,
@@ -883,6 +892,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       availableAmount += totalRemaining;
     }
 
+    // Track how much previous remaining balance was consumed to boost this payment
+    const balanceConsumed = parsed.use_balance
+      ? consumedOldPayments.reduce((s, p) => s + Number(p.remaining), 0)
+      : 0;
+
     // ── 3. Fetch open purchase invoices for this vendor ──
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
     // Match the Bulk payments UI list (everything except terminal states) so every
@@ -1043,6 +1057,8 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
+      credit_applied: purchaseCreditBoost,
       invoices_closed: closed.length,
       closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
       partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
@@ -1078,6 +1094,8 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       payment_id: paymentRecord.id,
       amount: parsed.amount,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
+      credit_applied: purchaseCreditBoost,
       supplier_name: vendor.name,
       closed,
       partially_paid: partiallyPaid,
