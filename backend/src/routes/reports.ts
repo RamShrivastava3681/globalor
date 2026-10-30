@@ -650,9 +650,9 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
       let carriedBalance = 0;
       for (const p of payments) {
         const totalApplied =
-          ((p.closed_invoices ?? []) as Array<{ amount: number }>[]).reduce((s, ci) => s + Number(ci.amount ?? 0), 0) +
-          (((p as any).partial_invoices ?? []) as Array<{ amount_paid: number }>[]).reduce(
-            (s, pi) => s + Number(pi.amount_paid ?? 0),
+          ((p.closed_invoices ?? []) as any[]).reduce((s, ci) => s + Number((ci as any).amount ?? 0), 0) +
+          (((p as any).partial_invoices ?? []) as any[]).reduce(
+            (s, pi) => s + Number((pi as any).amount_paid ?? 0),
             0
           );
 
