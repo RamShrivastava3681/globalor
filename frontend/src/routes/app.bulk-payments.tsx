@@ -409,6 +409,22 @@ export function BulkPaymentsPage() {
     return computeManualPreview(openInvoices as any[], selectedInvoiceIds, availableAmount, paymentDate, outstandingFn);
   }, [mode, availableAmount, selectedInvoiceIds, openInvoices, paymentDate, outstandingFn]);
 
+  // ── Balance consumed derived from preview ──
+  // balance = total applied to close invoices at this payment date
+  // balanceConsumed = balance - payment amount (portion from previous balance)
+  const previewApplied = useMemo(() => {
+    if (fifoPreview) {
+      return fifoPreview.closed.reduce((s, c) => s + c.amount, 0);
+    }
+    if (manualPreview) {
+      return manualPreview.closed.reduce((s, c) => s + c.amount, 0) + manualPreview.partiallyPaid.reduce((s, p) => s + p.amountPaid, 0);
+    }
+    return 0;
+  }, [fifoPreview, manualPreview]);
+
+  const balanceApplied = Math.round(previewApplied * 100) / 100;
+  const balanceConsumedFromPreview = Math.round(Math.max(0, balanceApplied - numericAmount) * 100) / 100;
+
   const selectedCustomer = (customersQ.data ?? []).find((d) => d.id === selectedCustomerId);
   const selectedSupplier = (suppliersQ.data ?? []).find((s) => s.id === selectedSupplierId);
   const selectedPartyName = isSupplier ? selectedSupplier?.name : selectedCustomer?.name;
@@ -876,6 +892,7 @@ export function BulkPaymentsPage() {
                       <th className="px-4 py-2 text-left font-normal">Due</th>
                       <th className="px-4 py-2 text-right font-normal">Amount</th>
                       <th className="px-4 py-2 text-right font-normal">Outstanding</th>
+                      <th className="px-4 py-2 text-right font-normal">Balance Consumed</th>
                       <th className="px-4 py-2 text-center font-normal">Age</th>
                       <th className="px-4 py-2 text-center font-normal">Status</th>
                       <th className="px-4 py-2 text-center font-normal">Result</th>
@@ -952,6 +969,9 @@ export function BulkPaymentsPage() {
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(inv.amount)}</td>
                           <td className="px-4 py-3 text-right font-mono text-xs font-medium">{fmtMoney(bal)}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs font-medium ${balanceConsumedFromPreview > 0 ? "text-info" : "text-muted-foreground"}`}>
+                            {balanceConsumedFromPreview > 0 ? fmtMoney(balanceConsumedFromPreview) : "—"}
+                          </td>
                           <td className="px-4 py-3 text-center text-xs">
                             {late > 0 ? (
                               <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
@@ -1047,6 +1067,18 @@ export function BulkPaymentsPage() {
                         </div>
                       )}
                     </>
+                  )}
+                  {balanceApplied > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-semibold">Balance:</span>
+                      <span className="font-semibold text-info">{fmtMoney(balanceApplied)}</span>
+                      <span className="text-muted-foreground">· Payment:</span>
+                      <span className="font-semibold">{fmtMoney(numericAmount)}</span>
+                      <span className="text-muted-foreground">· Remaining (Balance − Payment):</span>
+                      <span className={`font-semibold ${balanceConsumedFromPreview > 0 ? "text-info" : "text-muted-foreground"}`}>
+                        {balanceConsumedFromPreview > 0 ? fmtMoney(balanceConsumedFromPreview) : "—"}
+                      </span>
+                    </div>
                   )}
                   {!inputAmount && availableAmount <= 0 && (
                     <div className="text-xs text-muted-foreground">

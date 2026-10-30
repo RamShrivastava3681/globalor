@@ -634,7 +634,9 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
         };
       });
 
-    // ── Derive balance_consumed for records that never stored it ──
+    // ── Derive balance_consumed and balance for records that never stored it ──
+    // balance = total amount applied to close invoices at that payment date
+    // balance_consumed = balance - payment amount (portion that came from previous balance)
     const byCustomer = new Map<string, typeof enriched>();
     for (const p of enriched) {
       const list = byCustomer.get(p.customer_id) ?? [];
@@ -647,7 +649,6 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
         if (d !== 0) return d;
         return (a.created_at ?? "").localeCompare(b.created_at ?? "");
       });
-      let carriedBalance = 0;
       for (const p of payments) {
         const totalApplied =
           ((p.closed_invoices ?? []) as any[]).reduce((s, ci) => s + Number((ci as any).amount ?? 0), 0) +
@@ -656,16 +657,13 @@ router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response
             0
           );
 
-        let derived = 0;
-        if (p.mode !== "on_account") {
-          derived = Math.round(Math.min(carriedBalance, totalApplied) * 100) / 100;
-        }
+        const balance = Math.round(totalApplied * 100) / 100;
+        const balanceConsumed = Math.round(Math.max(0, balance - Number(p.amount ?? 0)) * 100) / 100;
 
         if (!Object.prototype.hasOwnProperty.call(p, "balance_consumed") || p.balance_consumed == null) {
-          (p as any).balance_consumed = derived;
+          (p as any).balance_consumed = balanceConsumed;
         }
-
-        carriedBalance = Number(p.remaining ?? 0);
+        (p as any).balance = balance;
       }
     }
 

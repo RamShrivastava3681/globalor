@@ -287,8 +287,9 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "amount", label: "Payment Amount", render: (r: any) => fmtMoney(r.amount ?? 0) },
         { key: "payment_date", label: "Payment Date", render: (r: any) => fmtDate(r.payment_date) },
         { key: "mode", label: "Mode", render: (r: any) => (r.mode ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) },
-        { key: "remaining", label: "Remaining", render: (r: any) => fmtMoney(r.remaining ?? 0) },
-        { key: "balance_consumed", label: "Balance Consumed", render: (r: any) => fmtMoney(r.balance_consumed ?? 0) },
+        { key: "balance", label: "Balance (Sum of Closed)", render: (r: any) => { const v = r.balance ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
+        { key: "remaining", label: "Remaining (Unapplied)", render: (r: any) => fmtMoney(r.remaining ?? 0) },
+        { key: "balance_consumed", label: "Remaining (Balance − Payment)", render: (r: any) => { const v = r.balance_consumed ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
         { key: "invoices_closed", label: "Invoices Closed", render: (r: any) => (r.invoices_closed ?? 0).toLocaleString() },
         { key: "closed_invoices", label: "Closed Invoices (# · Amount · Date)", render: (r: any) => {
             const list = (r.closed_invoices ?? []).map((ci: any) => `${ci.invoice_number ?? "—"} · ${fmtMoney(ci.amount ?? 0)} · ${fmtDate(ci.issue_date)}`).join(" | ");
