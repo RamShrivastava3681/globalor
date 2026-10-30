@@ -50,10 +50,17 @@ function ReportViewPage() {
   const [buyerId, setBuyerId] = useState("");
   const [filterBulkPay, setFilterBulkPay] = useState(false);
   const [filterTreasuryPay, setFilterTreasuryPay] = useState(false);
+  const [bulkCustomerId, setBulkCustomerId] = useState("");
+  const [bulkVendorId, setBulkVendorId] = useState("");
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
+  });
+
+  const { data: vendors = [] } = useQuery({
+    queryKey: ["vendors"],
+    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
   });
 
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
@@ -153,6 +160,10 @@ function ReportViewPage() {
         }
         if (fromDate) params.set("from", toISODateString(fromDate));
         if (toDate) params.set("to", toISODateString(toDate));
+        if (tabId === "bulk-payments") {
+          if (bulkCustomerId) params.set("customer", bulkCustomerId);
+          else if (bulkVendorId) params.set("customer", `vendor_${bulkVendorId}`);
+        }
         const qs = params.toString();
         const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
         const result = await api.get<any>(url);
@@ -178,7 +189,7 @@ function ReportViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay]);
+        }, [tabId, page, isPaginated, searchQuery, statusFilter, fromDate, toDate, periodPreset, isPnL, isBalanceSheet, buyerId, filterBulkPay, filterTreasuryPay, bulkCustomerId, bulkVendorId]);
 
   useEffect(() => {
     fetchData();
@@ -208,7 +219,7 @@ function ReportViewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay]);
+  }, [tabId, statusFilter, searchQuery, fromDate, toDate, buyerId, filterBulkPay, filterTreasuryPay, bulkCustomerId, bulkVendorId]);
 
   useEffect(() => {
     setSelectedYear(null);
@@ -253,6 +264,10 @@ function ReportViewPage() {
     }
     if (fromDate) params.set("from", toISODateString(fromDate));
     if (toDate) params.set("to", toISODateString(toDate));
+    if (tabId === "bulk-payments") {
+      if (bulkCustomerId) params.set("customer", bulkCustomerId);
+      else if (bulkVendorId) params.set("customer", `vendor_${bulkVendorId}`);
+    }
     const qs = params.toString();
     const url = qs ? `/reports/${tabId}?${qs}` : `/reports/${tabId}`;
     const result = await api.get<any>(url);
@@ -700,6 +715,40 @@ function ReportViewPage() {
                 >
                   <option value="">All buyers</option>
                   {customers.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Customer Filter (Bulk Payments only) */}
+            {tabId === "bulk-payments" && (
+              <div className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                <select
+                  value={bulkCustomerId}
+                  onChange={(e) => { setBulkCustomerId(e.target.value); setBulkVendorId(""); }}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="">All customers</option>
+                  {customers.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Supplier Filter (Bulk Payments only) */}
+            {tabId === "bulk-payments" && (
+              <div className="flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <select
+                  value={bulkVendorId}
+                  onChange={(e) => { setBulkVendorId(e.target.value); setBulkCustomerId(""); }}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+                >
+                  <option value="">All suppliers</option>
+                  {vendors.map((d: any) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
                 </select>
