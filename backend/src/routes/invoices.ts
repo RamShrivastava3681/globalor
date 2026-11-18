@@ -155,7 +155,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
       }
     }
 
-    res.json(duplicates);
+    res.json({ duplicates, totalDuplicates: duplicates.length });
   } catch (err) {
     console.error("Check duplicate invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
