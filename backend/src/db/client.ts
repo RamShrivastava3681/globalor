@@ -1,4 +1,6 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import https from "node:https";
 import {
   DynamoDBDocumentClient,
   PutCommand,
@@ -25,6 +27,15 @@ export const ddbClient = new DynamoDBClient({
     secretAccessKey: config.aws.secretAccessKey,
   },
   endpoint: config.aws.dynamoDbEndpoint,
+  // Reuse TCP/TLS connections instead of opening a new HTTPS handshake per
+  // request. Parallel scans especially benefit — the default handler caps
+  // socket creation and pays a fresh TLS round-trip (~100ms+) each time.
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: new https.Agent({
+      keepAlive: true,
+      maxSockets: 50,
+    }),
+  }),
 });
 
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -35,6 +46,9 @@ export const TABLES = {
   USERS: `${p()}_users`,
   PROFILES: `${p()}_profiles`,
   USER_ROLES: `${p()}_user_roles`,
+  CUSTOMERS: `${p()}_customers`,
+  /** Legacy/debtors master — the live customer data lives here (`demo-data_debtors`).
+   *  Kept alongside CUSTOMERS for backward compatibility; reads merge both. */
   DEBTORS: `${p()}_debtors`,
   VENDORS: `${p()}_vendors`,
   SUPPLIERS: `${p()}_suppliers`,
@@ -60,12 +74,40 @@ export const TABLES = {
   GOODS_DISPATCHES: `${p()}_goods_dispatches`,
   QUOTATIONS: `${p()}_quotations`,
   FORECAST_VARIABLES: `${p()}_forecast_variables`,
+  CASH_ACCOUNTS: `${p()}_cash_accounts`,
+  EXPECTED_INFLOWS: `${p()}_expected_inflows`,
+  EXPECTED_OUTFLOWS: `${p()}_expected_outflows`,
+  MARKETPLACE_SETTLEMENTS: `${p()}_marketplace_settlements`,
+  RECURRING_EXPENSES: `${p()}_recurring_expenses`,
+  PURCHASE_COMMITMENTS: `${p()}_purchase_commitments`,
+  TREASURY_SETTINGS: `${p()}_treasury_settings`,
+  SHIPMENTS: `${p()}_shipments`,
+  SHIPMENT_EVENTS: `${p()}_shipment_events`,
+  SHIPMENT_QUOTES: `${p()}_shipment_quotes`,
+  LOGISTICS_PROVIDERS: `${p()}_logistics_providers`,
+  SHIPMENT_AUDIT: `${p()}_shipment_audit`,
+  LOGISTICS_SETTINGS: `${p()}_logistics_settings`,
   /**
    * email → user_id registry. Used to look up users by email without a full
    * table scan, and as an atomic uniqueness constraint on signup (conditional
    * write) so two concurrent signups with the same email can't both succeed.
    */
   EMAIL_REGISTRY: `${p()}_email_registry`,
+  /** My Queue tasks — the automation backbone (Phase 2). One row per pending
+   *  action on a document; completed/cancelled rows are kept for history. */
+  WORKFLOW_TASKS: `${p()}_workflow_tasks`,
+  /**
+   * SKU hierarchy: master product + child colour/size variants.
+   *
+   * Partition key: `id` (unique variant id).
+   * Sort key: `masterSku` (SKUs sharing a master are ordered).
+   * Indexes:
+   *   - `parentId-index`: all variants in a master record (including the
+   *     master itself, which stores its own id in `parentId`).
+   *   - `parentSku-index`: variants sharing a master SKU value.
+   *   - `companyId-index`: scope by company.
+   */
+  PRODUCT_SKUS: `${p()}_product_skus`,
 } as const;
 
 // ── Generic helpers ──

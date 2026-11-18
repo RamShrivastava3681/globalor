@@ -13,6 +13,7 @@ import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } f
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { recomputePoReceivedQuantities, syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
 import { triggerForecastRecompute } from "../utils/forecast.js";
 import type { GoodsReceipt, GoodsReceiptLine, GoodsPurchaseOrder, PurchaseInvoice, StockMovement } from "../types/index.js";
@@ -151,6 +152,17 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       notes: l.notes || null,
     }));
 
+    // Snapshot the PO's parties + addresses so the GRN carries the full context.
+    let supplierAddress: string | null = null;
+    if (po.supplier_id) {
+      const supplier = (await getItem(TABLES.SUPPLIERS, { id: po.supplier_id }).catch(() => null)) as any
+        ?? (await getItem(TABLES.VENDORS, { id: po.supplier_id }).catch(() => null)) as any;
+      if (supplier) {
+        supplierAddress = [supplier.address_line ?? supplier.address, supplier.address_line2, supplier.city, (supplier as any).state, supplier.country, supplier.postal_code]
+          .filter(Boolean).join(", ") || null;
+      }
+    }
+
     const grn: GoodsReceipt = {
       id: generateId(),
       client_id: req.user!.id,
@@ -159,6 +171,9 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       goods_purchase_order_id: po.id,
       po_number: po.po_number,
       supplier_name: po.supplier_name,
+      supplier_address: supplierAddress,
+      billing_address: (po as any).billing_address ?? null,
+      shipping_address: (po as any).shipping_address ?? null,
       warehouse: parsed.warehouse || po.warehouse || null,
       received_date: parsed.received_date,
       challan_number: parsed.challan_number || null,
@@ -185,6 +200,16 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       severity: "info",
       message: `Goods receipt ${grn.receipt_number} drafted against ${po.po_number} — confirm it to credit stock`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: draft GRN needs confirmation.
+    ensureTask(grn.company_id, grn.client_id, {
+      workflow_type: "grn", stage: "confirm", doc_type: "grn",
+      doc_id: grn.id, doc_number: grn.receipt_number, counterparty: grn.supplier_name,
+      doc_status: "draft", owner_role: "warehouse", assigned_user: grn.created_by,
+      required_action: `Confirm GRN ${grn.receipt_number}`,
+      next_action: "Stock in",
+      linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
     });
 
     res.status(201).json(grn);
@@ -297,7 +322,7 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-purchase-orde
     // Fold accepted qty into the PO lines and recompute its status.
     // Recompute-from-confirmed-GRNs + version guard → race-safe & convergent
     // (this GRN is now "confirmed", so the recompute includes it).
-    await recomputePoReceivedQuantities(po.id);
+    const refreshedPo = await recomputePoReceivedQuantities(po.id);
 
     // Back-fill every purchase invoice that bills this PO (grn_received_qty per
     // line + the confirmed-GRN id list). Failure must never fail the confirm —
@@ -313,6 +338,30 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-purchase-orde
       message: `GRN ${grn.receipt_number} confirmed — ${createdMovements.reduce((s, m) => s + m.quantity, 0)} units credited to stock against ${po.po_number}`,
       created_by: req.user!.id,
     });
+
+    // My Queue: confirmed GRNs leave the queue.
+    completeTasksForDoc(grn.company_id, "grn", grn.id, req.user!.id);
+
+    // Goods are in — unless the supplier's invoice is already in the system,
+    // finance now needs to record it against this PO. Chained off the PO's
+    // receive-goods task so the queue flows goods-in → payable automatically.
+    // Once fully received, the old receive-goods task is obsolete.
+    if (String(refreshedPo?.status ?? po.status) === "fully_received") {
+      completeTasksForDoc(grn.company_id, "purchase_order", po.id, req.user!.id, "await_goods");
+    }
+    const existingPi = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, {
+      filterExpression: "goods_purchase_order_id = :poid",
+      expressionAttributeValues: { ":poid": po.id },
+    }).catch(() => [] as PurchaseInvoice[]);
+    if (!existingPi.some((pi) => !["paid", "cancelled"].includes(String(pi.status)))) {
+      ensureTask(grn.company_id, grn.client_id, {
+        workflow_type: "purchase_order", stage: "record_supplier_invoice", doc_type: "purchase_order",
+        doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+        doc_status: String(refreshedPo?.status ?? po.status ?? "sent"), owner_role: "finance",
+        required_action: `Record supplier invoice for ${po.po_number}`,
+        next_action: "Verify & approve for payment", amount: po.grand_total,
+      });
+    }
 
     res.json({ ...confirmed, movements_created: createdMovements.length });
   } catch (err) {

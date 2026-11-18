@@ -19,7 +19,7 @@ interface NoteEntry {
   date: string;
   amount: string;
   counterparty: string;
-  debtorSupplierName: string;
+  customerSupplierName: string;
   linkToInvoice: string;
   reason: string;
   createdAt: string;
@@ -43,7 +43,7 @@ function CreditDebitNotesPage() {
     date: new Date().toISOString().slice(0, 10),
     amount: "",
     counterparty: "",
-    debtorSupplierName: "",
+    customerSupplierName: "",
     linkToInvoice: "",
     reason: "",
   };
@@ -103,7 +103,7 @@ function CreditDebitNotesPage() {
               date: form.date,
               amount: form.amount,
               counterparty: form.counterparty.trim(),
-              debtorSupplierName: form.debtorSupplierName.trim(),
+              customerSupplierName: form.customerSupplierName.trim(),
               linkToInvoice: form.linkToInvoice.trim(),
               reason: form.reason.trim(),
             }
@@ -121,7 +121,7 @@ function CreditDebitNotesPage() {
         date: form.date,
         amount: form.amount,
         counterparty: form.counterparty.trim(),
-        debtorSupplierName: form.debtorSupplierName.trim(),
+        customerSupplierName: form.customerSupplierName.trim(),
         linkToInvoice: form.linkToInvoice.trim(),
         reason: form.reason.trim(),
         createdAt: new Date().toISOString(),
@@ -161,7 +161,7 @@ function CreditDebitNotesPage() {
       date: entry.date,
       amount: entry.amount,
       counterparty: entry.counterparty,
-      debtorSupplierName: entry.debtorSupplierName,
+      customerSupplierName: entry.customerSupplierName,
       linkToInvoice: entry.linkToInvoice,
       reason: entry.reason,
     });
@@ -264,7 +264,7 @@ function CreditDebitNotesPage() {
                       Counterparty
                     </th>
                     <th className="px-5 py-2 text-left font-normal">
-                      Debtor / Supplier
+                      Customer / Supplier
                     </th>
                     <th className="px-5 py-2 text-left font-normal">
                       Link to invoice
@@ -298,7 +298,7 @@ function CreditDebitNotesPage() {
                       </td>
                       <td className="px-5 py-3">{e.counterparty}</td>
                       <td className="px-5 py-3 text-muted-foreground">
-                        {e.debtorSupplierName || "—"}
+                        {e.customerSupplierName || "—"}
                       </td>
                       <td className="px-5 py-3">
                         {e.linkToInvoice ? (
@@ -377,7 +377,7 @@ function NewNoteModal({
     date: string;
     amount: string;
     counterparty: string;
-    debtorSupplierName: string;
+    customerSupplierName: string;
     linkToInvoice: string;
     reason: string;
   };
@@ -529,13 +529,13 @@ function NewNoteModal({
             />
           </Field>
 
-          <Field label="Debtor / Supplier name">
+          <Field label="Customer / Supplier name">
             <input
               className="inp"
-              placeholder="Debtor or supplier company name"
-              value={form.debtorSupplierName}
+              placeholder="Customer or supplier company name"
+              value={form.customerSupplierName}
               onChange={(e) =>
-                onChange({ ...form, debtorSupplierName: e.target.value })
+                onChange({ ...form, customerSupplierName: e.target.value })
               }
             />
           </Field>

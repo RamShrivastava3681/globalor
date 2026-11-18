@@ -21,9 +21,9 @@ type NoaInvoice = {
   noa_status: string;
   noa_comments: string;
   client_company: string;
-  debtor_name: string;
-  debtor_contact_name: string;
-  debtor_contact_email: string;
+  customer_name: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
 };
 
 function NoaPage() {
@@ -75,8 +75,8 @@ function NoaPage() {
         </p>
 
         <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
-          <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Debtor</dt><dd className="text-[#0F172A]">{inv.debtor_name}</dd></div>
-          <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Contact</dt><dd className="text-[#0F172A]">{inv.debtor_contact_name || "—"}</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Customer</dt><dd className="text-[#0F172A]">{inv.customer_name}</dd></div>
+          <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Contact</dt><dd className="text-[#0F172A]">{inv.customer_contact_name || "—"}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Invoice #</dt><dd className="font-mono text-[#0F172A]">{inv.invoice_number}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Amount</dt><dd className="num text-[#0F172A] font-medium">{fmtMoney(Number(inv.amount))}</dd></div>
           <div><dt className="text-xs uppercase tracking-widest text-[#64748B] font-medium">Advance rate</dt><dd className="text-[#0F172A]">{inv.advance_rate}%</dd></div>

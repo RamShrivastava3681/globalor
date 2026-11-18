@@ -18,7 +18,7 @@ async function main() {
 
   // Only clear sales invoices, purchase invoices, and credit/debit notes
   // (the 2024 credit/debit notes will be re-created if they existed)
-  for (const table of [TABLES.INVOICES, TABLES.PURCHASE_INVOICES, TABLES.CREDIT_DEBIT_NOTES, TABLES.VENDORS, TABLES.DEBTORS]) {
+  for (const table of [TABLES.INVOICES, TABLES.PURCHASE_INVOICES, TABLES.CREDIT_DEBIT_NOTES, TABLES.VENDORS, TABLES.CUSTOMERS]) {
     try {
       const count = await clearTable(table);
       console.log(`   ✔ ${table}: deleted ${count} items`);

@@ -24,7 +24,7 @@ interface NoteEntry {
   note_number: string;
   date: string;
   amount: number;
-  debtor_supplier_name: string | null;
+  customer_supplier_name: string | null;
   supplier_id: string | null;
   supplier?: { id: string; name: string } | null;
   linked_invoice_id: string | null;
@@ -41,7 +41,7 @@ interface NoteEntry {
   linkedInvoice?: { invoice_number: string; amount: number; status: string } | null;
 }
 
-function CreditDebitNotesPage() {
+export function CreditDebitNotesPage() {
   const { canWrite } = useAuth();
   const canCreate = canWrite("invoices");
   const qc = useQueryClient();
@@ -129,7 +129,7 @@ function CreditDebitNotesPage() {
         if (!q) return true;
         return (
           e.note_number?.toLowerCase().includes(q) ||
-          e.debtor_supplier_name?.toLowerCase().includes(q) ||
+          e.customer_supplier_name?.toLowerCase().includes(q) ||
           e.reason?.toLowerCase().includes(q) ||
           e.linkedInvoice?.invoice_number?.toLowerCase().includes(q)
         );
@@ -216,7 +216,7 @@ function CreditDebitNotesPage() {
         </div>
 
         <FilterBar
-          searchPlaceholder="Search by note #, debtor/supplier, reason, linked invoice…"
+          searchPlaceholder="Search by note #, customer/supplier, reason, linked invoice…"
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           statusOptions={[
@@ -257,7 +257,7 @@ function CreditDebitNotesPage() {
                     <th className="px-5 py-2 text-left font-normal">Note #</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount (USD)</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor / Supplier</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer / Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">Link to invoice</th>
                     <th className="px-5 py-2 text-left font-normal">Reason</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -284,7 +284,7 @@ function CreditDebitNotesPage() {
                             <span className="rounded border border-primary/30 bg-primary/5 px-1 py-0.5 text-[9px] uppercase tracking-widest text-primary">Supplier</span>
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">{e.debtor_supplier_name || "—"}</span>
+                          <span className="text-muted-foreground">{e.customer_supplier_name || "—"}</span>
                         )}
                       </td>
                       <td className="px-5 py-3">
@@ -440,7 +440,7 @@ function NewNoteModal({
   const [noteNumber, setNoteNumber] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState("");
-  const [debtorSupplierName, setDebtorSupplierName] = useState("");
+  const [customerSupplierName, setCustomerSupplierName] = useState("");
   const [reason, setReason] = useState("");
   const [invSearch, setInvSearch] = useState("");
   const [invOpen, setInvOpen] = useState(false);
@@ -462,7 +462,7 @@ function NewNoteModal({
       note_number: noteNumber.trim(),
       date,
       amount: Number(amount),
-      debtor_supplier_name: debtorSupplierName.trim() || null,
+      customer_supplier_name: customerSupplierName.trim() || null,
       linked_invoice_id: selectedInv?.id || null,
       linked_invoice_type: selectedInv?._type || null,
       reason: reason.trim() || null,
@@ -531,8 +531,8 @@ function NewNoteModal({
             </Field>
           </div>
 
-          <Field label="Debtor / Supplier name">
-            <input className="inp" placeholder="Debtor or supplier company name" value={debtorSupplierName} onChange={(e) => setDebtorSupplierName(e.target.value)} />
+          <Field label="Customer / Supplier name">
+            <input className="inp" placeholder="Customer or supplier company name" value={customerSupplierName} onChange={(e) => setCustomerSupplierName(e.target.value)} />
           </Field>
 
           <Field label="Link to invoice (adjusts invoice amount immediately)">
@@ -632,7 +632,7 @@ interface ImportRow {
   amount: number;
   date: string;
   supplier_name: string;
-  debtor_supplier_name: string;
+  customer_supplier_name: string;
   invoice_number: string;
 }
 
@@ -693,7 +693,7 @@ function MassImportNotesModal({
           const amt = Number(row.amount ?? row["Amount"] ?? row.Amount ?? 0);
           const dt = row.date ?? row["Date"] ?? row.Date ?? "";
           const supplierName = row.supplier_name ?? row["Supplier Name"] ?? row.supplier ?? row.Supplier ?? row.vendor ?? row.Vendor ?? row["Vendor Name"] ?? "";
-          const debtorSupplier = row.debtor_supplier_name ?? row.debtor ?? row.Debtor ?? row["Debtor/Supplier"] ?? "";
+          const customerSupplier = row.customer_supplier_name ?? row.customer ?? row.Customer ?? row["Customer/Supplier"] ?? "";
           const invNum = row.invoice_number ?? row["Invoice Number"] ?? row["Invoice#"] ?? "";
 
           // Normalize date if serial number
@@ -715,7 +715,7 @@ function MassImportNotesModal({
             amount: isNaN(amt) ? 0 : amt,
             date: dateStr,
             supplier_name: String(supplierName).trim(),
-            debtor_supplier_name: String(debtorSupplier).trim(),
+            customer_supplier_name: String(customerSupplier).trim(),
             invoice_number: String(invNum).trim(),
           };
         }).filter((r) => r.note_number && r.amount > 0 && r.date);
@@ -750,7 +750,7 @@ function MassImportNotesModal({
           amount: r.amount,
           date: r.date,
           supplier_name: r.supplier_name || null,
-          debtor_supplier_name: r.debtor_supplier_name || null,
+          customer_supplier_name: r.customer_supplier_name || null,
           linked_invoice_number: r.invoice_number || null,
           reason: null,
         })),
@@ -829,7 +829,7 @@ function MassImportNotesModal({
               <code className="font-mono text-primary">date</code>.
               Optional columns:{' '}
               <code className="font-mono text-muted-foreground">supplier_name</code> (links to an existing supplier or creates one),{' '}
-              <code className="font-mono text-muted-foreground">debtor_supplier_name</code>,{' '}
+              <code className="font-mono text-muted-foreground">customer_supplier_name</code>,{' '}
               <code className="font-mono text-muted-foreground">invoice_number</code>.
               Each row becomes a {type} note that takes effect <strong>immediately</strong> — linked invoices are adjusted right away, with no checker or funding-queue step.
             </div>
@@ -872,7 +872,7 @@ function MassImportNotesModal({
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor / Supplier</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer / Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                   </tr>
                 </thead>
@@ -899,7 +899,7 @@ function MassImportNotesModal({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-xs text-muted-foreground">{r.debtor_supplier_name || "—"}</td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground">{r.customer_supplier_name || "—"}</td>
                       <td className="px-5 py-3 text-xs">
                         {r.invoice_number ? (
                           <span className={`font-mono ${r.invoice_found ? "text-primary" : "text-destructive"}`}>

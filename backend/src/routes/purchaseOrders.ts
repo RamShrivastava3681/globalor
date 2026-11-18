@@ -16,7 +16,10 @@ import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { computeOrderTotals } from "../utils/goodsOrders.js";
 import { computeSalesTotals } from "../utils/goodsSales.js";
 import { createActivityAlert } from "../utils/alerts.js";
-import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Debtor, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
+import { scanCustomersMerged, getCustomerById } from "../utils/customers.js";
+import type { PurchaseOrder, POStatus, ProformaStatus, AdvanceSide, Customer, Vendor, Profile, DocMeta, GoodsPurchaseOrder, GoodsPurchaseOrderLine, GoodsSalesOrder, GoodsSalesOrderLine } from "../types/index.js";
 
 const router = Router();
 
@@ -26,10 +29,10 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
     const orders = await scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
 
     // Preload lookup maps to avoid N+1 GetItem calls
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const allCustomers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
     const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
     const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -37,7 +40,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
       .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((po) => ({
         ...po,
-        debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
+        customer: po.customer_id ? customerMap.get(po.customer_id) : undefined,
         vendor: po.vendor_id ? vendorMap.get(po.vendor_id) : undefined,
         client: po.client_id ? profileMap.get(po.client_id) : undefined,
       }));
@@ -81,7 +84,7 @@ router.get("/by-po/:poNumber", requireAuth, async (req: AuthRequest, res: Respon
 // ── POST /api/purchase-orders ──
 const createSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   po_number: z.string().min(1).max(80),
   proforma_number: z.string().min(1).max(80).optional(),
@@ -105,7 +108,7 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
       client_id: req.user!.id,
       company_id: req.user!.company_id,
       side: parsed.side as AdvanceSide,
-      debtor_id: parsed.debtor_id || null,
+      customer_id: parsed.customer_id || null,
       vendor_id: parsed.vendor_id || null,
       po_number: parsed.po_number,
       proforma_number: parsed.proforma_number || null,
@@ -134,6 +137,16 @@ router.post("/", requireAuth, requireWriteAccess("purchase-orders"), async (req:
     };
 
     await putItem(TABLES.PURCHASE_ORDERS, po as any);
+
+    // My Queue: new proforma needs checker review.
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+      doc_id: id, doc_number: po.proforma_number ?? po.po_number, counterparty: null,
+      doc_status: "pending_review", owner_role: "checker",
+      required_action: `Approve ${parsed.side} proforma ${po.proforma_number ?? po.po_number} (checker)`,
+      next_action: "Create order", amount: po.amount,
+    });
+
     res.status(201).json(po);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -165,6 +178,8 @@ router.patch("/:id", requireAuth, requireWriteAccess("purchase-orders"), async (
 router.delete("/:id", requireAuth, requireWriteAccess("purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.PURCHASE_ORDERS, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted proforma.
+    cancelTasksForDoc(req.user!.company_id, "proforma", req.params.id, "Proforma deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete purchase order error:", err);
@@ -175,7 +190,7 @@ router.delete("/:id", requireAuth, requireWriteAccess("purchase-orders"), async 
 // ── POST /api/purchase-orders/batch ── (mass import from Excel)
 const batchProformaSchema = z.object({
   side: z.enum(["sales", "purchase"]),
-  debtor_id: z.string().nullable().optional(),
+  customer_id: z.string().nullable().optional(),
   vendor_id: z.string().nullable().optional(),
   items: z.array(z.object({
     proforma_number: z.string().min(1).max(80),
@@ -203,7 +218,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-orders"), async 
           client_id: req.user!.id,
           company_id: req.user!.company_id,
           side: parsed.side as AdvanceSide,
-          debtor_id: parsed.side === "sales" ? parsed.debtor_id || null : null,
+          customer_id: parsed.side === "sales" ? parsed.customer_id || null : null,
           vendor_id: parsed.side === "purchase" ? parsed.vendor_id || null : null,
           po_number: item.po_number,
           proforma_number: item.proforma_number,
@@ -286,6 +301,30 @@ router.post("/:id/review", requireAuth, requireAnyWriteAccess("purchase-orders",
       updated_at: nowISO(),
     });
 
+    // My Queue: review task done → convert task (approved) or rework (rejected).
+    if (updated) {
+      const u = updated as any;
+      completeTasksForDoc(u.company_id ?? req.user!.company_id, "proforma", req.params.id, req.user!.id, "approve");
+      if (decision === "approved") {
+        ensureTask(u.company_id ?? req.user!.company_id, u.client_id ?? req.user!.id, {
+          workflow_type: "proforma", stage: "convert", doc_type: "proforma",
+          doc_id: req.params.id, doc_number: u.proforma_number ?? u.po_number, counterparty: null,
+          doc_status: "approved", owner_role: u.side === "sales" ? "sales" : "purchase",
+          required_action: `Convert proforma ${u.proforma_number ?? u.po_number} to order`,
+          next_action: "Create order", amount: u.amount,
+        });
+      } else {
+        ensureTask(u.company_id ?? req.user!.company_id, u.client_id ?? req.user!.id, {
+          workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+          doc_id: req.params.id, doc_number: u.proforma_number ?? u.po_number, counterparty: null,
+          doc_status: "rejected", owner_role: u.side === "sales" ? "sales" : "purchase",
+          required_action: `Rework proforma ${u.proforma_number ?? u.po_number} (checker rejected)`,
+          next_action: "Resubmit", amount: u.amount,
+          latest_update: comments ? String(comments).slice(0, 500) : null,
+        });
+      }
+    }
+
     res.json(updated);
   } catch (err) {
     console.error("Review purchase order error:", err);
@@ -334,6 +373,21 @@ router.post("/:id/fund", requireAuth, requireAnyWriteAccess("purchase-orders", "
       notes: null,
     };
     await putItem(TABLES.ADVANCES, advance as any);
+
+    // My Queue: funded proformas leave the funding queue — and, when the
+    // funding completes the approved→funded transition, immediately re-open
+    // the convert task on the maker's desk (order creation is the next hop).
+    completeTasksForDoc(po.company_id, "proforma", po.id, req.user!.id);
+    if (po.proforma_status === "approved" && !po.converted_to) {
+      ensureTask(po.company_id, po.client_id, {
+        workflow_type: "proforma", stage: "convert", doc_type: "proforma",
+        doc_id: po.id, doc_number: po.proforma_number ?? po.po_number, counterparty: null,
+        doc_status: "funded", owner_role: po.side === "sales" ? "sales" : "purchase",
+        required_action: `Convert proforma ${po.proforma_number ?? po.po_number} to order`,
+        next_action: "Create order", amount: po.amount,
+        latest_update: "Advance funded — proforma is ready to convert",
+      });
+    }
 
     res.json({ success: true, advance });
   } catch (err) {
@@ -445,6 +499,17 @@ router.post("/:id/convert-to-po", requireAuth, requireAnyWriteAccess("purchase-o
       created_by: req.user!.id,
     });
 
+    // My Queue: proforma convert task done → the new draft PO needs sending.
+    completeTasksForDoc(proforma.company_id, "proforma", proforma.id, req.user!.id);
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: po.created_by,
+      required_action: `Send purchase order ${po.po_number} to checker`,
+      next_action: "Checker approval", amount: po.grand_total,
+      linked_docs: [{ type: "proforma", id: proforma.id, number: ref }],
+    });
+
     res.status(201).json(po);
   } catch (err) {
     console.error("Convert proforma to PO error:", err);
@@ -491,8 +556,8 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       line_total: Math.round(Number(proforma.amount) * 100) / 100,
     };
     const totals = computeSalesTotals([line], 0);
-    const debtor = proforma.debtor_id
-      ? await getItem(TABLES.DEBTORS, { id: proforma.debtor_id }) as Debtor | undefined
+    const customer = proforma.customer_id
+      ? await getCustomerById(proforma.customer_id)
       : undefined;
 
     const id = generateId();
@@ -502,15 +567,19 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
       company_id: proforma.company_id,
       so_number: generateDocNumber("SO"),
       order_date: now.slice(0, 10),
-      customer_id: proforma.debtor_id ?? null,
-      customer_name: debtor?.name ?? null,
-      contact_person: debtor?.contact_name ?? null,
-      billing_address: debtor?.registered_address ?? null,
+      customer_id: proforma.customer_id ?? null,
+      customer_name: customer?.name ?? null,
+      billing_customer_id: proforma.customer_id ?? null,
+      billing_customer_name: customer?.name ?? null,
+      shipping_customer_id: proforma.customer_id ?? null,
+      shipping_customer_name: customer?.name ?? null,
+      contact_person: customer?.contact_name ?? null,
+      billing_address: defaultCustomerAddressFor(customer, "billing"),
       delivery_address: null,
       salesperson_name: null,
       linked_quotation_id: null,
       linked_quotation_number: null,
-      payment_terms: debtor?.payment_terms_days ? `Net ${debtor.payment_terms_days}` : null,
+      payment_terms: customer?.payment_terms_days ? `Net ${customer.payment_terms_days}` : null,
       expected_dispatch_date: null,
       expected_delivery_date: null,
       notes: `Converted from proforma ${ref}`,
@@ -554,11 +623,22 @@ router.post("/:id/convert-to-so", requireAuth, requireAnyWriteAccess("purchase-o
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: proforma.debtor_id ?? undefined,
+      customer_id: proforma.customer_id ?? undefined,
       type: "sales_order_created",
       severity: "info",
       message: `Sales order ${so.so_number} created from proforma ${ref}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: proforma convert task done → the new draft SO needs sending.
+    completeTasksForDoc(proforma.company_id, "proforma", proforma.id, req.user!.id);
+    ensureTask(so.company_id, so.client_id, {
+      workflow_type: "sales_order", stage: "submit", doc_type: "sales_order",
+      doc_id: so.id, doc_number: so.so_number, counterparty: so.customer_name,
+      doc_status: "draft", owner_role: "sales", assigned_user: so.created_by,
+      required_action: `Send sales order ${so.so_number} to warehouse`,
+      next_action: "Warehouse approval", amount: so.grand_total,
+      linked_docs: [{ type: "proforma", id: proforma.id, number: ref }],
     });
 
     res.status(201).json(so);

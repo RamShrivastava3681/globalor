@@ -15,6 +15,7 @@ import { generateMovementNumber, computeLiveStock } from "../utils/stock.js";
 import { recomputeSoDispatchedQuantities, roundQty } from "../utils/goodsSales.js";
 import { triggerForecastRecompute } from "../utils/forecast.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import type {
   GoodsDispatch, GoodsDispatchLine, GoodsDispatchStatus,
   GoodsSalesOrder, StockMovement, Product,
@@ -160,7 +161,11 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       return;
     }
     if (so.status === "draft") {
-      res.status(400).json({ error: "Confirm the sales order before dispatching goods" });
+      res.status(400).json({ error: "Send the sales order for approval before dispatching goods" });
+      return;
+    }
+    if (so.status === "pending_warehouse_approval" || so.status === "pending_checker_approval") {
+      res.status(400).json({ error: `Sales order ${so.so_number} is awaiting approval (${so.status === "pending_warehouse_approval" ? "warehouse" : "checker"}) — dispatch unblocks once approved` });
       return;
     }
     if (so.status === "fully_dispatched") {
@@ -192,6 +197,9 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       goods_sales_order_id: so.id,
       so_number: so.so_number,
       customer_name: so.customer_name,
+      billing_customer_name: (so as any).billing_customer_name ?? so.customer_name,
+      billing_address: so.billing_address,
+      shipping_customer_name: (so as any).shipping_customer_name ?? so.customer_name,
       contact_person: so.contact_person,
       delivery_address: so.delivery_address,
       warehouse: parsed.warehouse || null,
@@ -230,6 +238,16 @@ router.post("/", requireAuth, requireWriteAccess("goods-sales-orders"), async (r
       created_by: req.user!.id,
     });
 
+    // My Queue: draft dispatch needs confirmation.
+    ensureTask(dispatch.company_id, dispatch.client_id, {
+      workflow_type: "dispatch", stage: "confirm", doc_type: "dispatch",
+      doc_id: dispatch.id, doc_number: dispatch.dispatch_number, counterparty: dispatch.customer_name,
+      doc_status: "draft", owner_role: "warehouse", assigned_user: dispatch.created_by,
+      required_action: `Confirm dispatch ${dispatch.dispatch_number}`,
+      next_action: "Mark delivered",
+      linked_docs: [{ type: "sales_order", id: so.id, number: so.so_number }],
+    });
+
     res.status(201).json(dispatch);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -264,7 +282,11 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-sales-orders"
       return;
     }
     if (so.status === "draft") {
-      res.status(400).json({ error: "Confirm the sales order before dispatching goods" });
+      res.status(400).json({ error: "Send the sales order for approval before dispatching goods" });
+      return;
+    }
+    if (so.status === "pending_warehouse_approval" || so.status === "pending_checker_approval") {
+      res.status(400).json({ error: `Sales order ${so.so_number} is awaiting approval (${so.status === "pending_warehouse_approval" ? "warehouse" : "checker"}) — dispatch unblocks once approved` });
       return;
     }
     if (so.status === "fully_dispatched") {
@@ -361,6 +383,9 @@ router.post("/:id/confirm", requireAuth, requireWriteAccess("goods-sales-orders"
       message: `Dispatch ${dispatch.dispatch_number} confirmed — ${createdMovements.reduce((s, m) => s + m.quantity, 0)} units dispatched against ${so.so_number}`,
       created_by: req.user!.id,
     });
+
+    // My Queue: confirmed dispatches leave the queue.
+    completeTasksForDoc(dispatch.company_id, "dispatch", dispatch.id, req.user!.id);
 
     res.json({ ...confirmed, movements_created: createdMovements.length, stock_warning: stockWarning });
   } catch (err) {

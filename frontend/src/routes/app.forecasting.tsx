@@ -69,7 +69,7 @@ function velocityTone(v: Fv["velocity"]) {
   return v === "fast_mover" ? "border-success/50 text-success" : v === "dead" ? "border-destructive/50 text-destructive" : v === "medium_mover" ? "border-primary/40 text-primary" : "border-warning/50 text-warning";
 }
 
-function ForecastingPage() {
+export function ForecastingPage() {
   const { canWrite } = useAuth();
   const canRecompute = canWrite("products");
   const qc = useQueryClient();

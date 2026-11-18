@@ -1,12 +1,12 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api, getToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, BellRing, Banknote } from "lucide-react";
+import { PageHeader, Card, StatusPill, Stat, fmtMoney, fmtDate, daysBetween, getEffectiveDueDate } from "@/components/ledger-ui";
+import { Plus, X, Loader2, Link2, Send, Copy, Trash2, Save, Eye, FileText, Building2, Package, Download, ArrowUpDown, Upload, Printer, AlertTriangle, Search, LayoutDashboard, PenLine, List, BarChart3, AlertCircle, Clock, Lock, CheckCircle, SendHorizonal, BellRing } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import * as XLSX from "xlsx";
@@ -14,25 +14,37 @@ import jsPDF from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);
 import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
+import { defaultAddressFor } from "@/lib/customerAddresses";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
+import { DocActions } from "@/components/workflow/doc-actions";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
 export const Route = createFileRoute("/app/invoices")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string | undefined; createFromSo?: string | undefined; utrFor?: string | undefined; fromQueue?: string | undefined } => ({
     tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
+    createFromSo: (search.createFromSo as string) || undefined,
+    utrFor: (search.utrFor as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
   }),
   component: InvoicesPage,
 });
 
-function InvoicesPage() {
-  const { view, tab } = Route.useSearch();
+export function InvoicesPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromSo?: string; utrFor?: string; fromQueue?: string } });
+  const routeTab = (routerSearch as any)?.tab as string | undefined;
+  const routeView = (routerSearch as any)?.view as string | undefined;
+  const routeCreateFromSo = embedded ? undefined : ((routerSearch as any)?.createFromSo as string | undefined);
+  const routeUtrFor = embedded ? undefined : ((routerSearch as any)?.utrFor as string | undefined);
+  const [localTab, setLocalTab] = useState<string | null>(null);
+  const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
+  const view = embedded ? undefined : routeView;
   const navigate = useNavigate();
   const { isAdmin, isChecker, isClient, isTreasury, isOperations, user, canWrite } = useAuth();
-  const canReview = isAdmin || isChecker;
   const canCreate = canWrite("invoices");
   const canEdit = canWrite("invoices");
   const qc = useQueryClient();
@@ -54,20 +66,22 @@ function InvoicesPage() {
   const [bulkSearchOpen, setBulkSearchOpen] = useState(false);
   const [confirmSendTarget, setConfirmSendTarget] = useState<{ id: string; number: string } | null>(null);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
-  const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
 
-  // All invoices query for dashboard stats
+  // Compact stats query for the dashboard tab + review-all-drafts. The old
+  // call fetched the fully-enriched invoice list (5 backend scans + documents
+  // and line items per row); /invoices/stats scans only the invoices table
+  // and returns the handful of fields the dashboard actually uses.
   const allInvoicesQ = useQuery({
-    queryKey: ["invoices", "all"],
-    queryFn: async () => (await api.get<any[]>("/invoices")) ?? [],
+    queryKey: ["invoices", "stats"],
+    queryFn: async () => (await api.get<any[]>("/invoices/stats")) ?? [],
   });
   const allInvoices = allInvoicesQ.data ?? [];
 
-  // Dashboard stats
+  // Dashboard stats (same shape as before — stats rows keep amount/status fields)
   const dashboardStats = useMemo(() => {
     const inv = allInvoices;
     const total = inv.length;
-    const totalAmount = inv.reduce((s: number, i: any) => s + Number(i.amount), 0);
+    const totalAmount = inv.reduce((s: number, i: any) => s + Number(i.amount ?? 0), 0);
     const draft = inv.filter((i: any) => i.status === "draft");
     const draftAmount = draft.reduce((s: number, i: any) => s + Number(i.amount), 0);
     const submitted = inv.filter((i: any) => i.status === "submitted");
@@ -96,7 +110,13 @@ function InvoicesPage() {
     };
   }, [allInvoices]);
 
-  const setTab = (t: string) => navigate({ to: "/app/invoices", search: { tab: t, view: undefined }, replace: true });
+  const setTab = (t: string) => {
+    if (embedded) {
+      setLocalTab(t);
+      return;
+    }
+    navigate({ to: "/app/invoices", search: { tab: t, view: undefined }, replace: true });
+  };
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -147,9 +167,9 @@ function InvoicesPage() {
     }).filter((item) => item.qty > 0).sort((a, b) => a.sku.localeCompare(b.sku));
   }, [stockMovementsQ.data]);
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
@@ -171,7 +191,7 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const remindDebtor = useMutation({
+  const remindCustomer = useMutation({
     mutationFn: async (id: string) => {
       await api.post(`/invoices/${id}/remind`);
     },
@@ -200,6 +220,7 @@ function InvoicesPage() {
     onSuccess: () => {
       toast.success("Invoice sent to checker for review");
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -212,6 +233,7 @@ function InvoicesPage() {
       toast.success(`${selectedIds.size} invoice${selectedIds.size !== 1 ? "s" : ""} sent to checker for review`);
       setSelectedIds(new Set());
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -281,10 +303,42 @@ function InvoicesPage() {
             // silently fail — invoice may have been deleted
           }
         }
-        navigate({ to: "/app/invoices", search: { view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/invoices", search: { tab, view: undefined }, replace: true });
+        }
       })();
     }
   }, [view]);
+
+  // Deep-link from My Queue: ?createFromSo=<soId> auto-opens the
+  // "Invoice from sales order" modal with that order preselected.
+  useEffect(() => {
+    if (routeCreateFromSo && !embedded) {
+      setSoInvoiceOpen(true);
+    }
+  }, [routeCreateFromSo, embedded]);
+
+  // Deep-link from My Queue: ?utrFor=<invoiceId> opens the invoice detail
+  // (record UTR / payment actions live there).
+  useEffect(() => {
+    if (routeUtrFor && !embedded) {
+      (async () => {
+        const found = invoiceData.find((i: any) => i.id === routeUtrFor);
+        if (found) {
+          setViewing(found);
+        } else {
+          try {
+            const match = await api.get<any>("/invoices/" + routeUtrFor);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        navigate({ to: "/app/invoices", search: { tab, utrFor: undefined }, replace: true });
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeUtrFor]);
 
   // All filtering is now server-side — the data is already filtered before pagination
 
@@ -353,7 +407,7 @@ function InvoicesPage() {
       {tab === "list" && (
         <div className="p-6 md:p-10 space-y-4">
         <FilterBar
-          searchPlaceholder="Search invoices by number, debtor, PO…"
+          searchPlaceholder="Search invoices by number, customer, PO…"
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           statusOptions={[
@@ -442,7 +496,7 @@ function InvoicesPage() {
                     </th>
                     <th className="px-5 py-2 text-left font-normal">UID</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice Number</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Invoice Amount</th>
                     <th className="px-5 py-2 text-right font-normal">Received</th>
@@ -458,7 +512,8 @@ function InvoicesPage() {
                 </thead>
                 <tbody>
                   {invoiceData.map((i: any) => {
-                    const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
+                    const effDue = getEffectiveDueDate(i) ?? i.due_date;
+                    const dpd = effDue && i.status !== "paid" ? daysBetween(effDue) : 0;
                     const lateDays = i.status === "paid"
                       ? (i.late_days != null ? Number(i.late_days) : 0)
                       : Math.max(0, dpd);
@@ -477,17 +532,17 @@ function InvoicesPage() {
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.po_number && <div className="text-[10px] text-muted-foreground">PO {i.po_number}{i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}</div>}
                           {i.purchase && (
-                            <Link to="/app/purchases" search={{ view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+                            <Link to="/app/purchases" search={{ tab: "list", view: i.purchase.id }} className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
                               <Link2 className="h-2.5 w-2.5" /> {i.purchase.invoice_number} · {i.purchase.vendor?.name ?? ""}
                             </Link>
                           )}
                         </td>
-                        <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{i.customer?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
                         <td className="px-5 py-3 text-right num text-muted-foreground">{i.amount_received != null ? fmtMoney(i.amount_received) : "—"}</td>
                         <td className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}>{i.short_payment != null ? fmtMoney(i.short_payment) : "—"}</td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(getEffectiveDueDate(i) ?? i.due_date)}</td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             i.has_contractual_due_date ? "border-success/50 text-success" : "border-border text-muted-foreground"
@@ -551,29 +606,18 @@ function InvoicesPage() {
                               </span>
                             )}
                             {isAdmin && i.status === "pending" && (
-                              canReview ? (
-                                <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
-                              ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
-                              )
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker — see Checker tab</span>
                             )}
                             {isAdmin && (i.status === "approved" || i.status === "advanced" || i.status === "funded") && (
                               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
                             )}
                             {(isAdmin || isTreasury || isChecker) && ["approved", "advanced", "funded", "overdue"].includes(i.status) && (
-                              <>
-                                <button onClick={() => remindDebtor.mutate(i.id)}
-                                  disabled={remindDebtor.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                  title="Email an overdue reminder to the debtor">
-                                  <BellRing className="h-3 w-3" /> Remind
-                                </button>
-                                <button onClick={() => setPaymentTarget(i)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
-                                  title="Record a payment against this invoice">
-                                  <Banknote className="h-3 w-3" /> Record payment
-                                </button>
-                              </>
+                              <button onClick={() => remindCustomer.mutate(i.id)}
+                                disabled={remindCustomer.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-warning/50 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
+                                title="Email an overdue reminder to the customer">
+                                <BellRing className="h-3 w-3" /> Remind
+                              </button>
                             )}
                             {isAdmin && i.status === "paid" && (
                               <span className="text-[10px] uppercase tracking-widest text-success">Closed</span>
@@ -662,19 +706,25 @@ function InvoicesPage() {
       </div>
       )}
 
-      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} debtors={debtorsQ.data ?? []} />}
+      {importOpen && <MassImportModal onClose={() => setImportOpen(false)} customers={customersQ.data ?? []} />}
 
-      {soInvoiceOpen && <CreateFromSoModal onClose={() => setSoInvoiceOpen(false)} />}
-
-      {paymentTarget && (
-        <RecordPaymentModal
-          invoice={paymentTarget}
-          onClose={() => setPaymentTarget(null)}
-          onRecorded={() => { qc.invalidateQueries({ queryKey: ["invoices"] }); setPaymentTarget(null); }}
+      {soInvoiceOpen && (
+        <CreateFromSoModal
+          presetSoId={(routerSearch as any)?.createFromSo}
+          onClose={() => {
+            setSoInvoiceOpen(false);
+            if (embedded) return;
+            if ((routerSearch as any)?.fromQueue) {
+              // Queue-driven flow: return to My Queue (task auto-completes server-side).
+              navigate({ to: "/app/tasks", replace: true });
+            } else if ((routerSearch as any)?.createFromSo) {
+              navigate({ to: "/app/invoices", search: { tab, createFromSo: undefined }, replace: true });
+            }
+          }}
         />
       )}
 
-      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} debtors={debtorsQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
+      {open && <InvoiceFormModal editing={editing} onClose={() => { setOpen(false); setEditing(null); }} customers={customersQ.data ?? []} purchases={purchasesQ.data ?? []} availableInventory={availableInventory} />}
 
       {viewing && (
         <InvoiceDetailModal
@@ -736,25 +786,25 @@ function InvoicesPage() {
 function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const { isAdmin } = useAuth();
 
-  // Buyer/debtor filter state
-  const [selectedDebtorId, setSelectedDebtorId] = useState<string>("");
+  // Buyer/customer filter state
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
 
-  // Get unique debtors from invoices for the filter dropdown
-  const debtors = useMemo(() => {
+  // Get unique customers from invoices for the filter dropdown
+  const customers = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.debtor_id && inv.debtor?.name) {
-        map.set(inv.debtor_id, { id: inv.debtor_id, name: inv.debtor.name });
+      if (inv.customer_id && inv.customer_name) {
+        map.set(inv.customer_id, { id: inv.customer_id, name: inv.customer_name });
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [invoices]);
 
-  // Filter invoices by selected debtor
+  // Filter invoices by selected customer
   const filteredInvoices = useMemo(() => {
-    if (!selectedDebtorId) return invoices;
-    return invoices.filter((i: any) => i.debtor_id === selectedDebtorId);
-  }, [invoices, selectedDebtorId]);
+    if (!selectedCustomerId) return invoices;
+    return invoices.filter((i: any) => i.customer_id === selectedCustomerId);
+  }, [invoices, selectedCustomerId]);
 
   // Recompute stats locally based on filtered invoices
   const localStats = useMemo(() => {
@@ -789,7 +839,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     };
   }, [filteredInvoices]);
 
-  const displayStats = selectedDebtorId ? localStats : stats;
+  const displayStats = selectedCustomerId ? localStats : stats;
 
   // Chart data: monthly aggregation of invoices
   const chartData = useMemo(() => {
@@ -819,10 +869,10 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
     return { counts, amounts };
   }, [filteredInvoices]);
 
-  const topDebtors = useMemo(() => {
+  const topCustomers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.debtor?.name || "Unknown";
+      const name = inv.customer_name || inv.customer?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);
@@ -850,7 +900,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BarChart3 className="mb-4 h-12 w-12 text-muted-foreground/30" />
         <h3 className="text-lg font-medium text-foreground">No invoices yet</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{selectedDebtorId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{selectedCustomerId ? "No invoices found for this buyer." : "Create your first invoice to see dashboard stats."}</p>
       </div>
     );
   }
@@ -862,26 +912,26 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
           <select
-            value={selectedDebtorId}
-            onChange={(e) => setSelectedDebtorId(e.target.value)}
+            value={selectedCustomerId}
+            onChange={(e) => setSelectedCustomerId(e.target.value)}
             className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
             <option value="">All Buyers</option>
-            {debtors.map((d) => (
+            {customers.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
         </div>
-        {selectedDebtorId && (
+        {selectedCustomerId && (
           <button
-            onClick={() => setSelectedDebtorId("")}
+            onClick={() => setSelectedCustomerId("")}
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
             Clear filter
           </button>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {selectedDebtorId ? (
+          {selectedCustomerId ? (
             <>{filteredInvoices.length} invoices · {fmtMoney(displayStats.totalAmount)}</>
           ) : (
             <>{invoices.length} invoices total</>
@@ -1044,12 +1094,12 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
           </div>
         </Card>
 
-        <Card title="Top Debtors by Volume">
+        <Card title="Top Customers by Volume">
           <div className="space-y-3">
-            {topDebtors.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No debtor data yet.</div>
+            {topCustomers.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No customer data yet.</div>
             ) : (
-              topDebtors.map((d) => (
+              topCustomers.map((d) => (
                 <div key={d.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1088,7 +1138,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                    <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                    <th className="px-6 py-3 text-left font-normal">Customer</th>
                     <th className="px-6 py-3 text-right font-normal">Amount</th>
                     <th className="px-6 py-3 text-right font-normal">Days Overdue</th>
                     <th className="px-6 py-3 text-left font-normal">Due Date</th>
@@ -1099,7 +1149,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                      <td className="px-6 py-3">{i.customer_name || i.customer?.name || "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -1136,7 +1186,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
             <thead className="text-xs uppercase tracking-widest text-muted-foreground">
               <tr className="border-b border-border">
                 <th className="px-6 py-3 text-left font-normal">Invoice</th>
-                <th className="px-6 py-3 text-left font-normal">Debtor</th>
+                <th className="px-6 py-3 text-left font-normal">Customer</th>
                 <th className="px-6 py-3 text-right font-normal">Amount</th>
                 <th className="px-6 py-3 text-left font-normal">Status</th>
                 <th className="px-6 py-3 text-left font-normal">Created</th>
@@ -1146,7 +1196,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.debtor?.name ?? "—"}</td>
+                  <td className="px-6 py-3">{i.customer_name || i.customer?.name || "—"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
@@ -1170,7 +1220,7 @@ function CreateInvoiceView() {
 
   const [form, setForm] = useState({
     invoice_number: "",
-    debtor_id: "",
+    customer_id: "",
     amount: "",
     issue_date: new Date().toISOString().slice(0, 10),
     due_date: "",
@@ -1185,22 +1235,46 @@ function CreateInvoiceView() {
   const [invEnabled, setInvEnabled] = useState(false);
   const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
-  const [hasDueDate, setHasDueDate] = useState(true);
 
   const stockMovementsQ = useQuery({
     queryKey: ["stock_movements"],
     queryFn: async () => (await api.get<any[]>("/stock-movements")) ?? [],
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
   });
 
   const purchasesQ = useQuery({
     queryKey: ["purchases-for-link"],
     queryFn: async () => (await api.get<any[]>("/purchase-invoices/mini")) ?? [],
   });
+
+  // ── Optional sales-order link ──
+  // Picking an SO fetches customer, amount and payment terms from it. Leaving
+  // it empty keeps the fully manual flow — linking is never required.
+  const soQ = useQuery({
+    queryKey: ["goods_so_for_invoice"],
+    queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const invoicableSos = useMemo(() => ((soQ.data ?? []) as any[])
+    .filter((so: any) => ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id)
+    .sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || "")), [soQ.data]);
+  const [linkedSoId, setLinkedSoId] = useState("");
+  const linkedSo = useMemo(() => ((soQ.data ?? []) as any[]).find((s: any) => s.id === linkedSoId) ?? null, [soQ.data, linkedSoId]);
+  const applySo = (so: any) => {
+    setLinkedSoId(so.id);
+    setForm((prev: any) => {
+      const next: any = { ...prev, amount: so.grand_total != null ? String(so.grand_total) : prev.amount };
+      if (so.customer_id) next.customer_id = so.customer_id;
+      const m = /net\s*(\d+)/i.exec(so.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+  const clearSo = () => setLinkedSoId("");
 
   const availableInventory = useMemo(() => {
     const m = new Map<string, { sku: string; item_name: string; unit: string; qty: number; inQty: number; inValue: number }>();
@@ -1245,8 +1319,8 @@ function CreateInvoiceView() {
   useEffect(() => {
     if (poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
-      if (salesPf?.debtor_id && !form.debtor_id) {
-        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      if (salesPf?.customer_id && !form.customer_id) {
+        setForm((prev: any) => ({ ...prev, customer_id: salesPf.customer_id }));
       }
     }
   }, [poLookupQ.data]);
@@ -1263,20 +1337,21 @@ function CreateInvoiceView() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please select a debtor first.");
+      if (!form.customer_id) throw new Error("Please select a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
         issue_date: form.issue_date,
-        due_date: hasDueDate ? effectiveDue : null,
+        due_date: effectiveDue || computedDue,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         purchase_invoice_id: form.purchase_invoice_id || null,
+        goods_sales_order_id: linkedSoId || null,
         documents: docs,
       };
       if (invEnabled) {
@@ -1301,12 +1376,13 @@ function CreateInvoiceView() {
       toast.success("Invoice created as draft. Review it in All Invoices before sending to checker.");
       // Reset form
       setForm({
-        invoice_number: "", debtor_id: "", amount: "",
+        invoice_number: "", customer_id: "", amount: "",
         issue_date: new Date().toISOString().slice(0, 10),
         due_date: "", payment_terms_days: "30",
         bl_date: "", due_date_source: "invoice",
         po_number: "", po_date: "", purchase_invoice_id: "",
       });
+      setLinkedSoId("");
       setDocs([]);
       setInvItems([]);
       setInvEnabled(false);
@@ -1330,13 +1406,77 @@ function CreateInvoiceView() {
         <h2 className="font-display text-xl font-semibold">New Sales Invoice</h2>
       </div>
 
-      {debtorsQ.data?.length === 0 && (
+      {customersQ.data?.length === 0 && (
         <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-          No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+          No customers exist yet. Ask your factor admin to add one in the Customers tab.
         </div>
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div>
+          <div className="mb-2 text-xs uppercase tracking-widest text-primary">Sales order (optional)</div>
+          <Field label="Link sales order — fetches customer, amount & payment terms">
+            <select
+              className="inp"
+              value={linkedSoId}
+              onChange={(e) => {
+                const so = invoicableSos.find((s: any) => s.id === e.target.value);
+                if (so) applySo(so);
+                else clearSo();
+              }}
+            >
+              <option value="">— No link — enter manually —</option>
+              {invoicableSos.map((so: any) => (
+                <option key={so.id} value={so.id}>
+                  {so.so_number} — {so.customer_name || "no customer"} · {fmtMoney(so.grand_total)} ({String(so.status).replace(/_/g, " ")})
+                </option>
+              ))}
+            </select>
+          </Field>
+          {linkedSo && (
+            <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-mono font-medium">{linkedSo.so_number}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {linkedSo.customer_name ?? ""} · {linkedSo.lines?.length ?? 0} line{(linkedSo.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedSo.grand_total)}
+                  </span>
+                </div>
+                <button type="button" onClick={clearSo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                  Unlink
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Customer, amount{linkedSo.payment_terms ? " and payment terms" : ""} filled from the SO — you can still edit them below.
+              </p>
+              {Array.isArray(linkedSo.lines) && linkedSo.lines.length > 0 && (
+                <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-border bg-background/60">
+                  <table className="w-full text-[11px]">
+                    <thead className="sticky top-0 bg-background text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-2 py-1 text-left font-normal">Item</th>
+                        <th className="px-2 py-1 text-right font-normal">Qty</th>
+                        <th className="px-2 py-1 text-right font-normal">Unit price</th>
+                        <th className="px-2 py-1 text-right font-normal">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedSo.lines.map((l: any, i: number) => (
+                        <tr key={i} className="border-b border-border/40">
+                          <td className="px-2 py-1">{l.name} <span className="font-mono text-muted-foreground">{l.sku}</span></td>
+                          <td className="px-2 py-1 text-right num">{Number(l.ordered_qty).toLocaleString()} {l.unit}</td>
+                          <td className="px-2 py-1 text-right num">{fmtMoney(l.unit_price)}</td>
+                          <td className="px-2 py-1 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div>
           <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order</div>
           <div className="grid grid-cols-2 gap-3">
@@ -1363,10 +1503,13 @@ function CreateInvoiceView() {
         )}
 
         <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-        <Field label="Debtor">
-          <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-            <option value="">Select debtor</option>
-            {debtorsQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        <Field label="Customer">
+          <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+            <option value="">Select customer</option>
+            {customersQ.data?.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {linkedSo?.customer_id && !(customersQ.data ?? []).some((d: any) => d.id === linkedSo.customer_id) && (
+              <option value={linkedSo.customer_id}>{linkedSo.customer_name ?? "SO customer"}</option>
+            )}
           </select>
         </Field>
         <Field label="Total invoice amount (USD)"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
@@ -1386,16 +1529,8 @@ function CreateInvoiceView() {
         <div className="grid grid-cols-2 gap-3">
           <Field label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
             <div className="space-y-2">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input type="checkbox" checked={hasDueDate} onChange={(e) => {
-                  const v = e.target.checked;
-                  setHasDueDate(v);
-                  if (!v) setForm({ ...form, due_date: "" });
-                  else setForm({ ...form, due_date: computedDue });
-                }} />
-                Enable due date
-              </label>
-              {hasDueDate && <input type="date" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />}
+              <input type="date" required value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="inp" />
+              <p className="text-[10px] text-muted-foreground">Required — always issue_date + payment terms (default 30 days).</p>
             </div>
           </Field>
           <Field label="Link to purchase invoice (optional)">
@@ -1476,7 +1611,7 @@ function CreateInvoiceView() {
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={() => {
             setForm({
-              invoice_number: "", debtor_id: "", amount: "",
+              invoice_number: "", customer_id: "", amount: "",
               issue_date: new Date().toISOString().slice(0, 10),
               due_date: "", payment_terms_days: "30",
               bl_date: "", due_date_source: "invoice",
@@ -1527,7 +1662,7 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     const grandTotal = subtotal + vat - discount;
 
     const logo = await logoPromise;
-    const debtor = invoice.debtor;
+    const customer = invoice.customer;
     const client = invoice.client;
 
     // ── Page counter ──
@@ -1580,8 +1715,8 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
 
       const footerLines = [
         client?.company_name || "Company Name",
-        debtor?.registered_address || "",
-        `Phone: ${debtor?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${debtor?.website || "—"}`,
+        customer?.registered_address || defaultAddressFor(customer, "billing") || "",
+        `Phone: ${customer?.contact_phone || "—"}  ·  Email: ${client?.email || "—"}  ·  Web: ${customer?.website || "—"}`,
       ];
 
       footerLines.forEach((line, i) => {
@@ -1612,8 +1747,8 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(30, 41, 59);
-    const custName = debtor?.name || "—";
-    const custAddr = debtor?.registered_address || "";
+    const custName = customer?.name || "—";
+    const custAddr = customer?.registered_address || defaultAddressFor(customer, "billing") || "";
     const custLines = [custName, custAddr].filter(Boolean);
     custLines.forEach((line) => {
       doc.text(line, margin, y);
@@ -1654,8 +1789,8 @@ async function exportSalesInvoicePdf(invoice: any, inventoryItems?: any[]) {
     addField("Issue Date", invoice.issue_date);
     addField("Delivery Date", invoice.bl_date);
     addField("Sales Date", invoice.issue_date);
-    addField("Due Date", invoice.due_date);
-    addField("Payment Terms", invoice.payment_terms_days ? `${invoice.payment_terms_days}d net` : null);
+    addField("Due Date", getEffectiveDueDate(invoice) ?? invoice.due_date ?? invoice.issue_date);
+    addField("Payment Terms", `${Number(invoice.payment_terms_days) > 0 ? Number(invoice.payment_terms_days) : 30}d net`);
     addField("Currency", "USD");
     addField("Incoterm", null);
     addField("Shipping Route", null);
@@ -1917,11 +2052,11 @@ function NoaBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
 }
 
-function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInventory }: { editing: any | null; onClose: () => void; debtors: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }> }) {
+function InvoiceFormModal({ editing, onClose, customers, purchases, availableInventory }: { editing: any | null; onClose: () => void; customers: any[]; purchases: any[]; availableInventory: Array<{ sku: string; item_name: string; unit: string; qty: number; value: number }> }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
-    debtor_id: editing?.debtor_id ?? "",
+    customer_id: editing?.customer_id ?? "",
     amount: String(editing?.amount ?? ""),
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
@@ -1938,13 +2073,8 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
   const [invSearch, setInvSearch] = useState("");
   const [invItems, setInvItems] = useState<Array<{ item_name: string; sku: string; quantity: string; unit: string; unit_cost: string }>>([]);
 
-  const [hasDueDate, setHasDueDate] = useState(() => {
-    if (editing?.due_date) return true;
-    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
-    const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
-    return !!base;
-  });
-
+  // Due date is mandatory — always auto-computed from issue date + terms (default 30),
+  // unless manually overridden. Never saved as null.
   // Track whether the user has manually overridden the auto-computed due date
   const [isDueDateOverridden, setIsDueDateOverridden] = useState(() => {
     if (!editing?.due_date) return false;
@@ -1996,11 +2126,35 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     },
   });
 
+  // ── Optional sales-order link (create mode) ──
+  // Picking an SO fetches customer, amount and payment terms from it. Leaving
+  // it empty keeps the fully manual flow — linking is never required.
+  const soLinkQ = useQuery({
+    queryKey: ["goods_so_for_invoice_modal"],
+    queryFn: async () => (await api.get<any[]>("/goods-sales-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const invoicableSosModal = useMemo(() => ((soLinkQ.data ?? []) as any[])
+    .filter((so: any) => ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id)
+    .sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || "")), [soLinkQ.data]);
+  const [linkedSoIdModal, setLinkedSoIdModal] = useState("");
+  const linkedSoModal = useMemo(() => ((soLinkQ.data ?? []) as any[]).find((s: any) => s.id === linkedSoIdModal) ?? null, [soLinkQ.data, linkedSoIdModal]);
+  const applySoModal = (so: any) => {
+    setLinkedSoIdModal(so.id);
+    setForm((prev: any) => {
+      const next: any = { ...prev, amount: so.grand_total != null ? String(so.grand_total) : prev.amount };
+      if (so.customer_id) next.customer_id = so.customer_id;
+      const m = /net\s*(\d+)/i.exec(so.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!editing && poLookupQ.data?.proformas) {
       const salesPf = poLookupQ.data.proformas.find((p: any) => p.side === "sales");
-      if (salesPf?.debtor_id && !form.debtor_id) {
-        setForm((prev: any) => ({ ...prev, debtor_id: salesPf.debtor_id }));
+      if (salesPf?.customer_id && !form.customer_id) {
+        setForm((prev: any) => ({ ...prev, customer_id: salesPf.customer_id }));
       }
     }
   }, [poLookupQ.data]);
@@ -2013,25 +2167,26 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
     d.setDate(d.getDate() + termsDays);
     return d.toISOString().slice(0, 10);
   })();
-  // Always show computedDue when hasDueDate is true, unless manually overridden
-  const effectiveDue = hasDueDate ? (isDueDateOverridden ? form.due_date : computedDue) : "";
+  // Always show computedDue unless manually overridden
+  const effectiveDue = isDueDateOverridden ? form.due_date : computedDue;
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.debtor_id) throw new Error("Please add a debtor first.");
+      if (!form.customer_id) throw new Error("Please add a customer first.");
       const payload: any = {
-        debtor_id: form.debtor_id,
+        customer_id: form.customer_id,
         invoice_number: form.invoice_number,
         amount: Number(form.amount),
         fee_rate: 0,
         issue_date: form.issue_date,
-        due_date: hasDueDate ? (isDueDateOverridden ? form.due_date : computedDue) : null,
+        due_date: isDueDateOverridden ? form.due_date : computedDue,
         payment_terms_days: Number(form.payment_terms_days) || 30,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         purchase_invoice_id: form.purchase_invoice_id || null,
+        goods_sales_order_id: !editing ? (linkedSoIdModal || null) : undefined,
         documents: docs,
       };
       if (!editing && invEnabled) {
@@ -2071,9 +2226,56 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
-          {debtors.length === 0 && (
+          {customers.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-              No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+              No customers exist yet. Ask your factor admin to add one in the Customers tab.
+            </div>
+          )}
+          {!editing && (
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Sales order (optional)</div>
+              <Field label="Link sales order — fetches customer, amount & payment terms">
+                <select
+                  className="inp"
+                  value={linkedSoIdModal}
+                  onChange={(e) => {
+                    const so = invoicableSosModal.find((s: any) => s.id === e.target.value);
+                    if (so) applySoModal(so);
+                    else setLinkedSoIdModal("");
+                  }}
+                >
+                  <option value="">— No link — enter manually —</option>
+                  {invoicableSosModal.map((so: any) => (
+                    <option key={so.id} value={so.id}>
+                      {so.so_number} — {so.customer_name || "no customer"} · {fmtMoney(so.grand_total)} ({String(so.status).replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {linkedSoModal && (
+                <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-medium">{linkedSoModal.so_number}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {linkedSoModal.customer_name ?? ""} · {linkedSoModal.lines?.length ?? 0} line{(linkedSoModal.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedSoModal.grand_total)}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => setLinkedSoIdModal("")} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                      Unlink
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Customer, amount{linkedSoModal.payment_terms ? " and payment terms" : ""} filled from the SO — you can still edit them below.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {editing?.goods_sales_order_id && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <span className="uppercase tracking-widest text-success">Linked sales order</span>
+              <span className="ml-2 font-mono">{editing.goods_sales_order_number ?? editing.goods_sales_order_id}</span>
             </div>
           )}
           <div>
@@ -2102,10 +2304,10 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           )}
 
           <Field label="Invoice number"><input required value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} className="inp" placeholder="INV-00123" /></Field>
-          <Field label="Debtor">
-            <select required value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })} className="inp">
-              <option value="">Select debtor</option>
-              {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          <Field label="Customer">
+            <select required value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })} className="inp">
+              <option value="">Select customer</option>
+              {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Total invoice amount (USD)">
@@ -2142,33 +2344,22 @@ function InvoiceFormModal({ editing, onClose, debtors, purchases, availableInven
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Due date (auto: ${termsDays}d net from ${form.due_date_source === "bl" ? "BL" : "invoice"} date)`}>
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input type="checkbox" checked={hasDueDate} onChange={(e) => {
-                    const v = e.target.checked;
-                    setHasDueDate(v);
-                    setIsDueDateOverridden(false);
-                    if (!v) setForm({ ...form, due_date: "" });
-                    else setForm({ ...form, due_date: "" });
-                  }} />
-                  Enable due date
-                </label>
-                {hasDueDate && (
-                  <div className="flex items-center gap-2">
-                    <input type="date" value={effectiveDue} onChange={(e) => {
-                      setIsDueDateOverridden(true);
-                      setForm({ ...form, due_date: e.target.value });
-                    }} className="inp flex-1" />
-                    {isDueDateOverridden && (
-                      <button type="button" onClick={() => {
-                        setIsDueDateOverridden(false);
-                        setForm({ ...form, due_date: "" });
-                      }}
-                        className="shrink-0 rounded-md border border-border px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-primary transition-colors">
-                        Auto
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <input type="date" required value={effectiveDue} onChange={(e) => {
+                    setIsDueDateOverridden(true);
+                    setForm({ ...form, due_date: e.target.value });
+                  }} className="inp flex-1" />
+                  {isDueDateOverridden && (
+                    <button type="button" onClick={() => {
+                      setIsDueDateOverridden(false);
+                      setForm({ ...form, due_date: "" });
+                    }}
+                      className="shrink-0 rounded-md border border-border px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-primary transition-colors">
+                      Auto
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">Required — always issue_date + payment terms (default 30 days).</p>
               </div>
             </Field>
             <Field label="Contractual payment terms">
@@ -2349,7 +2540,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                           <tr className="border-b border-border">
                             <th className="px-4 py-2 text-left font-normal">Type</th>
                             <th className="px-4 py-2 text-left font-normal">UID</th>
-                            <th className="px-4 py-2 text-left font-normal">Debtor / Supplier</th>
+                            <th className="px-4 py-2 text-left font-normal">Customer / Supplier</th>
                             <th className="px-4 py-2 text-left font-normal">Issue date</th>
                             <th className="px-4 py-2 text-right font-normal">Amount</th>
                             <th className="px-4 py-2 text-left font-normal">Status</th>
@@ -2368,7 +2559,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                               <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">#{entry.id.slice(-8).toUpperCase()}</td>
                               <td className="px-4 py-2.5">
                                 {entry.type === "sales"
-                                  ? (entry.debtor?.name ?? "—")
+                                  ? (entry.customer?.name ?? "—")
                                   : (entry.vendor?.name ?? "—")
                                 }
                               </td>
@@ -2414,7 +2605,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inventory: any[]; onClose: () => void }) {
   const invDocs: DocMeta[] = Array.isArray(invoice.documents) ? invoice.documents : [];
-  const debtor = invoice.debtor;
+  const customer = invoice.customer;
   const purchase = invoice.purchase;
   const openDoc = async (d: DocMeta) => {
     try {
@@ -2455,9 +2646,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
               <Detail label="Amount received" value={invoice.amount_received != null ? fmtMoney(invoice.amount_received) : "—"} />
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
-              <Detail label="ERP Due date" value={fmtDate(invoice.due_date)} />
+              <Detail label="ERP Due date" value={fmtDate(getEffectiveDueDate(invoice) ?? invoice.due_date)} />
               <Detail label="Contractual payment terms" value={invoice.has_contractual_due_date ? "Yes" : "N/A"} />
-              <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
+              <Detail label="Payment terms" value={`${Number(invoice.payment_terms_days) > 0 ? Number(invoice.payment_terms_days) : 30}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)`} />
               {invoice.bl_date && <Detail label="BL date" value={fmtDate(invoice.bl_date)} />}
               <Detail label="Paid date" value={invoice.paid_date ? fmtDate(invoice.paid_date) : "—"} />
               <Detail label="Advance received" value={invoice.advance_received_date ? fmtDate(invoice.advance_received_date) : "—"} />
@@ -2569,26 +2760,26 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             </div>
           )}
 
-          {/* Debtor details */}
-          {debtor && (
+          {/* Customer details */}
+          {customer && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Customer
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
-                <Detail label="Name" value={debtor.name} />
-                <Detail label="Contact" value={debtor.contact_name || "—"} />
-                <Detail label="Email" value={debtor.contact_email || "—"} />
-                <Detail label="Phone" value={debtor.contact_phone || "—"} />
-                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Name" value={customer.name} />
+                <Detail label="Contact" value={customer.contact_name || "—"} />
+                <Detail label="Email" value={customer.contact_email || "—"} />
+                <Detail label="Phone" value={customer.contact_phone || "—"} />
+                <Detail label="Industry" value={customer.industry || "—"} />
 
-                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
-                {debtor.website && <Detail label="Website" value={debtor.website} />}
+                {customer.address_line && <Detail label="Address" value={[customer.address_line, customer.city, customer.country].filter(Boolean).join(", ")} />}
+                {customer.website && <Detail label="Website" value={customer.website} />}
               </div>
-              {debtor.notes && (
+              {customer.notes && (
                 <div className="mt-3">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{customer.notes}</p>
                 </div>
               )}
             </div>
@@ -2680,6 +2871,9 @@ function InvoiceDetailModal({ invoice, inventory, onClose }: { invoice: any; inv
             )}
           </div>
 
+          {/* Inline checker (approve) / treasury (record receipt) — same actions as desk + queue */}
+          <DocActions kind="sale" doc={invoice} onDone={onClose} />
+
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => exportSalesInvoicePdf(invoice, inventory)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs hover:border-primary hover:text-primary transition-colors">
               <Printer className="h-3.5 w-3.5" /> Download PDF
@@ -2704,10 +2898,10 @@ interface ImportRow {
   issue_date: string;
 }
 
-function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: any[] }) {
+function MassImportModal({ onClose, customers }: { onClose: () => void; customers: any[] }) {
   const qc = useQueryClient();
   const [step, setStep] = useState<"form" | "preview" | "done">("form");
-  const [debtorId, setDebtorId] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("30");
   const [dueDateSource, setDueDateSource] = useState<"invoice" | "bl">("invoice");
   const [blDate, setBlDate] = useState("");
@@ -2722,8 +2916,8 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!debtorId) {
-      toast.error("Please select a debtor first");
+    if (!customerId) {
+      toast.error("Please select a customer first");
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -2776,7 +2970,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        debtor_id: debtorId,
+        customer_id: customerId,
         payment_terms_days: Number(paymentTermsDays) || 30,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
@@ -2838,10 +3032,10 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
               Each row becomes a separate invoice. Due dates are auto-calculated from payment terms.
             </div>
 
-            <Field label="Debtor *">
-              <select required value={debtorId} onChange={(e) => setDebtorId(e.target.value)} className="inp">
-                <option value="">Select debtor</option>
-                {debtors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            <Field label="Customer *">
+              <select required value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="inp">
+                <option value="">Select customer</option>
+                {customers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </Field>
 
@@ -2912,7 +3106,7 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
             </div>
 
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Debtor</span><span>{debtors.find((d: any) => d.id === debtorId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Customer</span><span>{customers.find((d: any) => d.id === customerId)?.name ?? "—"}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Payment terms</span><span>{paymentTermsDays}d net (from {dueDateSource === "bl" ? "BL" : "invoice"} date)</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Due date example</span><span className="font-mono">{computedDue || "—"}</span></div>
               {poNumber && <div className="flex justify-between"><span className="text-muted-foreground">PO number</span><span className="font-mono">{poNumber}</span></div>}
@@ -2996,12 +3190,12 @@ function MassImportModal({ onClose, debtors }: { onClose: () => void; debtors: a
 // the backend computes the advance deduction from received advances on the
 // linked customer proforma. The invoice NEVER reduces stock.
 
-function CreateFromSoModal({ onClose }: { onClose: () => void }) {
+function CreateFromSoModal({ onClose, presetSoId }: { onClose: () => void; presetSoId?: string }) {
   const qc = useQueryClient();
   const { canWrite } = useAuth();
   const canCreate = canWrite("invoices");
 
-  const [soId, setSoId] = useState("");
+  const [soId, setSoId] = useState(presetSoId ?? "");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState("");
   const [termsDays, setTermsDays] = useState("30");
@@ -3019,7 +3213,7 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
 
   const invoicable = useMemo(() => {
     const list = (soQ.data ?? []).filter((so: any) =>
-      ["confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id
+      ["approved", "confirmed", "partially_dispatched", "fully_dispatched"].includes(so.status) && so.customer_id
     );
     return list.sort((a: any, b: any) => (b.so_number || "").localeCompare(a.so_number || ""));
   }, [soQ.data]);
@@ -3045,6 +3239,20 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
   const updateLine = (idx: number, patch: Partial<{ quantity: string; unit_price: string; discount_pct: string; gst_rate: string }>) => {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   };
+
+  // Deep-link support (tasks page routes here with createFromSo): once the
+  // SO list resolves, auto-pick the preset order and prefill the lines.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current || !presetSoId || soId || soQ.isLoading) return;
+    const so = invoicable.find((s: any) => s.id === presetSoId);
+    if (so) {
+      presetAppliedRef.current = true;
+      pickSo(so.id);
+    } else if (!soQ.isLoading) {
+      presetAppliedRef.current = true; // not invoicable / missing — stop retrying
+    }
+  }, [presetSoId, soId, soQ.isLoading, invoicable]);
 
   // Received advances on the linked customer proforma — the backend deducts
   // the higher of this and grand total × advance rate, so the preview must too.
@@ -3128,8 +3336,15 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="space-y-5 p-5">
+          {presetSoId && selectedSo && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+              <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+              <span className="font-mono">{selectedSo.so_number}</span> · {selectedSo.customer_name ?? ""}
+              {" — order and customer are locked to keep the advance chain intact."}
+            </div>
+          )}
           <Field label="Sales order (confirmed, not yet invoiced)">
-            <select value={soId} onChange={(e) => pickSo(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+            <select value={soId} disabled={!!presetSoId && !!selectedSo} onChange={(e) => pickSo(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm disabled:opacity-70">
               <option value="">Select a sales order…</option>
               {invoicable.map((so: any) => (
                 <option key={so.id} value={so.id}>
@@ -3138,7 +3353,7 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
               ))}
             </select>
             {invoicable.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">No confirmed sales orders with a customer yet. Confirm an SO on the Sales Orders page first.</p>
+              <p className="mt-1 text-xs text-muted-foreground">No approved sales orders with a customer yet. Send an SO for approval — it becomes invoicable once the checker approves it.</p>
             )}
           </Field>
 
@@ -3148,8 +3363,8 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
                 <div className="flex flex-wrap gap-x-6 gap-y-1">
                   <span><span className="text-muted-foreground">Customer:</span> <span className="font-medium">{selectedSo.customer_name}</span></span>
                   {selectedSo.contact_person && <span><span className="text-muted-foreground">Contact:</span> {selectedSo.contact_person}</span>}
-                  {selectedSo.billing_address && <span><span className="text-muted-foreground">Bill to:</span> {selectedSo.billing_address}</span>}
-                  {selectedSo.delivery_address && <span><span className="text-muted-foreground">Ship to:</span> {selectedSo.delivery_address}</span>}
+                  {selectedSo.billing_address && <span><span className="text-muted-foreground">Bill to:</span> {(selectedSo.billing_customer_name ?? selectedSo.customer_name) ? `${selectedSo.billing_customer_name ?? selectedSo.customer_name} — ` : ""}{selectedSo.billing_address}</span>}
+                  {selectedSo.delivery_address && <span><span className="text-muted-foreground">Ship to:</span> {(selectedSo.shipping_customer_name ?? selectedSo.customer_name) ? `${selectedSo.shipping_customer_name ?? selectedSo.customer_name} — ` : ""}{selectedSo.delivery_address}</span>}
                 </div>
               </div>
 
@@ -3247,6 +3462,11 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   Advance deduction uses the higher of received advances on the linked proforma and grand total × advance rate. Invoicing never changes stock — only a confirmed dispatch debits inventory.
                 </p>
+                {totals.receivedAdvances > 0 && (
+                  <div className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-[11px] text-warning">
+                    Advance detected — a sales proforma sits between the order and this invoice (SO → proforma → invoice). The advance auto-deducts on save; keep the SO linked.
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -3267,73 +3487,5 @@ function CreateFromSoModal({ onClose }: { onClose: () => void }) {
 
 // ── Record Payment Modal ──
 // Treasury/admin action: accumulates amount_received, derives paid + late days.
-function RecordPaymentModal({ invoice, onClose, onRecorded }: { invoice: any; onClose: () => void; onRecorded: () => void }) {
-  const qc = useQueryClient();
-  const [amount, setAmount] = useState("");
-  const [dateReceived, setDateReceived] = useState(new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
 
-  const receivedSoFar = Number(invoice.amount_received ?? 0);
-  const remaining = Math.max(0, Number(invoice.amount) - receivedSoFar);
-
-  const record = useMutation({
-    mutationFn: async () => {
-      await api.post(`/invoices/${invoice.id}/payment`, {
-        amount_received: Number(amount),
-        date_received: dateReceived,
-        paid_note: note.trim() || null,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Payment recorded");
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      onRecorded();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h3 className="font-display text-lg">Record payment</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-        </div>
-
-        <div className="space-y-4 p-5">
-          <div className="rounded-md border border-border bg-background/40 px-3 py-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Invoice</span><span className="font-medium">{invoice.invoice_number}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(invoice.amount)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Received so far</span><span className="num">{fmtMoney(receivedSoFar)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Remaining</span><span className="num font-medium text-primary">{fmtMoney(remaining)}</span></div>
-          </div>
-
-          <Field label="Amount received">
-            <input type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)}
-              placeholder={String(remaining)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
-          </Field>
-          <Field label="Date received">
-            <input type="date" value={dateReceived} onChange={(e) => setDateReceived(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
-          </Field>
-          <Field label="Note">
-            <input type="text" value={note} onChange={(e) => setNote(e.target.value)}
-              placeholder="Optional"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
-          </Field>
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Cancel</button>
-            <button onClick={() => record.mutate()} disabled={!Number(amount) || record.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
-              {record.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
-              Record payment
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 

@@ -2,7 +2,7 @@ import { fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
 
 // ── Types ──
 
-export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "debtors" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet";
+export type ReportTab = "portfolio" | "proformas" | "sales-invoices" | "purchase-invoices" | "aging" | "customers" | "suppliers" | "advances" | "expenses" | "profit-loss" | "inventory-tracking" | "balance-sheet" | "bulk-payments";
 
 export interface ReportMeta {
   id: ReportTab;
@@ -29,6 +29,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
       { id: "balance-sheet" as ReportTab, label: "Balance Sheet", icon: Scale, description: "Snapshot of assets, liabilities, and equity", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
       { id: "profit-loss" as ReportTab, label: "Profit & Loss", icon: TrendingUp, description: "Revenue, costs, and profitability analysis", color: "from-success to-success", bgLight: "bg-success/10", iconBg: "bg-success/10", iconColor: "text-success" },
       { id: "portfolio" as ReportTab, label: "Portfolio Summary", icon: Briefcase, description: "Overview of your entire portfolio performance", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
+      { id: "bulk-payments" as ReportTab, label: "Bulk Payments", icon: CreditCard, description: "Bulk payment amounts, dates, and closed invoices", color: "from-secondary to-secondary-hover", bgLight: "bg-secondary/10", iconBg: "bg-secondary/10", iconColor: "text-secondary" },
     ],
   },
   {
@@ -43,7 +44,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     name: "Customer Reports",
     reports: [
       { id: "aging" as ReportTab, label: "Aging Report", icon: Clock, description: "Receivables aging analysis by buyer", color: "from-warning to-warning", bgLight: "bg-warning/10", iconBg: "bg-warning/10", iconColor: "text-warning" },
-      { id: "debtors" as ReportTab, label: "Debtors", icon: Users, description: "Detailed debtor information and history", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
+      { id: "customers" as ReportTab, label: "Customers", icon: Users, description: "Detailed customer information and history", color: "from-primary to-primary-hover", bgLight: "bg-primary-soft", iconBg: "bg-primary-soft", iconColor: "text-primary" },
       { id: "suppliers" as ReportTab, label: "Suppliers", icon: Building2, description: "Supplier details and payment terms", color: "from-info to-info", bgLight: "bg-info/10", iconBg: "bg-info/10", iconColor: "text-info" },
     ],
   },
@@ -69,11 +70,12 @@ export const STATUS_FILTERS: Record<ReportTab, string[]> = {
   "sales-invoices": ["all", "open", "closed"],
   "purchase-invoices": ["all", "open", "closed"],
   "aging": ["all", "overdue", "pending"],
-  "debtors": ["all"],
+  "customers": ["all"],
   "suppliers": ["all"],
   "advances": ["all", "open", "applied", "refunded"],
   "expenses": ["all"],
   "inventory-tracking": ["all"],
+  "bulk-payments": ["all"],
 };
 
 // ── Tab-specific open/closed statuses ──
@@ -115,7 +117,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
       return [
         ...common,
         { key: "invoice_number", label: "Invoice #", render: (r: any) => r.invoice_number ?? "" },
-        { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor?.name ?? "" },
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer?.name ?? "" },
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "outstanding_amount", label: "Outstanding", render: (r: any) => r.outstanding != null ? fmtMoney(r.outstanding) : "—" },
@@ -171,7 +173,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "po_number", label: "PO Number", render: (r: any) => r.po_number ?? "" },
         { key: "proforma_number", label: "Proforma #", render: (r: any) => r.proforma_number ?? "—" },
         { key: "side", label: "Side", render: (r: any) => r.side ?? "" },
-        { key: "debtor_name", label: "Debtor", render: (r: any) => r.debtor?.name ?? "—" },
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer?.name ?? "—" },
         { key: "vendor_name", label: "Vendor", render: (r: any) => r.vendor?.name ?? "—" },
         { key: "client_name", label: "Client", render: (r: any) => r.client?.company_name ?? "" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
@@ -198,10 +200,10 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "bucket_over_120", label: "Over 120 Days", render: (r: any) => r.bucket_over_120 ? fmtMoney(r.bucket_over_120) : "—" },
         { key: "total_outstanding", label: "Total Outstanding", render: (r: any) => fmtMoney(r.total_outstanding ?? 0) },
       ];
-    case "debtors":
+    case "customers":
       return [
         { key: "uid", label: "UID", render: (r: any) => r.id ? `#${r.id.slice(-8).toUpperCase()}` : "" },
-        { key: "name", label: "Debtor Name", render: (r: any) => r.name ?? "" },
+        { key: "name", label: "Customer Name", render: (r: any) => r.name ?? "" },
         { key: "legal_entity_name", label: "Legal Entity Name", render: (r: any) => r.legal_entity_name ?? "—" },
         { key: "registration_no", label: "Registration No.", render: (r: any) => r.registration_no ?? "—" },
         { key: "total_invoices", label: "Total Invoices", render: (r: any) => (r.total_invoices ?? 0).toLocaleString() },
@@ -221,7 +223,8 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "contact_name", label: "Contact", render: (r: any) => r.contact_name ?? "—" },
         { key: "contact_email", label: "Email", render: (r: any) => r.contact_email ?? "—" },
         { key: "contact_phone", label: "Phone", render: (r: any) => r.contact_phone ?? "—" },
-        { key: "registered_address", label: "Registered Address", render: (r: any) => r.registered_address ?? "—" },
+        { key: "billing_addresses", label: "Billing Addresses", render: (r: any) => (r.addresses ?? []).filter((a: any) => a.kind === "billing" || a.kind === "both" || !a.kind).map((a: any) => [a.label, a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ")).join(" | ") || "—" },
+        { key: "shipping_addresses", label: "Shipping Addresses", render: (r: any) => (r.addresses ?? []).filter((a: any) => a.kind === "shipping" || a.kind === "both" || !a.kind).map((a: any) => [a.label, a.line1, a.line2, a.city, a.state, a.country, a.postal_code].filter(Boolean).join(", ")).join(" | ") || "—" },
         { key: "payment_terms_days", label: "Terms (Days)", render: (r: any) => r.payment_terms_days?.toString() ?? "—" },
         { key: "notes", label: "Notes", render: (r: any) => r.notes ?? "—" },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
@@ -244,7 +247,7 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         ...common,
         { key: "side", label: "Side", render: (r: any) => r.side ?? "" },
         { key: "invoice_ref", label: "Invoice", render: (r: any) => r.invoice?.invoice_number ?? r.purchase?.invoice_number ?? r.order?.po_number ?? "—" },
-        { key: "debtor_vendor", label: "Debtor/Vendor", render: (r: any) => r.invoice?.debtor?.name ?? r.purchase?.vendor?.name ?? r.order?.debtor?.name ?? r.order?.vendor?.name ?? "—" },
+        { key: "customer_vendor", label: "Customer/Vendor", render: (r: any) => r.invoice?.customer?.name ?? r.purchase?.vendor?.name ?? r.order?.customer?.name ?? r.order?.vendor?.name ?? "—" },
         { key: "amount", label: "Amount", render: (r: any) => fmtMoney(r.amount) },
         { key: "advance_date", label: "Date", render: (r: any) => fmtDate(r.advance_date) },
         { key: "reference", label: "Reference", render: (r: any) => r.reference ?? "—" },
@@ -276,6 +279,23 @@ export function getColumns(tab: ReportTab): { key: string; label: string; render
         { key: "unit_cost", label: "Unit Cost", render: (r: any) => fmtMoney(r.unit_cost ?? 0) },
         { key: "extended_cost", label: "Extended Cost", render: (r: any) => fmtMoney(r.extended_cost ?? 0) },
         { key: "created_at", label: "Created", render: (r: any) => fmtDate(r.created_at) },
+      ];
+    case "bulk-payments":
+      return [
+        { key: "customer_name", label: "Customer", render: (r: any) => r.customer_name ?? "—" },
+        { key: "payment_id", label: "Payment ID", render: (r: any) => r.payment_id?.slice(0, 8) ?? "" },
+        { key: "event_date", label: "Event date", render: (r: any) => fmtDate(r.event_date) },
+        { key: "event_type", label: "Event type", render: (r: any) => r.event_type ?? "—" },
+        { key: "opening_balance", label: "Opening available balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.opening_balance ?? 0) },
+        { key: "new_payment_received", label: "New payment received", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.new_payment_received ?? 0) },
+        { key: "amount_applied_to_invoices", label: "Amount applied to invoices", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.amount_applied_to_invoices ?? 0) },
+        { key: "unapplied_balance", label: "Unapplied balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.unapplied_balance ?? 0) },
+        { key: "closing_balance", label: "Closing available balance", render: (r: any) => r.is_payment_row === false ? "—" : fmtMoney(r.closing_balance ?? 0) },
+        { key: "invoice_number", label: "Invoice number", render: (r: any) => r.invoice_number ?? "—" },
+        { key: "invoice_amount_applied", label: "Invoice amount applied", render: (r: any) => { const v = r.invoice_amount_applied ?? 0; return v > 0 ? fmtMoney(v) : "—"; } },
+        { key: "invoice_date", label: "Invoice date", render: (r: any) => fmtDate(r.invoice_date) },
+        { key: "allocation_method", label: "Allocation method", render: (r: any) => (r.allocation_method ?? "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "—" },
+        { key: "created_date", label: "Created date", render: (r: any) => fmtDate(r.created_date) },
       ];
     default:
       return common;
@@ -402,6 +422,7 @@ export const ADMIN_CAT_LABELS: Record<string, string> = {
   "employee-gross-salary": "Employee Gross Salary",
   "employer-pension-contributions": "Employer Pension Contributions",
   "fx-realised-gains-and-losses": "FX Realised Gains and Losses",
+  "fx-unrealised-gains-and-losses": "FX Unrealised Gains and Losses",
   "insurances-other": "Insurance",
   "it-expenses": "IT Expenses",
   "it-platform-and-support": "IT Platform and Support",
@@ -429,5 +450,5 @@ export function fmtPnlMoney(val: number): string {
 
 import {
   Scale, TrendingUp, Briefcase, FileText, ShoppingCart, FileSignature,
-  Clock, Users, Building2, Banknote, Wallet, Boxes,
+  Clock, Users, Building2, Banknote, Wallet, Boxes, CreditCard,
 } from "lucide-react";

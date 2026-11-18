@@ -23,6 +23,7 @@ const CATS = [
   { id: "employee-gross-salary", label: "Employee Gross Salary" },
   { id: "employer-pension-contributions", label: "Employer Pension contributions" },
   { id: "fx-realised-gains-and-losses", label: "FX realised gains and losses" },
+  { id: "fx-unrealised-gains-and-losses", label: "FX unrealised gains and losses" },
   { id: "insurances-other", label: "Insurances - other" },
   { id: "it-expenses", label: "IT Expenses" },
   { id: "it-platform-and-support", label: "IT platform and support" },
@@ -45,7 +46,7 @@ function catLabel(id: string) {
   return CATS.find((c) => c.id === id)?.label ?? id;
 }
 
-function ExpensesPage() {
+export function ExpensesPage() {
   const { user, isChecker, isTreasury, canWrite } = useAuth();
   const canCreate = canWrite("expenses");
   const qc = useQueryClient();

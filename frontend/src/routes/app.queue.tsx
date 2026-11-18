@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState, useRef, useMemo } from "react";
+import { Fragment, useState, useRef, useMemo, useEffect } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -14,8 +14,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { TaskDetailDrawer } from "@/components/workflow/task-detail-drawer";
+import { CreateProformaModal, CreateInvoiceModal, PaymentModal } from "@/components/workflow/workflow-modals";
 
 export const Route = createFileRoute("/app/queue")({
+  validateSearch: (search: Record<string, unknown>): { paymentFor?: string | undefined; fromQueue?: string | undefined } => ({
+    paymentFor: (search.paymentFor as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
+  }),
   component: QueuePage,
 });
 
@@ -57,6 +63,7 @@ type Row = {
   balance: number;
   due_date: string | null;
   issue_date: string | null;
+  created_at: string | null;
   has_contractual_due_date?: boolean;
   status: string;
   party: string;
@@ -76,7 +83,7 @@ const KIND_CONFIG = {
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════════ */
 
-function QueuePage() {
+export function QueuePage() {
   const { isAdmin, isTreasury: isTreasuryRole, canWrite } = useAuth();
   const canAct = canWrite("funding-queue");
   const isTreasury = canAct;
@@ -85,12 +92,47 @@ function QueuePage() {
   // ── Filters ──
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortField, setSortField] = useState<"issue" | "due">("due");
+  const [sortField, setSortField] = useState<"issue" | "due" | "created">("due");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  const [activeTab, setActiveTab] = useState<"workflow" | "funding">("workflow");
+  const [workflowFilter, setWorkflowFilter] = useState<"all" | "warehouse" | "checker" | "proforma" | "invoice" | "grn">("all");
+  const [detailTask, setDetailTask] = useState<any | null>(null);
+  const [proformaTask, setProformaTask] = useState<any | null>(null);
+  const [invoiceTask, setInvoiceTask] = useState<any | null>(null);
+  const [paymentTask, setPaymentTask] = useState<any | null>(null);
+  const workflowQ = useQuery({
+    queryKey: ["workflow-queue"],
+    queryFn: async () => (await api.get<any[]>("/workflow-tasks?status=open")) ?? [],
+    refetchInterval: 15000,
+  });
+
+  // Deep-link from My Queue: ?paymentFor=<doc_type>:<doc_id> auto-opens the
+  // payment modal for that invoice so treasury lands directly on the pay action.
+  const navigate = useNavigate();
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { paymentFor?: string; fromQueue?: string } });
+  const routePaymentFor = (routerSearch as any)?.paymentFor as string | undefined;
+  useEffect(() => {
+    if (!routePaymentFor) return;
+    const [docType, ...rest] = String(routePaymentFor).split(":");
+    const docId = rest.join(":");
+    if (!docId) {
+      navigate({ to: "/app/queue", search: {}, replace: true });
+      return;
+    }
+    const tasks = (workflowQ.data ?? []) as any[];
+    const match =
+      tasks.find((t: any) => t.doc_id === docId) ??
+      ({ doc_id: docId, doc_type: docType || "sales_invoice", doc_number: docId, amount: null } as any);
+    setActiveTab("workflow");
+    setPaymentTask(match);
+    navigate({ to: "/app/queue", search: {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routePaymentFor, workflowQ.data]);
 
   // Payment history
   const [payHistoryOpen, setPayHistoryOpen] = useState(false);
-  const [payHistoryFilter, setPayHistoryFilter] = useState<"all" | "debtor" | "supplier">("all");
+  const [payHistoryFilter, setPayHistoryFilter] = useState<"all" | "customer" | "supplier">("all");
 
   const payHistoryQ = useQuery({
     queryKey: ["payments-history", payHistoryFilter],
@@ -172,6 +214,7 @@ function QueuePage() {
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       const ld = diffDaysUTC(vars.due_date, vars.receipt_date);
       const sp = Math.max(0, +(vars.amount - vars.amount_received).toFixed(2));
       toast.success(`Invoice closed · ${ld} late day${ld === 1 ? "" : "s"}${sp > 0 ? ` · short ${fmtMoney(sp)}` : ""}`);
@@ -186,6 +229,7 @@ function QueuePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Balance paid");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -205,6 +249,7 @@ function QueuePage() {
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["advances"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Advance recorded");
       setFundPf(null);
     },
@@ -220,8 +265,8 @@ function QueuePage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount,
         po_number: i.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
-        due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
+        due_date: i.due_date, issue_date: i.issue_date, created_at: i.created_at ?? null,
+        status: i.status, party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
         has_contractual_due_date: i.has_contractual_due_date,
       };
     }),
@@ -232,7 +277,7 @@ function QueuePage() {
         kind: "purchase", id: p.id, invoice_number: p.invoice_number, amount,
         po_number: p.po_number ?? null, advance,
         balance: Math.max(0, amount - advance),
-        due_date: p.due_date, issue_date: p.issue_date,
+        due_date: p.due_date, issue_date: p.issue_date, created_at: p.created_at ?? null,
         status: p.status, party: p.vendor?.name ?? "—", client: p.client?.company_name || p.client?.contact_name || "—",
         has_contractual_due_date: p.has_contractual_due_date,
       };
@@ -247,8 +292,9 @@ function QueuePage() {
       balance: Number(p.amount),
       due_date: null,
       issue_date: p.proforma_date ?? p.issue_date,
+      created_at: p.created_at ?? null,
       status: p.proforma_status,
-      party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
+      party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
@@ -272,8 +318,13 @@ function QueuePage() {
       return r.invoice_number?.toLowerCase().includes(q) || r.party?.toLowerCase().includes(q) || r.client?.toLowerCase().includes(q) || r.po_number?.toLowerCase().includes(q);
     })
     .sort((a, b) => {
-      const aVal = sortField === "issue" ? (a.issue_date ?? "9999") : (a.due_date ?? "9999");
-      const bVal = sortField === "issue" ? (b.issue_date ?? "9999") : (b.due_date ?? "9999");
+      const getVal = (r: Row) => {
+        if (sortField === "issue") return r.issue_date ?? "9999";
+        if (sortField === "due") return r.due_date ?? "9999";
+        return r.created_at ?? "9999";
+      };
+      const aVal = getVal(a);
+      const bVal = getVal(b);
       const cmp = aVal.localeCompare(bVal);
       return sortOrder === "asc" ? cmp : -cmp;
     }), [allRows, side, searchQuery, sortField, sortOrder]);
@@ -352,11 +403,16 @@ function QueuePage() {
               Treasury Desk
             </div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-foreground md:text-3xl">
-              Funding Queue
+              My Queue
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed max-w-2xl">
-              Manage approved funding, settlements, advances, and incoming collections from one treasury workspace.
+              Workflow orchestrator — purchase and sales from order to GRN/dispatch with Advance branching. Funding queue below.
             </p>
+            <div className="mt-3 flex gap-2">
+              {(["workflow", "funding"] as const).map((t) => (
+                <button key={t} onClick={() => setActiveTab(t)} className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${activeTab === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{t === "workflow" ? "Workflow" : "Funding"}</button>
+              ))}
+            </div>
             <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
@@ -379,7 +435,10 @@ function QueuePage() {
         </div>
       </section>
 
-      {isLoading ? (
+      {activeTab === "workflow" && (
+        <WorkflowPanel tasks={workflowQ.data ?? []} filter={workflowFilter} setFilter={setWorkflowFilter} onDetail={setDetailTask} onProforma={setProformaTask} onInvoice={setInvoiceTask} onPayment={setPaymentTask} />
+      )}
+      {activeTab === "funding" && (isLoading ? (
         <QueueSkeleton />
       ) : (
         <>
@@ -517,14 +576,35 @@ function QueuePage() {
                     placeholder="Search invoices, PO, counterparty..."
                     className="h-8 w-56 rounded-lg border border-border bg-card pl-7 pr-3 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
                   />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </div>
-                {/* Filter pills */}
-                {(["all", "sale", "purchase", "proforma"] as const).map((f) => {
+{searchQuery && (
+                      <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Sort dropdown */}
+                  <select
+                    value={sortField}
+                    onChange={(e) => setSortField(e.target.value as "issue" | "due" | "created")}
+                    className="h-8 rounded-lg border border-border bg-card px-3 py-1 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 transition-all"
+                  >
+                    <option value="due">Due first</option>
+                    <option value="issue">Issue first</option>
+                    <option value="created">Created first</option>
+                  </select>
+                  <button
+                    onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+                    className="h-8 w-8 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:border-input transition-all flex items-center justify-center"
+                    title={sortOrder === "asc" ? "Descending" : "Ascending"}
+                  >
+                    {sortOrder === "asc" ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  {/* Filter pills */}
+                  {(["all", "sale", "purchase", "proforma"] as const).map((f) => {
                   const labels = { all: "All", sale: "Sales", purchase: "Purchases", proforma: "Proformas" };
                   return (
                     <button
@@ -738,7 +818,7 @@ function QueuePage() {
                   <div className="flex flex-wrap gap-2">
                     {([
                       { key: "all" as const, label: "All" },
-                      { key: "debtor" as const, label: "Debtors (AR)" },
+                      { key: "customer" as const, label: "Customers (AR)" },
                       { key: "supplier" as const, label: "Suppliers (AP)" },
                     ]).map((opt) => (
                       <button
@@ -750,7 +830,7 @@ function QueuePage() {
                             : "border-border text-muted-foreground hover:text-foreground"
                         }`}
                       >
-                        {opt.key === "debtor" ? <ArrowDownRight className="h-3 w-3 text-success" /> :
+                        {opt.key === "customer" ? <ArrowDownRight className="h-3 w-3 text-success" /> :
                          opt.key === "supplier" ? <ArrowUpRight className="h-3 w-3 text-warning" /> : null}
                         {opt.label}
                       </button>
@@ -780,27 +860,27 @@ function QueuePage() {
                         </thead>
                         <tbody>
                           {(payHistoryQ.data?.payments ?? []).map((p: any) => {
-                            const isDebtor = p.type === "debtor_payment";
+                            const isCustomer = p.type === "customer_payment";
                             const paidAmount = p.amount_received ?? p.amount;
                             return (
                               <tr key={`${p.type}-${p.id}`} className="border-b border-border/60 hover:bg-muted/30 transition-colors">
                                 <td className="px-4 py-3 text-xs font-mono">{p.paid_date ? fmtDate(p.paid_date) : "—"}</td>
                                 <td className="px-4 py-3 text-xs font-medium">
                                   <span className="inline-flex items-center gap-1.5">
-                                    {isDebtor ? <ArrowDownRight className="h-3 w-3 text-success" /> : <ArrowUpRight className="h-3 w-3 text-warning" />}
+                                    {isCustomer ? <ArrowDownRight className="h-3 w-3 text-success" /> : <ArrowUpRight className="h-3 w-3 text-warning" />}
                                     {p.party_name}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3">
                                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider font-semibold ${
-                                    isDebtor ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                                    isCustomer ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
                                   }`}>
-                                    {isDebtor ? "Receipt" : "Payment"}
+                                    {isCustomer ? "Receipt" : "Payment"}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 font-mono text-xs">{p.invoice_number}</td>
                                 <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.amount)}</td>
-                                <td className={`px-4 py-3 text-right font-mono text-xs font-medium ${isDebtor ? "text-success" : "text-warning"}`}>
+                                <td className={`px-4 py-3 text-right font-mono text-xs font-medium ${isCustomer ? "text-success" : "text-warning"}`}>
                                   {fmtMoney(paidAmount)}
                                 </td>
                                 <td className={`px-4 py-3 text-right font-mono text-xs ${(p.late_days ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"}`}>
@@ -821,7 +901,12 @@ function QueuePage() {
             </div>
           </section>
         </>
-      )}
+      ))}
+
+      {detailTask && <TaskDetailDrawer task={detailTask} onClose={() => setDetailTask(null)} />}
+      {proformaTask && <CreateProformaModal task={proformaTask} onClose={() => setProformaTask(null)} />}
+      {invoiceTask && <CreateInvoiceModal task={invoiceTask} onClose={() => setInvoiceTask(null)} />}
+      {paymentTask && <PaymentModal task={paymentTask} onClose={() => setPaymentTask(null)} />}
 
       {/* ═══════════════════════════════════════════════════════════════
          MODALS (all preserved exactly)
@@ -1135,7 +1220,7 @@ function MassCloseModal({ salesData, onClose, onDone }: { salesData: any[]; onCl
                       <tr key={r.invoice_number} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-4 py-3 text-xs text-muted-foreground">{idx + 1}</td>
                         <td className="px-4 py-3 font-mono text-xs">{r.invoice_number}</td>
-                        <td className="px-4 py-3">{r.invoice.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-3">{r.invoice.customer?.name ?? "—"}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.invoice.amount)}</td>
                         <td className="px-4 py-3 text-right font-mono text-xs text-success">{fmtMoney(r.amount_received)}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${short > 0 ? "text-destructive" : "text-muted-foreground"}`}>{short > 0 ? fmtMoney(short) : "—"}</td>
@@ -1504,6 +1589,83 @@ function MassImportPurchaseReceiptsModal({ purchasesData, onClose, onDone }: { p
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowPanel({ tasks, filter, setFilter, onDetail, onProforma, onInvoice, onPayment }: any) {
+  const qc = useQueryClient();
+  const approvePO = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-purchase-orders/${t.doc_id}/approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Purchase order approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const rejectPO = useMutation({
+    mutationFn: async ({ t, comments }: any) => { await api.post(`/goods-purchase-orders/${t.doc_id}/reject`, { comments }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Rejected"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const approveSOWh = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-sales-orders/${t.doc_id}/warehouse-approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Warehouse approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const approveSOChk = useMutation({
+    mutationFn: async (t: any) => { await api.post(`/goods-sales-orders/${t.doc_id}/approve`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["workflow-queue"] }); toast.success("Sales order approved"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const list = (tasks as any[]).filter((t) => {
+    if (filter === "all") return true;
+    if (filter === "warehouse") return t.owner_role === "warehouse";
+    if (filter === "checker") return t.owner_role === "checker";
+    if (filter === "proforma") return t.workflow_type === "proforma" || String(t.stage).includes("proforma");
+    if (filter === "invoice") return String(t.workflow_type).includes("invoice");
+    if (filter === "grn") return t.workflow_type === "grn" || String(t.stage).includes("grn");
+    return true;
+  });
+  const counts = {
+    warehouse: (tasks as any[]).filter((t) => t.owner_role === "warehouse").length,
+    checker: (tasks as any[]).filter((t) => t.owner_role === "checker").length,
+    proforma: (tasks as any[]).filter((t) => String(t.stage).includes("proforma")).length,
+    invoice: (tasks as any[]).filter((t) => String(t.workflow_type).includes("invoice")).length,
+  };
+  if (!tasks.length) return <div className="rounded-xl border border-border bg-card p-12 text-center"><div className="text-sm text-muted-foreground">No workflow tasks — all caught up. Create a PO or SO to see the queue.</div></div>;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {(["all","warehouse","checker","proforma","invoice","grn"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${filter===f ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{f}{f!=="all" ? ` (${(counts as any)[f] ?? 0})` : ` (${tasks.length})`}</button>
+        ))}
+      </div>
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
+          <thead><tr className="border-b border-border text-[11px] uppercase tracking-widest text-muted-foreground"><th className="px-4 py-2 text-left">Doc</th><th className="px-4 py-2 text-left">Counterparty</th><th className="px-4 py-2 text-left">Action</th><th className="px-4 py-2 text-left">Owner</th><th className="px-4 py-2 text-right">Amount</th><th className="px-4 py-2 text-right">Actions</th></tr></thead>
+          <tbody>
+            {list.map((t: any) => (
+              <tr key={t.id} className="border-b border-border/60 hover:bg-muted/30">
+                <td className="px-4 py-2"><button onClick={() => onDetail(t)} className="font-mono text-xs font-semibold text-primary hover:underline">{t.doc_number}</button><div className="text-[11px] text-muted-foreground">{t.workflow_type} · {t.stage}</div></td>
+                <td className="px-4 py-2 text-xs">{t.counterparty ?? "—"}</td>
+                <td className="px-4 py-2 text-xs">{t.required_action}</td>
+                <td className="px-4 py-2"><span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${t.owner_role==="checker" ? "border-warning/40 bg-warning/10 text-warning" : t.owner_role==="warehouse" ? "border-info/40 bg-info/10 text-info" : "border-border"}`}>{t.owner_role}</span></td>
+                <td className="px-4 py-2 text-right font-mono text-xs">{t.amount != null ? fmtMoney(t.amount) : "—"}</td>
+                <td className="px-4 py-2 text-right">
+                  <div className="flex justify-end gap-1.5 flex-wrap">
+                    <button onClick={() => onDetail(t)} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">View</button>
+                    {t.workflow_type==="purchase_order" && t.stage==="approve" && <><button onClick={() => approvePO.mutate(t)} disabled={approvePO.isPending} className="rounded-md bg-success px-2 py-1 text-xs font-medium text-white disabled:opacity-60">Approve</button><button onClick={() => { const c = prompt("Reject reason"); if (c !== null) rejectPO.mutate({t, comments: c}); }} className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive">Reject</button></>}
+                    {t.workflow_type==="sales_order" && t.stage==="warehouse_approve" && <button onClick={() => approveSOWh.mutate(t)} className="rounded-md bg-success px-2 py-1 text-xs text-white">Approve WH</button>}
+                    {t.workflow_type==="sales_order" && t.stage==="checker_approve" && <button onClick={() => approveSOChk.mutate(t)} className="rounded-md bg-success px-2 py-1 text-xs text-white">Approve Checker</button>}
+                    {String(t.stage)==="create_proforma" && <button onClick={() => onProforma(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Create Proforma</button>}
+                    {String(t.stage)==="create_invoice" && <button onClick={() => onInvoice(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Create Invoice</button>}
+                    {(String(t.stage)==="record_payment" || String(t.stage)==="record_utr") && <button onClick={() => onPayment(t)} className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-white">Upload {String(t.doc_type).includes("purchase") ? "UTR" : "UTR/IRN"}</button>}
+                    {String(t.stage)==="create_grn" && <button onClick={() => onDetail(t)} className="rounded-md border border-primary/40 px-2 py-1 text-xs text-primary">Create GRN</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
       </div>
     </div>
   );

@@ -1,10 +1,19 @@
 import { ReactNode } from "react";
 import { AnimatedMoney, AnimatedNumber } from "@/components/animated-number";
-import { fmtMoney, fmtDate, fmtDateTime, daysBetween } from "@/lib/format";
-
-export { fmtMoney, fmtDate, fmtDateTime, daysBetween };
-
-export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
+import { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate } from "@/lib/format";
+export function fmtMoneyINR(v: number | null | undefined): string {
+  const n = Number(v ?? 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+// Alias for clarity — master SKU pricing is in USD
+export const fmtMoneyUSD = fmtMoneyINR;
+export { fmtMoney, fmtDate, fmtDateTime, daysBetween, getEffectiveDueDate };
+export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: string; actions?: ReactNode }) {
   return (
     <div className="border-b border-border bg-background px-4 py-5 md:px-6 md:py-6">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-end justify-between gap-4">
@@ -96,6 +105,8 @@ export function StatusPill({ status }: { status: string }) {
         return "destructive";
       case "warning":
       case "sent":
+        return "warning";
+      case "partial":
         return "warning";
       case "cancelled":
       case "not_sent":

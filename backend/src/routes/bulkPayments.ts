@@ -12,6 +12,7 @@ import { requireAuth, requireAnyWriteAccess, getCompanyFilter, type AuthRequest 
 import { generateId, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
 import type { Invoice, CreditDebitNote, PaymentRecord, PurchaseInvoice, Supplier, Vendor } from "../types/index.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -23,10 +24,15 @@ function computeLateDays(dueDate: string | null, closeDate: string): number {
 
 // ── Helper: outstanding balance of an invoice ──
 function outstandingBalance(inv: Invoice): number {
-  return inv.amount_received != null
+  const raw = inv.amount_received != null
     ? Math.max(0, Number(inv.amount) - Number(inv.amount_received))
     : Number(inv.amount);
+  // Round to cents so float dust (e.g. 100.0000001 vs 100) can't keep an invoice open
+  return Math.round(raw * 100) / 100;
 }
+
+// Small tolerance so `remaining >= balance` holds when amounts match to the cent
+const AMOUNT_EPS = 0.005;
 
 // ── Helper: close a single invoice fully ──
 async function closeInvoice(inv: Invoice, closeDate: string, now: string) {
@@ -56,11 +62,11 @@ async function partiallyPayInvoice(inv: Invoice, amount: number, now: string) {
 
 // ── POST /api/bulk-payments/process ──
 const processSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_date: z.string().min(1),
-  amount: z.number().positive(),
+  amount: z.number().min(0),
   use_balance: z.boolean().optional().default(false),
-  mode: z.enum(["manual", "fifo", "two_pass_fifo"]),
+  mode: z.enum(["manual", "fifo", "two_pass_fifo", "on_account"]),
   selected_invoice_ids: z.array(z.string()).optional().default([]),
   settle_credit_note_ids: z.array(z.string()).optional().default([]),
 });
@@ -74,23 +80,50 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     let availableAmount = parsed.amount;
     let consumedOldPayments: PaymentRecord[] = [];
 
-    // If use_balance, scan previous payment records for this debtor with remaining > 0
+    // If use_balance, scan previous payment records for this customer with remaining > 0
     if (parsed.use_balance) {
       const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-        filterExpression: "debtor_id = :did AND #remaining > :zero",
+        filterExpression: "customer_id = :did AND #remaining > :zero",
         expressionAttributeNames: { "#remaining": "remaining" },
-        expressionAttributeValues: { ":did": parsed.debtor_id, ":zero": 0 },
+        expressionAttributeValues: { ":did": parsed.customer_id, ":zero": 0 },
       });
       consumedOldPayments = prevPayments;
       const totalRemaining = prevPayments.reduce((s, p) => s + Number(p.remaining), 0);
       availableAmount += totalRemaining;
     }
 
-    // ── 2. Fetch open invoices for this debtor ──
+    // Track how much previous remaining balance was consumed to boost this payment
+    const balanceConsumed = parsed.use_balance
+      ? consumedOldPayments.reduce((s, p) => s + Number(p.remaining), 0)
+      : 0;
+
+    // ── 2b. Credit notes applied in the UI boost the available amount (Available =
+    // payment + previous balance + credit). Add their total here so the backend
+    // closes the same invoices the FIFO/manual preview shows.
+    let creditBoost = 0;
+    for (const noteId of parsed.settle_credit_note_ids) {
+      const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+      if (note && note.type === "credit" && note.status === "approved") {
+        creditBoost += Number(note.amount) || 0;
+      }
+    }
+    availableAmount += creditBoost;
+    // Re-round to cents after adding credit
+    availableAmount = Math.round(availableAmount * 100) / 100;
+
+    if (availableAmount <= 0) {
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount, use remaining balance, or apply credit)" });
+      return;
+    }
+
+    // ── 2. Fetch open invoices for this customer ──
     const allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const eligibleStatuses = new Set(["pending", "approved", "funded", "advanced", "overdue"]);
+    // Match the Bulk payments UI list (everything except terminal states) so every
+    // invoice the user sees selected actually gets closed/partially paid.
+    // NOTE: live rows link via `debtor_id` (legacy) — resolve either id, same as GET /api/invoices.
+    const ineligibleStatuses = new Set(["paid", "rejected"]);
     let openInvoices = allInvoices
-      .filter((i) => i.debtor_id === parsed.debtor_id && eligibleStatuses.has(i.status))
+      .filter((i) => getInvoicePartyId(i as any) === parsed.customer_id && !ineligibleStatuses.has(i.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
 
     // ── 3. Process by mode ──
@@ -107,12 +140,12 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           // Full payment — close the invoice
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           // Partial payment — reduce balance, keep open
           await partiallyPayInvoice(inv, remainingAfterProcessing, now);
@@ -120,7 +153,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
             id: inv.id,
             invoice_number: inv.invoice_number,
             amount_paid: remainingAfterProcessing,
-            remaining: balance - remainingAfterProcessing,
+            remaining: Math.round((balance - remainingAfterProcessing) * 100) / 100,
           });
           remainingAfterProcessing = 0;
         }
@@ -138,11 +171,11 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (FIFO strict)" });
         }
@@ -157,11 +190,11 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closeInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 1)" });
         }
@@ -172,7 +205,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           // Future invoice: close with date = due_date (so late days = 0)
           const closeDate = inv.due_date ?? parsed.payment_date;
           const lateDays = computeLateDays(inv.due_date, closeDate); // will be 0 since closeDate === due_date
@@ -186,14 +219,20 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
             updated_at: now,
           });
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
       }
+    } else if (parsed.mode === "on_account") {
+      // On Account: do not close or partially pay any invoices — add amount directly to remaining balance
+      // remainingAfterProcessing stays equal to availableAmount
     }
 
     // ── 4. Settle credit notes ──
+    // Clamp dust to zero so a fully-applied payment doesn't leave $0.001 remaining
+    remainingAfterProcessing = Math.round(remainingAfterProcessing * 100) / 100;
+    if (remainingAfterProcessing < AMOUNT_EPS) remainingAfterProcessing = 0;
     const settledCredits: string[] = [];
     const creditErrors: Array<{ id: string; error: string }> = [];
 
@@ -226,14 +265,24 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
     }
 
     // ── 5. Create payment record with remaining balance ──
+    // Denormalize the customer name so history never shows "Unknown" even if the
+    // master record is later deleted or lives under a different company scope.
+    let denormCustomerName: string | undefined;
+    try {
+      const custHit = await getCustomerById(parsed.customer_id).catch(() => undefined);
+      denormCustomerName = custHit?.name ?? undefined;
+    } catch {
+      denormCustomerName = undefined;
+    }
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
       invoices_closed: closed.length,
       closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
       partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
@@ -241,7 +290,8 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       mode: parsed.mode,
       created_at: now,
       updated_at: now,
-    };
+      ...(denormCustomerName ? { customer_name: denormCustomerName } : {}),
+    } as PaymentRecord;
     await putItem(TABLES.PAYMENTS, paymentRecord as any);
 
     // ── 6. Consume old remaining balances ──
@@ -260,7 +310,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       createActivityAlert({
         client_id: req.user!.id,
         company_id: req.user!.company_id,
-        debtor_id: parsed.debtor_id,
+        customer_id: parsed.customer_id,
         type: "payment_received",
         severity: "info",
         message: `Bulk payment of ${fmtMoneyShort(parsed.amount)} processed — ${closed.length} closed, ${partiallyPaid.length} partially paid, ${settledCredits.length} credits settled. Remaining balance: ${fmtMoneyShort(remainingAfterProcessing)}`,
@@ -272,6 +322,7 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
       payment_id: paymentRecord.id,
       amount: parsed.amount,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
       closed,
       partially_paid: partiallyPaid,
       skipped,
@@ -288,14 +339,14 @@ router.post("/process", requireAuth, requireAnyWriteAccess("invoices", "funding-
   }
 });
 
-// ── GET /api/bulk-payments/balance/:debtorId ──
+// ── GET /api/bulk-payments/balance/:customerId ──
 // Returns the total unapplied remaining balance from previous payment records.
-router.get("/balance/:debtorId", requireAuth, async (req: AuthRequest, res: Response) => {
+router.get("/balance/:customerId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-      filterExpression: "debtor_id = :did AND #remaining > :zero",
+      filterExpression: "customer_id = :did AND #remaining > :zero",
       expressionAttributeNames: { "#remaining": "remaining" },
-      expressionAttributeValues: { ":did": req.params.debtorId, ":zero": 0 },
+      expressionAttributeValues: { ":did": req.params.customerId, ":zero": 0 },
     });
     const totalRemaining = payments.reduce((s, p) => s + Number(p.remaining), 0);
     res.json({ total_remaining: totalRemaining, payment_count: payments.length });
@@ -306,35 +357,317 @@ router.get("/balance/:debtorId", requireAuth, async (req: AuthRequest, res: Resp
 });
 
 // ── GET /api/bulk-payments/history ──
-// Returns payment records enriched with debtor names, optionally filtered by debtor_id.
+// Returns payment records enriched with customer names, optionally filtered by customer_id.
+//
+// Legacy context: the display-only import wrote the OLD Dynamo `debtor_id` into
+// `customer_id`/`debtor_id`, while live invoices + the customer master now use
+// NEW `customer_id`s (sales re-imports generate fresh ids). Old invoice ids stored
+// inside `closed_invoices`/`partial_invoices` are equally stale. The one stable
+// key across both eras is `invoice_number`, so resolution + filtering fall back
+// to an invoice-number → current-party mapping (majority vote across the
+// payment's linked invoices).
 router.get("/history", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const debtorId = req.query.debtor_id as string | undefined;
+    const customerId = (req.query.customer_id as string | undefined)?.trim() || undefined;
 
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!));
 
-    // Filter by debtor if specified
+    const companyFilter = getCompanyFilter(req.user!);
+    const [allCustomers, allVendors, allSuppliers, allSalesInvoices, allPurchaseInvoices] = await Promise.all([
+      scanCustomersMerged(companyFilter as any),
+      scanTable<{ id: string; name: string }>(TABLES.VENDORS, companyFilter),
+      scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, companyFilter),
+      scanTable<Invoice>(TABLES.INVOICES, companyFilter).catch(() => [] as Invoice[]),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, companyFilter).catch(() => [] as PurchaseInvoice[]),
+    ]);
+    const customerById = new Map(allCustomers.map((d) => [String(d.id).trim(), d.name]));
+    const vendorById = new Map(allVendors.map((v) => [String(v.id).trim(), v.name]));
+    const supplierById = new Map(allSuppliers.map((s) => [String(s.id).trim(), s.company_name]));
+
+    const resolveName = (rawId: string | null | undefined): string | undefined => {
+      const pid = (rawId ?? "").trim();
+      if (!pid) return undefined;
+      // 1. Direct hits (new rows: raw customer id, or vendor_<id> for purchase rows)
+      if (customerById.has(pid)) return customerById.get(pid);
+      if (vendorById.has(pid.replace(/^vendor_/, "")) && pid.startsWith("vendor_")) {
+        return vendorById.get(pid.replace(/^vendor_/, ""));
+      }
+      if (supplierById.has(pid.replace(/^supplier_/, "")) && pid.startsWith("supplier_")) {
+        return supplierById.get(pid.replace(/^supplier_/, ""));
+      }
+      const stripped = pid.replace(/^(vendor_|supplier_)/, "");
+      // 2. Cross-table fallback: raw vendor/supplier ids stored without a prefix (legacy rows)
+      if (vendorById.has(stripped)) return vendorById.get(stripped);
+      if (supplierById.has(stripped)) return supplierById.get(stripped);
+      if (customerById.has(stripped)) return customerById.get(stripped);
+      return undefined;
+    };
+
+    // ── Stable cross-era maps: invoice_number (lower-trimmed) → current party ──
+    // Old payment rows carry old debtor/invoice ids, but invoice_numbers survive
+    // sales re-imports (which mint fresh customer + invoice ids).
+    const normNum = (n: unknown) => String(n ?? "").trim().toLowerCase();
+    const salesNumToParty = new Map<string, string>();
+    const salesNumToName = new Map<string, string>();
+    const salesIdToParty = new Map<string, string>();
+    for (const inv of allSalesInvoices) {
+      const partyId = String((inv as any).customer_id ?? (inv as any).debtor_id ?? "").trim();
+      const key = normNum((inv as any).invoice_number);
+      if (inv.id && partyId) salesIdToParty.set(String(inv.id).trim(), partyId);
+      if (!key || !partyId) continue;
+      if (!salesNumToParty.has(key)) {
+        salesNumToParty.set(key, partyId);
+        salesNumToName.set(key, customerById.get(partyId) ?? (inv as any).customer_name ?? (inv as any).debtor_name ?? "");
+      }
+    }
+    const purchaseNumToParty = new Map<string, string>();
+    const purchaseNumToName = new Map<string, string>();
+    const purchaseIdToParty = new Map<string, string>();
+    for (const inv of allPurchaseInvoices) {
+      const partyId = String((inv as any).vendor_id ?? (inv as any).supplier_id ?? "").trim();
+      const key = normNum((inv as any).invoice_number);
+      if (inv.id && partyId) purchaseIdToParty.set(String(inv.id).trim(), partyId);
+      if (!key || !partyId) continue;
+      if (!purchaseNumToParty.has(key)) {
+        purchaseNumToParty.set(key, partyId);
+        purchaseNumToName.set(key, vendorById.get(partyId) ?? (inv as any).vendor_name ?? (inv as any).supplier_name ?? "");
+      }
+    }
+
+    const paymentInvoiceEntries = (p: PaymentRecord): Array<{ id: string; invoice_number: string }> => ([
+      ...((p.closed_invoices ?? []) as Array<any>),
+      ...(((p as any).partial_invoices ?? []) as Array<any>),
+    ]).map((e) => ({ id: String(e?.id ?? "").trim(), invoice_number: String(e?.invoice_number ?? "").trim() }));
+
+    // Majority vote across the payment's linked invoices → current party id + name.
+    // Returns the current `customer_id` (raw customer id, or `vendor_<id>` for AP rows)
+    // so both display and `?customer_id=` filtering work for remapped rows.
+    const resolveViaInvoices = (p: PaymentRecord): { partyId?: string; name?: string } => {
+      const isAP = (p.customer_id ?? "").trim().startsWith("vendor_")
+        || (p.customer_id ?? "").trim().startsWith("supplier_");
+      const votes = new Map<string, { count: number; name?: string }>();
+      for (const e of paymentInvoiceEntries(p)) {
+        // a) linked invoice id still matches a live invoice (new rows, or un-reimported eras)
+        const liveParty = salesIdToParty.get(e.id) ?? purchaseIdToParty.get(e.id);
+        if (liveParty) {
+          const nm = resolveName(liveParty)
+            ?? salesNumToName.get(normNum(e.invoice_number))
+            ?? purchaseNumToName.get(normNum(e.invoice_number));
+          const key = isAP && !/^(vendor_|supplier_)/.test(liveParty) && purchaseIdToParty.get(e.id)
+            ? `vendor_${liveParty}` : liveParty;
+          const v = votes.get(key) ?? { count: 0, name: nm };
+          v.count += 1;
+          if (!v.name && nm) v.name = nm;
+          votes.set(key, v);
+          continue;
+        }
+        // b) stale id but invoice_number survives the re-import → current party
+        if (e.invoice_number) {
+          const nk = normNum(e.invoice_number);
+          const sp = !isAP ? salesNumToParty.get(nk) : undefined;
+          const pp = purchaseNumToParty.get(nk);
+          const party = sp ?? pp;
+          if (party) {
+            const nm = (!isAP ? salesNumToName.get(nk) : undefined)
+              ?? purchaseNumToName.get(nk)
+              ?? resolveName(party);
+            // Normalise AP keys to the `vendor_<id>` shape new rows use
+            const key = (pp && !/^(vendor_|supplier_)/.test(party)) ? `vendor_${party}` : party;
+            const v = votes.get(key) ?? { count: 0, name: nm || undefined };
+            v.count += 1;
+            if (!v.name && nm) v.name = nm;
+            votes.set(key, v);
+          }
+        }
+      }
+      let best: string | undefined;
+      let bestCount = 0;
+      for (const [k, v] of votes) {
+        if (v.count > bestCount) {
+          best = k;
+          bestCount = v.count;
+        }
+      }
+      if (!best) return {};
+      return { partyId: best, name: votes.get(best)?.name || resolveName(best) };
+    };
+
+    // Pre-resolve every payment once (used for both filtering + enrichment).
+    const resolvedByPayment = new Map<string, { partyId?: string; name?: string }>();
+    for (const p of payments) {
+      resolvedByPayment.set(p.id, resolveViaInvoices(p));
+    }
+
+    // Filter by customer if specified: match raw id variants (old + new), plus
+    // the invoice-number-resolved current party so old debtor_id rows show up
+    // when filtering by the NEW customer_id.
     let filtered = payments;
-    if (debtorId) {
-      filtered = payments.filter((p) => p.debtor_id === debtorId);
+    if (customerId) {
+      const stripped = customerId.replace(/^(vendor_|supplier_)/, "");
+      const variants = new Set([customerId, stripped, `vendor_${stripped}`, `supplier_${stripped}`]);
+      const normVariant = (v: string) => v.trim();
+      filtered = payments.filter((p) => {
+        const pid = (p.customer_id ?? "").trim();
+        if (variants.has(pid)) return true;
+        const pStripped = pid.replace(/^(vendor_|supplier_)/, "");
+        if (pStripped && variants.has(pStripped)) return true;
+        // Legacy rows may only carry debtor_id (import script writes both, but be defensive)
+        const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
+        if (did && (variants.has(did) || variants.has(did.replace(/^(vendor_|supplier_)/, "")))) return true;
+        // Cross-era match: old debtor_id row → current customer via invoice numbers
+        const resolved = resolvedByPayment.get(p.id)?.partyId ?? "";
+        if (resolved && (variants.has(normVariant(resolved)) || variants.has(normVariant(resolved.replace(/^(vendor_|supplier_)/, ""))))) return true;
+        return false;
+      });
     }
 
     // Sort by created_at descending (most recent first)
     filtered.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 
-    // Enrich with party names (debtors + vendors)
-    const allDebtors = await scanTable<{ id: string; name: string }>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d.name]));
-    const allVendors = await scanTable<{ id: string; name: string }>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const vendorMap = new Map(allVendors.map((v) => [`vendor_${v.id}`, v.name]));
-    // Keep legacy supplier prefix for backward compatibility with old records
-    const allSuppliers = await scanTable<{ id: string; company_name: string }>(TABLES.SUPPLIERS, getCompanyFilter(req.user!));
-    const supplierMap = new Map(allSuppliers.map((s) => [`supplier_${s.id}`, s.company_name]));
+    // Company-mismatch fallback: for ids still unresolved, try an unscoped direct
+    // lookup (imported rows may carry company_id null while masters are company-scoped).
+    const unresolvedIds = new Set<string>();
+    for (const p of filtered) {
+      const stored = ((p as any).customer_name ?? "").trim();
+      if (stored && stored !== "Unknown") continue;
+      if (!resolveName(p.customer_id) && !resolveName((p as any).debtor_id) && !resolvedByPayment.get(p.id)?.name) {
+        const pid = (p.customer_id ?? "").trim();
+        if (pid) unresolvedIds.add(pid);
+      }
+    }
+    const fallbackNames = new Map<string, string>();
+    if (unresolvedIds.size > 0) {
+      await Promise.all([...unresolvedIds].map(async (pid) => {
+        const stripped = pid.replace(/^(vendor_|supplier_)/, "");
+        try {
+          // Try debtors/customers first (sales rows store raw customer ids)
+          const [fromDebtors, fromCustomers] = await Promise.all([
+            getItem(TABLES.DEBTORS, { id: pid }).catch(() => null) as Promise<any>,
+            getItem(TABLES.CUSTOMERS, { id: pid }).catch(() => null) as Promise<any>,
+          ]);
+          const hit = fromDebtors ?? fromCustomers;
+          if (hit?.name) {
+            fallbackNames.set(pid, hit.name);
+            return;
+          }
+          // Try vendor/supplier by stripped id (purchase rows, legacy raw ids)
+          const [fromVendor, fromSupplier, fromVendorRaw, fromSupplierRaw] = await Promise.all([
+            getItem(TABLES.VENDORS, { id: stripped }).catch(() => null) as Promise<any>,
+            getItem(TABLES.SUPPLIERS, { id: stripped }).catch(() => null) as Promise<any>,
+            pid !== stripped ? getItem(TABLES.VENDORS, { id: pid }).catch(() => null) as Promise<any> : Promise.resolve(null),
+            pid !== stripped ? getItem(TABLES.SUPPLIERS, { id: pid }).catch(() => null) as Promise<any> : Promise.resolve(null),
+          ]);
+          const vHit = fromVendor ?? fromVendorRaw;
+          if (vHit?.name) {
+            fallbackNames.set(pid, vHit.name);
+            return;
+          }
+          const sHit = fromSupplier ?? fromSupplierRaw;
+          if (sHit?.company_name) {
+            fallbackNames.set(pid, sHit.company_name);
+          }
+        } catch {
+          // Best-effort only — leave unresolved for the invoice fallback below
+        }
+      }));
+    }
 
-    const enriched = filtered.map((p) => ({
-      ...p,
-      debtor_name: debtorMap.get(p.debtor_id) ?? vendorMap.get(p.debtor_id) ?? supplierMap.get(p.debtor_id) ?? "Unknown",
-    }));
+    // Invoice fallback by live id: if the party master was deleted, derive the name
+    // from a still-matching live invoice id linked to the payment.
+    const invoiceIdsNeeded = new Set<string>();
+    for (const p of filtered) {
+      const stored = ((p as any).customer_name ?? "").trim();
+      if (stored && stored !== "Unknown") continue;
+      if (resolveName(p.customer_id) || resolveName((p as any).debtor_id) || fallbackNames.has((p.customer_id ?? "").trim()) || resolvedByPayment.get(p.id)?.name) continue;
+      const firstClosed = (p.closed_invoices ?? [])[0]?.id;
+      const firstPartial = ((p as any).partial_invoices ?? [])[0]?.id;
+      const invId = firstClosed ?? firstPartial;
+      if (invId) invoiceIdsNeeded.add(invId);
+    }
+    const invoiceNames = new Map<string, string>();
+    if (invoiceIdsNeeded.size > 0) {
+      const [salesById, purchaseById] = await Promise.all([
+        Promise.all([...invoiceIdsNeeded].map((id) => getItem(TABLES.INVOICES, { id }).catch(() => null) as Promise<any>)),
+        Promise.all([...invoiceIdsNeeded].map((id) => getItem(TABLES.PURCHASE_INVOICES, { id }).catch(() => null) as Promise<any>)),
+      ]);
+      const salesList = salesById.filter(Boolean);
+      const purchaseList = purchaseById.filter(Boolean);
+      // Resolve party names for the found invoices in bulk
+      const invCustomerMap = customerById;
+      const invVendorMap = vendorById;
+      for (const inv of salesList) {
+        const partyId = String(inv.customer_id ?? inv.debtor_id ?? "").trim();
+        const nm = (partyId && invCustomerMap.get(partyId)) || inv.customer_name || inv.debtor_name || undefined;
+        if (nm) invoiceNames.set(inv.id, nm);
+      }
+      for (const inv of purchaseList) {
+        const vid = String(inv.vendor_id ?? inv.supplier_id ?? "").trim();
+        const nm = (vid && invVendorMap.get(vid)) || inv.vendor_name || inv.supplier_name || undefined;
+        if (nm) invoiceNames.set(inv.id, nm);
+      }
+    }
+
+    const enriched = filtered.map((p) => {
+      const stored = ((p as any).customer_name ?? "").trim();
+      const pid = (p.customer_id ?? "").trim();
+      const did = ((p as any).debtor_id ?? "").trim?.() ?? "";
+      const firstClosed = (p.closed_invoices ?? [])[0]?.id;
+      const firstPartial = ((p as any).partial_invoices ?? [])[0]?.id;
+      const invFallback = (firstClosed && invoiceNames.get(firstClosed))
+        ?? (firstPartial && invoiceNames.get(firstPartial))
+        ?? undefined;
+      const viaInvoices = resolvedByPayment.get(p.id);
+      const customer_name = (stored && stored !== "Unknown" ? stored : undefined)
+        ?? resolveName(pid)
+        ?? (did ? resolveName(did) : undefined)
+        ?? fallbackNames.get(pid)
+        ?? (did ? fallbackNames.get(did) : undefined)
+        ?? viaInvoices?.name
+        ?? invFallback
+        ?? "Unknown";
+      // Expose the resolved current party so the UI filter + future repairs can use it.
+      const resolved_customer_id = viaInvoices?.partyId && !resolveName(pid) && !resolveName(did)
+        ? viaInvoices.partyId
+        : undefined;
+      return {
+        ...p,
+        customer_name,
+        ...(resolved_customer_id ? { resolved_customer_id } : {}),
+      };
+    });
+
+    // ── Derive balance_consumed and balance for records that never stored it ──
+    // balance = total amount applied to close invoices at that payment date
+    // balance_consumed = balance - payment amount (portion that came from previous balance)
+    const byCustomer = new Map<string, typeof enriched>();
+    for (const p of enriched) {
+      const list = byCustomer.get(p.customer_id) ?? [];
+      list.push(p);
+      byCustomer.set(p.customer_id, list);
+    }
+    for (const payments of byCustomer.values()) {
+      payments.sort((a, b) => {
+        const d = (a.payment_date ?? "").localeCompare(b.payment_date ?? "");
+        if (d !== 0) return d;
+        return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+      });
+      for (const p of payments) {
+        const totalApplied =
+          ((p.closed_invoices ?? []) as any[]).reduce((s, ci) => s + Number((ci as any).amount ?? 0), 0) +
+          (((p as any).partial_invoices ?? []) as any[]).reduce(
+            (s, pi) => s + Number((pi as any).amount_paid ?? 0),
+            0
+          );
+
+        const balance = Math.round(totalApplied * 100) / 100;
+        const balanceConsumed = Math.round(Math.max(0, balance - Number(p.amount ?? 0)) * 100) / 100;
+
+        if (!Object.prototype.hasOwnProperty.call(p, "balance_consumed") || p.balance_consumed == null) {
+          (p as any).balance_consumed = balanceConsumed;
+        }
+        (p as any).balance = balance;
+      }
+    }
 
     // Calculate totals
     const totalRemaining = enriched.reduce((s, p) => s + Number(p.remaining), 0);
@@ -436,7 +769,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       return;
     }
 
-    const isSupplierPayment = payment.debtor_id?.startsWith("supplier_") || payment.debtor_id?.startsWith("vendor_");
+    const isSupplierPayment = payment.customer_id?.startsWith("supplier_") || payment.customer_id?.startsWith("vendor_");
     const reversedInvoices: string[] = [];
     const reversalErrors: Array<{ id: string; error: string }> = [];
     const restoredCreditNotes: string[] = [];
@@ -464,7 +797,40 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       }
     }
 
-    // ── 4. Restore credit notes back to "approved" ──
+    // ── 4. Restore unconsumed balance back to prior payments so it stays available ──
+    // When this payment consumed previous remaining balance (balance_consumed) but did
+    // not apply all of it to invoices, the leftover sits as `remaining` on this record.
+    // On reversal, give that unconsumed consumed balance back to the customer's prior
+    // payment records so it can be used for next invoices.
+    const paymentAmount = Number(payment.amount ?? 0);
+    const unappliedRemaining = Number(payment.remaining ?? 0);
+    const restoreAmount = Math.round(Math.max(0, unappliedRemaining - paymentAmount) * 100) / 100;
+
+    if (restoreAmount > 0) {
+      const priorPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
+        filterExpression: "customer_id = :did AND #id <> :pid",
+        expressionAttributeNames: { "#id": "id" },
+        expressionAttributeValues: { ":did": payment.customer_id, ":pid": payment.id },
+      });
+      priorPayments.sort((a, b) => {
+        const d = (b.payment_date ?? "").localeCompare(a.payment_date ?? "");
+        if (d !== 0) return d;
+        return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      });
+      let left = restoreAmount;
+      for (const prior of priorPayments) {
+        if (left <= 0) break;
+        const add = Math.round(left * 100) / 100;
+        const newRemaining = Math.round((Number(prior.remaining ?? 0) + add) * 100) / 100;
+        await updateItem(TABLES.PAYMENTS, { id: prior.id }, {
+          remaining: newRemaining,
+          updated_at: now,
+        });
+        left = Math.round((left - add) * 100) / 100;
+      }
+    }
+
+    // ── 4b. Restore credit notes back to "approved" ──
     for (const noteId of (payment.credit_note_ids ?? [])) {
       try {
         const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
@@ -495,7 +861,7 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
       createActivityAlert({
         client_id: req.user!.id,
         company_id: req.user!.company_id,
-        debtor_id: payment.debtor_id,
+        customer_id: payment.customer_id,
         type: "payment_received",
         severity: "warning",
         message: `Bulk payment of ${fmtMoneyShort(payment.amount)} reversed — ${reversedInvoices.length} invoice(s) reopened, ${restoredCreditNotes.length} credit note(s) restored.`,
@@ -523,9 +889,10 @@ router.post("/reverse/:paymentId", requireAuth, requireAnyWriteAccess("invoices"
 
 // ── Helper: outstanding balance of a purchase invoice ──
 function outstandingPurchaseBalance(inv: PurchaseInvoice): number {
-  return inv.amount_paid != null
+  const raw = inv.amount_paid != null
     ? Math.max(0, Number(inv.amount) - Number(inv.amount_paid))
     : Number(inv.amount);
+  return Math.round(raw * 100) / 100;
 }
 
 // ── Helper: fully close a purchase invoice ──
@@ -554,9 +921,9 @@ async function partiallyPayPurchaseInvoice(inv: PurchaseInvoice, amount: number,
 const processPurchaseSchema = z.object({
   vendor_id: z.string().min(1),
   payment_date: z.string().min(1),
-  amount: z.number().positive(),
+  amount: z.number().min(0),
   use_balance: z.boolean().optional().default(false),
-  mode: z.enum(["manual", "fifo", "two_pass_fifo"]),
+  mode: z.enum(["manual", "fifo", "two_pass_fifo", "on_account"]),
   selected_invoice_ids: z.array(z.string()).optional().default([]),
   settle_credit_note_ids: z.array(z.string()).optional().default([]),
 });
@@ -578,9 +945,9 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     let consumedOldPayments: PaymentRecord[] = [];
 
     if (parsed.use_balance) {
-      // Balance tracking uses PAYMENTS table with vendor_id stored in debtor_id field
+      // Balance tracking uses PAYMENTS table with vendor_id stored in customer_id field
       const prevPayments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-        filterExpression: "debtor_id = :did AND #remaining > :zero",
+        filterExpression: "customer_id = :did AND #remaining > :zero",
         expressionAttributeNames: { "#remaining": "remaining" },
         expressionAttributeValues: { ":did": `vendor_${parsed.vendor_id}`, ":zero": 0 },
       });
@@ -589,12 +956,35 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       availableAmount += totalRemaining;
     }
 
+    // Track how much previous remaining balance was consumed to boost this payment
+    const balanceConsumed = parsed.use_balance
+      ? consumedOldPayments.reduce((s, p) => s + Number(p.remaining), 0)
+      : 0;
+
     // ── 3. Fetch open purchase invoices for this vendor ──
     const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const eligiblePiStatuses = new Set(["draft", "submitted", "approved", "advanced", "funded", "overdue"]);
+    // Match the Bulk payments UI list (everything except terminal states) so every
+    // invoice the user sees selected actually gets closed/partially paid.
+    const ineligiblePiStatuses = new Set(["paid", "rejected", "disputed"]);
     let openPurchaseInvoices = allPurchaseInvoices
-      .filter((pi) => pi.vendor_id === vendor.id && eligiblePiStatuses.has(pi.status))
+      .filter((pi) => (pi.vendor_id === vendor.id || (pi as any).supplier_id === vendor.id) && !ineligiblePiStatuses.has(pi.status))
       .sort((a, b) => (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31"));
+
+    // Credit notes applied in the UI boost the available amount — same as sales flow.
+    let purchaseCreditBoost = 0;
+    for (const noteId of parsed.settle_credit_note_ids) {
+      const note = await getItem(TABLES.CREDIT_DEBIT_NOTES, { id: noteId }) as CreditDebitNote | undefined;
+      if (note && note.type === "credit" && note.status === "approved") {
+        purchaseCreditBoost += Number(note.amount) || 0;
+      }
+    }
+    availableAmount += purchaseCreditBoost;
+    availableAmount = Math.round(availableAmount * 100) / 100;
+
+    if (availableAmount <= 0) {
+      res.status(400).json({ error: "Amount must be greater than zero (enter a payment amount, use remaining balance, or apply credit)" });
+      return;
+    }
 
     // ── 4. Process by mode ──
     const closed: Array<{ id: string; invoice_number: string; amount: number; late_payment_days: number }> = [];
@@ -609,18 +999,18 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           await partiallyPayPurchaseInvoice(inv, remainingAfterProcessing, now);
           partiallyPaid.push({
             id: inv.id,
             invoice_number: inv.invoice_number,
             amount_paid: remainingAfterProcessing,
-            remaining: balance - remainingAfterProcessing,
+            remaining: Math.round((balance - remainingAfterProcessing) * 100) / 100,
           });
           remainingAfterProcessing = 0;
         }
@@ -636,11 +1026,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (FIFO strict)" });
         }
@@ -653,11 +1043,11 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           await closePurchaseInvoice(inv, parsed.payment_date, now);
           const lateDays = computeLateDays(inv.due_date, parsed.payment_date);
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 1)" });
         }
@@ -667,7 +1057,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
         if (remainingAfterProcessing <= 0) break;
         const balance = outstandingPurchaseBalance(inv);
 
-        if (remainingAfterProcessing >= balance) {
+        if (remainingAfterProcessing + AMOUNT_EPS >= balance) {
           const closeDate = inv.due_date ?? parsed.payment_date;
           const lateDays = computeLateDays(inv.due_date, closeDate);
           await updateItem(TABLES.PURCHASE_INVOICES, { id: inv.id }, {
@@ -677,14 +1067,19 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
             updated_at: now,
           });
           closed.push({ id: inv.id, invoice_number: inv.invoice_number, amount: balance, late_payment_days: lateDays });
-          remainingAfterProcessing -= balance;
+          remainingAfterProcessing = Math.round((remainingAfterProcessing - balance) * 100) / 100;
         } else {
           skipped.push({ id: inv.id, invoice_number: inv.invoice_number, reason: "Insufficient funds (Pass 2)" });
         }
       }
+    } else if (parsed.mode === "on_account") {
+      // On Account: do not close or partially pay any invoices — add amount directly to remaining balance
+      // remainingAfterProcessing stays equal to availableAmount
     }
 
     // ── 5. Settle credit notes ──
+    remainingAfterProcessing = Math.round(remainingAfterProcessing * 100) / 100;
+    if (remainingAfterProcessing < AMOUNT_EPS) remainingAfterProcessing = 0;
     const settledCredits: string[] = [];
     const creditErrors: Array<{ id: string; error: string }> = [];
 
@@ -717,14 +1112,16 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
     }
 
     // ── 6. Create payment record with remaining balance ──
+    // Denormalize the vendor name so history never shows "Unknown".
     const paymentRecord: PaymentRecord = {
       id: generateId(),
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: `vendor_${parsed.vendor_id}`,
+      customer_id: `vendor_${parsed.vendor_id}`,
       amount: parsed.amount,
       payment_date: parsed.payment_date,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
       invoices_closed: closed.length,
       closed_invoices: closed.map((c) => ({ id: c.id, invoice_number: c.invoice_number, amount: c.amount })),
       partial_invoices: partiallyPaid.map((p) => ({ id: p.id, invoice_number: p.invoice_number, amount_paid: p.amount_paid })),
@@ -732,7 +1129,8 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       mode: parsed.mode,
       created_at: now,
       updated_at: now,
-    };
+      customer_name: vendor.name,
+    } as PaymentRecord;
     await putItem(TABLES.PAYMENTS, paymentRecord as any);
 
     // ── 7. Consume old remaining balances ──
@@ -759,6 +1157,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
       payment_id: paymentRecord.id,
       amount: parsed.amount,
       remaining: remainingAfterProcessing,
+      balance_consumed: balanceConsumed,
       supplier_name: vendor.name,
       closed,
       partially_paid: partiallyPaid,
@@ -780,7 +1179,7 @@ router.post("/process-purchase", requireAuth, requireAnyWriteAccess("invoices", 
 router.get("/purchase-balance/:vendorId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const payments = await scanTable<PaymentRecord>(TABLES.PAYMENTS, {
-      filterExpression: "debtor_id = :did AND #remaining > :zero",
+      filterExpression: "customer_id = :did AND #remaining > :zero",
       expressionAttributeNames: { "#remaining": "remaining" },
       expressionAttributeValues: { ":did": `vendor_${req.params.vendorId}`, ":zero": 0 },
     });

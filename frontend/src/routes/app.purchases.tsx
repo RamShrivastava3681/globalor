@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,24 +16,35 @@ import { applyPlugin } from "jspdf-autotable";
 applyPlugin(jsPDF);import { getLogoBase64, drawPdfHeaderBar, drawPdfFooter, pdfMoney, pdfDate, pdfSectionHeading } from "@/lib/pdf-helpers";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { BulkSearchModal } from "@/components/bulk-search-modal";
+import { DocActions } from "@/components/workflow/doc-actions";
 import {
   ComposedChart, Bar, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 export const Route = createFileRoute("/app/purchases")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { tab: string; view?: string; createFromPo?: string; openInvoice?: string; fromQueue?: string } => ({
     tab: (search.tab as string) || "dashboard",
     view: (search.view as string) || undefined,
+    createFromPo: (search.createFromPo as string) || undefined,
+    openInvoice: (search.openInvoice as string) || undefined,
+    fromQueue: (search.fromQueue as string) || undefined,
   }),
   component: PurchasesPage,
 });
 
-function PurchasesPage() {
-  const { view, tab } = Route.useSearch();
+export function PurchasesPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { tab?: string; view?: string; createFromPo?: string; openInvoice?: string; fromQueue?: string } });
+  const routeTab = (routerSearch as any)?.tab as string | undefined;
+  const routeView = (routerSearch as any)?.view as string | undefined;
+  const routeCreateFromPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
+  const routeOpenInvoice = embedded ? undefined : ((routerSearch as any)?.openInvoice as string | undefined);
+  const [localTab, setLocalTab] = useState<string | null>(null);
+  const tab = embedded ? (localTab ?? "dashboard") : (routeTab ?? "dashboard");
+  const view = embedded ? undefined : routeView;
   const navigate = useNavigate();
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
   const canEdit = canWrite("purchase-invoices");
-  const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -57,18 +68,21 @@ function PurchasesPage() {
   const [confirmSendTarget, setConfirmSendTarget] = useState<{ id: string; number: string } | null>(null);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
-  // All purchase invoices query for dashboard stats
+  // Compact stats query for the dashboard tab + review-all-drafts. The old
+  // call fetched the fully-enriched list (5 backend scans + lines and linked
+  // sales per row); /purchase-invoices/stats scans only purchase invoices and
+  // vendors and returns the handful of fields the dashboard actually uses.
   const allPiQ = useQuery({
-    queryKey: ["purchase_invoices", "all"],
-    queryFn: async () => (await api.get<any[]>("/purchase-invoices")) ?? [],
+    queryKey: ["purchase_invoices", "stats"],
+    queryFn: async () => (await api.get<any[]>("/purchase-invoices/stats")) ?? [],
   });
   const allPi = allPiQ.data ?? [];
 
-  // Dashboard stats
+  // Dashboard stats (same shape as before — stats rows keep amount/status fields)
   const dashboardStats = useMemo(() => {
     const inv = allPi;
     const total = inv.length;
-    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const totalAmount = inv.reduce((s: number, p: any) => s + Number(p.amount ?? 0), 0);
     const draft = inv.filter((p: any) => p.status === "draft");
     const draftAmount = draft.reduce((s: number, p: any) => s + Number(p.amount), 0);
     const submitted = inv.filter((p: any) => p.status === "submitted");
@@ -99,7 +113,20 @@ function PurchasesPage() {
     };
   }, [allPi]);
 
-  const setTab = (t: string) => navigate({ to: "/app/purchases", search: { tab: t, view: undefined }, replace: true });
+  const setTab = (t: string) => {
+    if (embedded) {
+      setLocalTab(t);
+      return;
+    }
+    navigate({ to: "/app/purchases", search: { tab: t, view: undefined }, replace: true });
+  };
+  const closeToList = () => {
+    if (embedded) {
+      setLocalTab("list");
+      return;
+    }
+    navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true });
+  };
 
   const tabs = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -126,7 +153,20 @@ function PurchasesPage() {
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
-    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+    queryFn: async () => {
+      // Procurement counterparties live in two tables: /vendors (name) and
+      // /suppliers (company_name). Merge both so suppliers onboarded from
+      // either page appear in the purchase-invoice dropdown.
+      const [vendors, suppliers] = await Promise.all([
+        api.get<any[]>("/vendors").catch(() => []),
+        api.get<any[]>("/suppliers").catch(() => []),
+      ]);
+      const merged = [
+        ...((vendors ?? []).map((v: any) => ({ ...v, name: v.name }))),
+        ...((suppliers ?? []).map((s: any) => ({ ...s, name: s.company_name ?? s.name }))),
+      ];
+      return merged.sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    },
   });
 
   const salesQ = useQuery({
@@ -164,10 +204,46 @@ function PurchasesPage() {
       const found = data.find((p: any) => p.id === view);
       if (found) {
         setViewing(found);
-        navigate({ to: "/app/purchases", search: { view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/purchases", search: { tab, view: undefined }, replace: true });
+        }
       }
     }
   }, [view, piQ.data]);
+
+  // Deep-link from My Queue: ?openInvoice=<id> opens the PI detail modal
+  // (fetches the single invoice when it isn't on the current page).
+  useEffect(() => {
+    if (routeOpenInvoice) {
+      (async () => {
+        const data = Array.isArray(piQ.data) ? piQ.data : (piQ.data?.data ?? []);
+        const found = (data as any[]).find((p: any) => p.id === routeOpenInvoice);
+        if (found) {
+          setViewing(found);
+        } else {
+          try {
+            const match = await api.get<any>("/purchase-invoices/" + routeOpenInvoice);
+            if (match) setViewing(match);
+          } catch {
+            // silently fail — invoice may have been deleted
+          }
+        }
+        if (!embedded) {
+          navigate({ to: "/app/purchases", search: { tab, openInvoice: undefined }, replace: true });
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeOpenInvoice]);
+
+  // Deep-link from My Queue: ?createFromPo=<poId> opens the new-invoice
+  // form with that purchase order preselected.
+  useEffect(() => {
+    if (routeCreateFromPo && !embedded) {
+      setEditing(null);
+      setOpen(true);
+    }
+  }, [routeCreateFromPo, embedded]);
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -207,6 +283,7 @@ function PurchasesPage() {
     onSuccess: () => {
       toast.success("Invoice sent to checker for review");
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -221,6 +298,10 @@ function PurchasesPage() {
     if (filter !== "all") {
       if (filter === "closed") {
         if (!closedStatuses.includes(p.status)) return false;
+      } else if (filter === "partial") {
+        const received = Number(p.amount_received ?? p.amount_paid ?? 0);
+        const total = Number(p.amount ?? 0);
+        if (!(p.status === "partial" || (received > 0 && received < total && p.status !== "paid"))) return false;
       } else if (p.status !== filter) return false;
     }
     return true;
@@ -309,7 +390,7 @@ function PurchasesPage() {
       </div>
 
       {tab === "dashboard" && <DashboardView stats={dashboardStats} invoices={allPi} />}
-      {tab === "create" && <CreatePurchaseView />}
+      {tab === "create" && <CreatePurchaseView onExitCreate={closeToList} />}
       {tab === "list" && (
         <div className="space-y-4 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
@@ -325,6 +406,7 @@ function PurchasesPage() {
           statusOptions={[
             { label: "All statuses", value: "all" },
             { label: "Open (Approved)", value: "approved" },
+            { label: "Partial", value: "partial" },
             { label: "Closed", value: "closed" },
           ]}
           statusValue={filter}
@@ -434,6 +516,7 @@ function PurchasesPage() {
                     <th className="px-5 py-2 text-left font-normal">PO</th>
                     <th className="px-5 py-2 text-left font-normal">Issue date</th>
                     <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Paid Amount</th>
                     <th className="px-5 py-2 text-left font-normal">ERP Due Date</th>
                     <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
                     <th className="px-5 py-2 text-left font-normal">Paid date</th>
@@ -479,6 +562,7 @@ function PurchasesPage() {
                         </td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.issue_date)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-5 py-3 text-right num text-muted-foreground">{p.amount_paid != null ? fmtMoney(p.amount_paid) : p.amount_received != null ? fmtMoney(p.amount_received) : "—"}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
@@ -496,9 +580,9 @@ function PurchasesPage() {
                           ) : (
                             <div className="space-y-0.5">
                               {links.map((s: any) => (
-                                <Link key={s.id} to="/app/invoices" search={{ view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
+                                <Link key={s.id} to="/app/invoices" search={{ tab: "list", view: s.id }} className="flex items-center gap-1 text-xs text-primary hover:underline">
                                   <Link2 className="h-3 w-3" />{s.invoice_number}
-                                  <span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
+                                  <span className="text-muted-foreground">→ {s.customer?.name ?? "?"}</span>
                                 </Link>
                               ))}
                             </div>
@@ -534,11 +618,7 @@ function PurchasesPage() {
                               </span>
                             )}
                             {p.status === "pending" && (
-                              canReview ? (
-                                <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
-                              ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
-                              )
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker — see Checker tab</span>
                             )}
                             {(p.status === "approved" || p.status === "advanced") && (
                               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
@@ -640,7 +720,17 @@ function PurchasesPage() {
           vendors={vendorsQ.data ?? []}
           invoices={miniInvoicesQ.data ?? []}
           linkedSales={editing ? linkedSales(editing.id) : []}
-          onClose={() => { setOpen(false); setEditing(null); }}
+          presetPoId={!editing ? routeCreateFromPo : undefined}
+          onClose={() => {
+            setOpen(false); setEditing(null);
+            if (embedded) return;
+            if ((routerSearch as any)?.fromQueue) {
+              // Queue-driven flow: return to My Queue (task auto-completes server-side).
+              navigate({ to: "/app/tasks", replace: true });
+            } else if (routeCreateFromPo) {
+              navigate({ to: "/app/purchases", search: { tab, createFromPo: undefined }, replace: true });
+            }
+          }}
           onDone={() => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); qc.invalidateQueries({ queryKey: ["invoices-by-pi"] }); }}
         />
       )}
@@ -733,7 +823,8 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const vendors = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
     for (const inv of invoices) {
-      if (inv.vendor_id && inv.vendor?.name) map.set(inv.vendor_id, { id: inv.vendor_id, name: inv.vendor.name });
+      const name = inv.vendor_name || inv.vendor?.name;
+      if (inv.vendor_id && name) map.set(inv.vendor_id, { id: inv.vendor_id, name });
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [invoices]);
@@ -789,7 +880,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
   const topSuppliers = useMemo(() => {
     const map = new Map<string, { name: string; count: number; total: number }>();
     for (const inv of filteredInvoices) {
-      const name = inv.vendor?.name || "Unknown";
+      const name = inv.vendor_name || inv.vendor?.name || "Unknown";
       const entry = map.get(name) || { name, count: 0, total: 0 };
       entry.count++;
       entry.total += Number(inv.amount);
@@ -986,7 +1077,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
                   {mostOverdue.map((i: any) => (
                     <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                      <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                      <td className="px-6 py-3">{i.vendor_name || i.vendor?.name || "—"}</td>
                       <td className="px-6 py-3 text-right num text-destructive">{fmtMoney(i.amount)}</td>
                       <td className="px-6 py-3 text-right">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${i.daysPastDue > 60 ? "bg-destructive/15 text-destructive" : i.daysPastDue > 30 ? "bg-warning/15 text-warning" : "bg-warning/15 text-warning"}`}>
@@ -1021,7 +1112,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
               {filteredInvoices.slice(0, 10).map((i: any) => (
                 <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                   <td className="px-6 py-3 font-mono text-xs">{i.invoice_number}</td>
-                  <td className="px-6 py-3">{i.vendor?.name ?? "—"}</td>
+                  <td className="px-6 py-3">{i.vendor_name || i.vendor?.name || "—"}</td>
                   <td className="px-6 py-3 text-right num">{fmtMoney(i.amount)}</td>
                   <td className="px-6 py-3"><StatusPill status={i.status} /></td>
                   <td className="px-6 py-3 text-sm text-muted-foreground">{fmtDate(i.created_at)}</td>
@@ -1037,7 +1128,7 @@ function DashboardView({ stats, invoices }: { stats: any; invoices: any[] }) {
 
 // ── Page 2: Create Purchase Invoice ──
 
-function CreatePurchaseView() {
+function CreatePurchaseView({ onExitCreate }: { onExitCreate?: () => void }) {
   const navigate = useNavigate();
   const { canWrite } = useAuth();
   const canCreate = canWrite("purchase-invoices");
@@ -1046,7 +1137,17 @@ function CreatePurchaseView() {
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
-    queryFn: async () => (await api.get<any[]>("/vendors")) ?? [],
+    queryFn: async () => {
+      const [vendors, suppliers] = await Promise.all([
+        api.get<any[]>("/vendors").catch(() => []),
+        api.get<any[]>("/suppliers").catch(() => []),
+      ]);
+      const merged = [
+        ...((vendors ?? []).map((v: any) => ({ ...v, name: v.name }))),
+        ...((suppliers ?? []).map((s: any) => ({ ...s, name: s.company_name ?? s.name }))),
+      ];
+      return merged.sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    },
   });
 
   if (!canCreate) {
@@ -1071,7 +1172,7 @@ function CreatePurchaseView() {
       <PurchaseInvoiceForm
         editing={null}
         vendors={vendorsQ.data ?? []}
-        onClose={() => navigate({ to: "/app/purchases", search: { tab: "list" }, replace: true })}
+        onClose={() => (onExitCreate ? onExitCreate() : navigate({ to: "/app/purchases", search: { tab: "list", view: undefined }, replace: true }))}
         onDone={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         isStandalone
       />
@@ -1268,10 +1369,10 @@ async function exportPurchaseInvoicePdf(invoice: any) {
       pdfSectionHeading(doc, "LINKED SALES INVOICES", margin, y, contentW);
       y += 8;
 
-      const lsHead = [["Invoice #", "Debtor", "Amount", "Status"]];
+      const lsHead = [["Invoice #", "Customer", "Amount", "Status"]];
       const lsBody = linkedSales.map((s: any) => [
         s.invoice_number || "—",
-        s.debtor?.name || "—",
+        s.customer?.name || "—",
         pdfMoney(s.amount),
         s.status?.replace("_", " ") || "—",
       ]);
@@ -1322,7 +1423,7 @@ async function exportPurchaseInvoicePdf(invoice: any) {
   }
 }
 
-function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; onClose: () => void; onDone: () => void }) {
+function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, presetPoId, onClose, onDone }: { editing: any | null; vendors: any[]; invoices: any[]; linkedSales: any[]; presetPoId?: string; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState(() => ({
     invoice_number: editing?.invoice_number ?? "",
@@ -1332,7 +1433,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
     po_date: editing?.po_date ?? "",
     issue_date: editing?.issue_date ?? new Date().toISOString().slice(0, 10),
     due_date: editing?.due_date ?? "",
-    payment_terms_days: String(editing?.payment_terms_days ?? "30"),
+    payment_terms_days: String(editing?.payment_terms_days ?? "60"),
     has_contractual_due_date: editing?.has_contractual_due_date ?? false,
     bl_date: editing?.bl_date ?? "",
     due_date_source: editing?.due_date_source ?? "invoice",
@@ -1346,9 +1447,57 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
   });
   const initialLinkedIdsRef = useRef<string[]>(editing ? linkedSales.map((s: any) => s.id) : []);
 
+  // ── Optional purchase-order link ──
+  // Picking a PO fetches supplier, PO ref/date, amount and payment terms from
+  // it and snapshots its lines server-side. Leaving it empty keeps the fully
+  // manual flow — linking is never required.
+  const goodsPoQ = useQuery({
+    queryKey: ["goods_po"],
+    queryFn: async () => (await api.get<any[]>("/goods-purchase-orders")) ?? [],
+    staleTime: 30_000,
+  });
+  const billablePos = useMemo(() => ((goodsPoQ.data ?? []) as any[])
+    .filter((p: any) => ["sent", "partially_received", "fully_received"].includes(p.status))
+    .sort((a: any, b: any) => (b.po_number || "").localeCompare(a.po_number || "")), [goodsPoQ.data]);
+  const [linkedPoId, setLinkedPoId] = useState(() => editing?.goods_purchase_order_id ?? "");
+  const linkedPo = useMemo(() => ((goodsPoQ.data ?? []) as any[]).find((p: any) => p.id === linkedPoId) ?? null, [goodsPoQ.data, linkedPoId]);
+  const applyPo = (po: any) => {
+    setLinkedPoId(po.id);
+    setForm((prev: any) => {
+      const next: any = {
+        ...prev,
+        po_number: po.po_number ?? prev.po_number,
+        po_date: po.po_date ?? prev.po_date,
+        amount: po.grand_total != null ? String(po.grand_total) : prev.amount,
+      };
+      if (po.supplier_id) next.vendor_id = po.supplier_id;
+      const m = /net\s*(\d+)/i.exec(po.payment_terms ?? "");
+      if (m) next.payment_terms_days = m[1];
+      return next;
+    });
+  };
+  const clearPo = () => setLinkedPoId("");
+  // Queue-locked: opened from My Queue with a PO preselected — order + supplier stay linked
+  // so the advance chain (PO → proforma → invoice) cannot break.
+  const queueLocked = !!presetPoId && !!linkedPoId;
+
+  // Deep-link preset: auto-apply the linked PO once options resolve.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current || !presetPoId || !goodsPoQ.data) return;
+    const po = ((goodsPoQ.data ?? []) as any[]).find((p: any) => p.id === presetPoId);
+    if (po) {
+      presetAppliedRef.current = true;
+      applyPo(po);
+    } else if (!goodsPoQ.isLoading) {
+      presetAppliedRef.current = true; // missing / not billable — stop retrying
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetPoId, goodsPoQ.data, goodsPoQ.isLoading]);
+
   const [hasDueDate, setHasDueDate] = useState(() => {
     if (editing?.due_date) return true;
-    const terms = Number(editing?.payment_terms_days ?? 30) || 30;
+    const terms = Number(editing?.payment_terms_days ?? 60) || 60;
     const base = editing?.due_date_source === "bl" && editing?.bl_date ? editing.bl_date : (editing?.issue_date ?? new Date().toISOString().slice(0, 10));
     return !!base;
   });
@@ -1376,7 +1525,7 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
 
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
-  const termsDays = Number(form.payment_terms_days) || 30;
+  const termsDays = Number(form.payment_terms_days) || 60;
   const computedDue = (() => {
     const base = form.due_date_source === "bl" && form.bl_date ? form.bl_date : form.issue_date;
     if (!base) return "";
@@ -1395,11 +1544,12 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
         vendor_id: form.vendor_id,
         invoice_number: form.invoice_number.trim(),
         amount: Number(form.amount),
+        goods_purchase_order_id: !editing ? (linkedPoId || null) : undefined,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         issue_date: form.issue_date,
         due_date: hasDueDate ? effectiveDue : null,
-        payment_terms_days: Number(form.payment_terms_days) || 30,
+        payment_terms_days: Number(form.payment_terms_days) || 60,
         bl_date: form.bl_date || null,
         due_date_source: form.due_date_source,
         notes: form.notes || null,
@@ -1461,11 +1611,89 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
 
           {!editing && (
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order</div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order{queueLocked ? " — linked from My Queue (locked)" : " (optional)"}</div>
+              {queueLocked && linkedPo && (
+                <div className="mb-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                  <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+                  <span className="font-mono">{linkedPo.po_number}</span> · {linkedPo.supplier_name ?? ""}
+                  {" — order and supplier are locked to keep the advance chain intact."}
+                </div>
+              )}
+              <L label="Link purchase order — fetches supplier, lines & totals">
+                <select
+                  className="inp"
+                  disabled={queueLocked}
+                  value={linkedPoId}
+                  onChange={(e) => {
+                    const po = billablePos.find((p: any) => p.id === e.target.value);
+                    if (po) applyPo(po);
+                    else clearPo();
+                  }}
+                >
+                  <option value="">— No link — enter manually —</option>
+                  {billablePos.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.po_number} — {p.supplier_name ?? "supplier"} · {fmtMoney(p.grand_total)} ({String(p.status).replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </L>
+              {linkedPo && (
+                <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-medium">{linkedPo.po_number}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {linkedPo.supplier_name ?? ""} · {linkedPo.lines?.length ?? 0} line{(linkedPo.lines?.length ?? 0) !== 1 ? "s" : ""} · {fmtMoney(linkedPo.grand_total)}
+                      </span>
+                    </div>
+                    {!queueLocked && (
+                      <button type="button" onClick={clearPo} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                        Unlink
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Supplier, PO ref/date, amount{linkedPo.payment_terms ? " and payment terms" : ""} filled from the PO — you can still edit them below. PO lines are snapshotted to this invoice on save.
+                  </p>
+                  {Array.isArray(linkedPo.lines) && linkedPo.lines.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-border bg-background/60">
+                      <table className="w-full text-[11px]">
+                        <thead className="sticky top-0 bg-background text-[10px] uppercase tracking-widest text-muted-foreground">
+                          <tr className="border-b border-border">
+                            <th className="px-2 py-1 text-left font-normal">Item</th>
+                            <th className="px-2 py-1 text-right font-normal">Qty</th>
+                            <th className="px-2 py-1 text-right font-normal">Unit cost</th>
+                            <th className="px-2 py-1 text-right font-normal">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linkedPo.lines.map((l: any, i: number) => (
+                            <tr key={i} className="border-b border-border/40">
+                              <td className="px-2 py-1">{l.name} <span className="font-mono text-muted-foreground">{l.sku}</span></td>
+                              <td className="px-2 py-1 text-right num">{Number(l.ordered_qty).toLocaleString()} {l.unit}</td>
+                              <td className="px-2 py-1 text-right num">{fmtMoney(l.unit_price)}</td>
+                              <td className="px-2 py-1 text-right num font-medium">{fmtMoney(l.line_total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <L label="PO number"><input maxLength={80} className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
                 <L label="PO date"><input type="date" className="inp" value={form.po_date} onChange={(e) => setForm({ ...form, po_date: e.target.value })} /></L>
               </div>
+            </div>
+          )}
+
+          {editing?.goods_purchase_order_id && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <span className="uppercase tracking-widest text-success">Linked purchase order</span>
+              <span className="ml-2 font-mono">{linkedPo?.po_number ?? editing.po_number ?? editing.goods_purchase_order_id}</span>
+              <span className="ml-2 text-muted-foreground">PO lines were snapshotted at creation — edit quantities on the invoice, not the link.</span>
             </div>
           )}
 
@@ -1490,6 +1718,11 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
               <div className="flex justify-between font-medium border-t border-border pt-1 mt-1">
                 <span>Balance due to supplier</span><span className="num">{fmtMoney(balanceDue)}</span>
               </div>
+              {advancesTotal > 0 && (
+                <div className="mt-2 rounded-md border border-warning/30 bg-warning/5 p-2 text-[11px] text-warning">
+                  Advance detected — a purchase proforma sits between the PO and this invoice (PO → proforma → invoice). The advance auto-deducts on save; keep the PO linked.
+                </div>
+              )}
             </div>
           )}
 
@@ -1499,6 +1732,9 @@ function PurchaseInvoiceFormModal({ editing, vendors, invoices, linkedSales, onC
               <select required className="inp" value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}>
                 <option value="">Select supplier</option>
                 {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                {linkedPo?.supplier_id && !(vendors as any[]).some((v: any) => v.id === linkedPo.supplier_id) && (
+                  <option value={linkedPo.supplier_id}>{linkedPo.supplier_name ?? "PO supplier"}</option>
+                )}
               </select>
             </L>
             <L label="Total invoice amount *"><input required type="text" inputMode="decimal" pattern="-?[0-9]+(\.[0-9]+)?" title="Enter a number (e.g. 123.45 or -50.00)" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
@@ -1658,6 +1894,9 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
             <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">Purchase invoice details</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
               <Detail label="Amount" value={fmtMoney(invoice.amount)} />
+              {invoice.amount_paid != null && invoice.amount_paid > 0 && (
+                <Detail label="Paid Amount" value={fmtMoney(invoice.amount_paid)} />
+              )}
               <Detail label="Issue date" value={fmtDate(invoice.issue_date)} />
               <Detail label="ERP Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
               <Detail label="Payment terms" value={invoice.payment_terms_days ? `${invoice.payment_terms_days}d net (from ${invoice.due_date_source === "bl" ? "BL" : "invoice"} date)` : "—"} />
@@ -1727,7 +1966,7 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
                       <th className="px-4 py-2 text-left font-normal">Invoice</th>
-                      <th className="px-4 py-2 text-left font-normal">Debtor</th>
+                      <th className="px-4 py-2 text-left font-normal">Customer</th>
                       <th className="px-4 py-2 text-right font-normal">Amount</th>
                       <th className="px-4 py-2 text-left font-normal">Status</th>
                     </tr>
@@ -1736,9 +1975,9 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
                     {salesLinks.map((s: any) => (
                       <tr key={s.id} className="border-b border-border/60">
                         <td className="px-4 py-2.5 font-mono text-xs">
-                          <Link to="/app/invoices" search={{ view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
+                          <Link to="/app/invoices" search={{ tab: "list", view: s.id }} className="text-primary hover:underline">{s.invoice_number}</Link>
                         </td>
-                        <td className="px-4 py-2.5">{s.debtor?.name ?? "—"}</td>
+                        <td className="px-4 py-2.5">{s.customer?.name ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right num">{fmtMoney(s.amount)}</td>
                         <td className="px-4 py-2.5"><StatusPill status={s.status} /></td>
                       </tr>
@@ -1811,6 +2050,9 @@ function PurchaseInvoiceDetailModal({ invoice, salesLinks, inventory, onClose }:
               </div>
             )}
           </div>
+
+          {/* Inline checker (approve/dispute) / treasury (pay) — same actions as desk + queue */}
+          <DocActions kind="purchase" doc={invoice} onDone={onClose} />
 
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">Close</button>
@@ -1944,7 +2186,7 @@ function MassImportModal({ onClose, vendors }: { onClose: () => void; vendors: a
   const batchImport = useMutation({
     mutationFn: async () => {
       const payload = {
-        payment_terms_days: Number(paymentTermsDays) || 30,
+        payment_terms_days: Number(paymentTermsDays) || 60,
         due_date_source: dueDateSource,
         bl_date: blDate || null,
         po_number: poNumber.trim() || null,
@@ -2302,7 +2544,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                           <tr className="border-b border-border">
                             <th className="px-4 py-2 text-left font-normal">Type</th>
                             <th className="px-4 py-2 text-left font-normal">UID</th>
-                            <th className="px-4 py-2 text-left font-normal">Debtor / Supplier</th>
+                            <th className="px-4 py-2 text-left font-normal">Customer / Supplier</th>
                             <th className="px-4 py-2 text-left font-normal">Issue date</th>
                             <th className="px-4 py-2 text-right font-normal">Amount</th>
                             <th className="px-4 py-2 text-left font-normal">Status</th>
@@ -2321,7 +2563,7 @@ function DuplicateCheckModal({ onClose }: { onClose: () => void }) {
                               <td className="px-4 py-2.5 font-mono text-[10px] text-muted-foreground">#{entry.id.slice(-8).toUpperCase()}</td>
                               <td className="px-4 py-2.5">
                                 {entry.type === "sales"
-                                  ? (entry.debtor?.name ?? "—")
+                                  ? (entry.customer?.name ?? "—")
                                   : (entry.vendor?.name ?? "—")
                                 }
                               </td>

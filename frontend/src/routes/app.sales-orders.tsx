@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,9 +6,10 @@ import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, Ban, Truck, Pencil, Package, Wallet, Building2, Boxes, Link2, Quote,
+  Plus, X, Loader2, Trash2, CheckCircle2, Ban, Pencil, Package, Wallet, Building2, Boxes, Link2, Quote, Send, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
+import { addressOptionsFor, defaultAddressFor } from "@/lib/customerAddresses";
 
 export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
@@ -33,6 +34,10 @@ type SO = {
   order_date: string;
   customer_id: string | null;
   customer_name: string | null;
+  billing_customer_id: string | null;
+  billing_customer_name: string | null;
+  shipping_customer_id: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
@@ -47,36 +52,61 @@ type SO = {
   total_discount: number;
   gst_total: number;
   grand_total: number;
-  manual_status: "draft" | "confirmed" | "cancelled";
-  status: "draft" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
+  manual_status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "cancelled";
+  status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
   linked_quotation_id?: string | null;
   linked_quotation_number?: string | null;
+  warehouse_review_comments?: string | null;
+  warehouse_reviewed_by?: string | null;
+  warehouse_reviewed_at?: string | null;
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
   created_at: string;
 };
 
-type DebtorOpt = {
+type CustomerOpt = {
   id: string;
   name: string;
   contact_name: string | null;
-  registered_address: string | null;
+  addresses?: Array<{
+    id: string;
+    label: string | null;
+    kind: "billing" | "shipping" | "both";
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postal_code: string | null;
+    is_default: boolean;
+  }> | null;
   payment_terms_days: number | null;
 };
 type ProductOpt = { id: string; name: string; sku: string; barcode: string | null; unit_of_measure: string; unit_price: number; gst_rate: number | null; status: string };
 
 const STATUS_META: Record<SO["status"], { label: string; cls: string }> = {
   draft: { label: "Draft", cls: "border-warning/40 bg-warning/10 text-warning" },
-  confirmed: { label: "Confirmed", cls: "border-primary/40 bg-primary/10 text-primary" },
+  pending_warehouse_approval: { label: "Awaiting warehouse", cls: "border-warning/40 bg-warning/10 text-warning" },
+  pending_checker_approval: { label: "Awaiting checker", cls: "border-info/40 bg-info/10 text-info" },
+  approved: { label: "Approved", cls: "border-primary/40 bg-primary/10 text-primary" },
+  confirmed: { label: "Confirmed (legacy)", cls: "border-primary/40 bg-primary/10 text-primary" },
   partially_dispatched: { label: "Partially dispatched", cls: "border-info/40 bg-info/10 text-info" },
   fully_dispatched: { label: "Fully dispatched", cls: "border-success/40 bg-success/10 text-success" },
   cancelled: { label: "Cancelled", cls: "border-border bg-muted text-muted-foreground line-through" },
 };
 
+/** Orders cleared for dispatch / invoicing (approval chain complete). */
+const RELEASED = new Set(["approved", "confirmed", "partially_dispatched", "fully_dispatched"]);
+
 const PAYMENT_TERMS = ["Net 15", "Net 30", "Net 60", "Advance", "COD", "LC"];
 const GST_OPTIONS = ["0", "5", "12", "18", "28"];
 
-function SalesOrdersPage() {
+export function SalesOrdersPage() {
   const { user, canWrite } = useAuth();
   const canEdit = canWrite("goods-sales-orders");
   const qc = useQueryClient();
@@ -116,18 +146,20 @@ function SalesOrdersPage() {
   }, [sos, statusFilter, searchQuery, sortField, sortOrder]);
 
   const stats = useMemo(() => {
-    const openValue = sos.filter((s) => s.status === "confirmed" || s.status === "partially_dispatched").reduce((s, o) => s + o.grand_total, 0);
+    const openValue = sos.filter((s) => RELEASED.has(s.status) && s.status !== "fully_dispatched").reduce((s, o) => s + o.grand_total, 0);
     return {
       total: sos.length,
-      awaiting: sos.filter((s) => s.status === "draft").length,
+      awaiting: sos.filter((s) => s.status === "draft" || s.status === "pending_warehouse_approval" || s.status === "pending_checker_approval").length,
       openValue,
       dispatched: sos.filter((s) => s.status === "fully_dispatched").length,
     };
   }, [sos]);
 
-  const confirm = useMutation({
-    mutationFn: async (id: string) => { await api.post(`/goods-sales-orders/${id}/confirm`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order confirmed — goods can now be dispatched"); },
+  // Maker action: send a draft to the warehouse. Approval happens on the
+  // warehouse desk (step 1) and the checker desk (step 2) — never here.
+  const submit = useMutation({
+    mutationFn: async (id: string) => { await api.post(`/goods-sales-orders/${id}/submit`); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order sent to warehouse for approval"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
   const cancel = useMutation({
@@ -137,7 +169,7 @@ function SalesOrdersPage() {
   });
   const remove = useMutation({
     mutationFn: async (id: string) => { await api.delete(`/goods-sales-orders/${id}`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Draft removed"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["goods_so"] }); toast.success("Sales order removed"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -146,7 +178,7 @@ function SalesOrdersPage() {
       <PageHeader
         eyebrow="Sales"
         title="Sales orders"
-        description="A sales order is a commitment, never a stock event. Only a confirmed dispatch note reduces inventory. Confirm the order, then dispatch goods."
+        description="Create → send to warehouse → checker approves → dispatch or invoice. A sales order is a commitment, never a stock event — only a confirmed dispatch note reduces inventory."
         actions={
           canEdit ? (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -161,8 +193,8 @@ function SalesOrdersPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={<Package className="h-4 w-4 text-primary" />} label="Total SOs" value={String(stats.total)} />
-          <StatTile icon={<CheckCircle2 className="h-4 w-4 text-warning" />} label="Awaiting confirmation" value={String(stats.awaiting)}
-            hint={stats.awaiting > 0 ? "Drafts — not yet committed" : "None pending"} />
+          <StatTile icon={<CheckCircle2 className="h-4 w-4 text-warning" />} label="Awaiting approval" value={String(stats.awaiting)}
+            hint={stats.awaiting > 0 ? "Draft or awaiting warehouse / checker" : "None pending"} />
           <StatTile icon={<Wallet className="h-4 w-4 text-muted-foreground" />} label="Open order value" value={fmtMoney(stats.openValue)} />
           <StatTile icon={<Boxes className="h-4 w-4 text-success" />} label="Fully dispatched" value={String(stats.dispatched)} />
         </div>
@@ -174,7 +206,9 @@ function SalesOrdersPage() {
           statusOptions={[
             { label: "All statuses", value: "all" },
             { label: "Draft", value: "draft" },
-            { label: "Confirmed", value: "confirmed" },
+            { label: "Awaiting warehouse", value: "pending_warehouse_approval" },
+            { label: "Awaiting checker", value: "pending_checker_approval" },
+            { label: "Approved", value: "approved" },
             { label: "Partially dispatched", value: "partially_dispatched" },
             { label: "Fully dispatched", value: "fully_dispatched" },
             { label: "Cancelled", value: "cancelled" },
@@ -230,30 +264,42 @@ function SalesOrdersPage() {
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${STATUS_META[so.status].cls}`}>{STATUS_META[so.status].label}</span>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {canEdit && so.status === "draft" && (
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button onClick={() => confirm.mutate(so.id)} disabled={confirm.isPending}
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {canEdit && so.status === "draft" && (
+                            <button onClick={() => submit.mutate(so.id)} disabled={submit.isPending}
                               className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
-                              <CheckCircle2 className="h-3 w-3" /> Confirm
+                              <Send className="h-3 w-3" /> Send for approval
                             </button>
-                            <button onClick={() => { if (window.confirm(`Delete draft ${so.so_number}?`)) remove.mutate(so.id); }}
+                          )}
+                          {so.status === "pending_warehouse_approval" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[11px] text-warning">
+                              <Clock className="h-3 w-3" /> Awaiting warehouse
+                            </span>
+                          )}
+                          {so.status === "pending_checker_approval" && (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-info/40 px-2 py-1 text-[11px] text-info">
+                              <Clock className="h-3 w-3" /> Awaiting checker
+                            </span>
+                          )}
+                          {RELEASED.has(so.status) && so.status !== "fully_dispatched" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              Released — dispatch via Dispatches · invoice via Invoices
+                            </span>
+                          )}
+                          {(so.status === "draft" || RELEASED.has(so.status)) && canEdit && (
+                            <button onClick={() => { if (window.confirm(`Cancel ${so.so_number}?`)) cancel.mutate(so.id); }}
                               className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                              <Ban className="h-3 w-3" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => { if (window.confirm(`Remove ${so.so_number} regardless of status (${so.status})? This cannot be undone.`)) remove.mutate(so.id); }}
+                              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                              title={`Remove ${so.so_number} — works on any status`}>
                               <Trash2 className="h-3 w-3" />
                             </button>
-                          </div>
-                        )}
-                        {(so.status === "confirmed" || so.status === "partially_dispatched") && (
-                          <Link to="/app/dispatches" search={{ so: so.id }}
-                            className="inline-flex items-center gap-1 rounded-md border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
-                            <Truck className="h-3 w-3" /> Dispatch goods
-                          </Link>
-                        )}
-                        {(so.status === "draft" || so.status === "confirmed") && canEdit && (
-                          <button onClick={() => { if (window.confirm(`Cancel ${so.so_number}?`)) cancel.mutate(so.id); }}
-                            className="ml-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
-                            <Ban className="h-3 w-3" />
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -309,7 +355,8 @@ function SODetailModal({ so, onClose }: { so: SO; onClose: () => void }) {
                 </span>
               </Detail>
             )}
-            <Detail label="Customer">{so.customer_name ?? "—"}</Detail>
+            <Detail label="Bill to">{so.billing_customer_name ?? so.customer_name ?? "—"}</Detail>
+            <Detail label="Ship to">{so.shipping_customer_name ?? so.customer_name ?? "—"}</Detail>
             <Detail label="Contact">{so.contact_person ?? "—"}</Detail>
             <Detail label="Salesperson">{so.salesperson_name ?? "—"}</Detail>
             <Detail label="Order date">{fmtDate(so.order_date)}</Detail>
@@ -320,6 +367,20 @@ function SODetailModal({ so, onClose }: { so: SO; onClose: () => void }) {
             <Detail label="Expected delivery">{so.expected_delivery_date ? fmtDate(so.expected_delivery_date) : "—"}</Detail>
           </div>
           {so.notes && <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{so.notes}</p>}
+          {(so.warehouse_review_comments || so.review_comments) && (
+            <div className="space-y-1.5">
+              {so.warehouse_review_comments && (
+                <p className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+                  <span className="font-semibold uppercase tracking-wider">Warehouse rejection:</span> {so.warehouse_review_comments}
+                </p>
+              )}
+              {so.review_comments && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  <span className="font-semibold uppercase tracking-wider">Checker rejection:</span> {so.review_comments}
+                </p>
+              )}
+            </div>
+          )}
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs uppercase tracking-widest text-muted-foreground">
@@ -382,45 +443,17 @@ type LineForm = {
   gst_rate: string;
 };
 
-/** An open quotation that can be linked — details auto-fill into the SO. */
-type QuotationLink = {
-  id: string;
-  quotation_number: string;
-  quotation_date: string;
-  customer_id: string | null;
-  customer_name: string | null;
-  prospect_name: string | null;
-  contact_person: string | null;
-  billing_address: string | null;
-  delivery_address: string | null;
-  salesperson_name: string | null;
-  payment_terms: string | null;
-  expected_delivery_date: string | null;
-  freight: number | null;
-  notes: string | null;
-  status: string;
-  grand_total: number;
-  lines: {
-    product_id: string | null;
-    sku: string;
-    name: string;
-    unit: string;
-    quantity: number;
-    unit_price: number;
-    updated_unit_price: number | null;
-    discount_type: "pct" | "amount" | "none";
-    discount_value: number;
-    gst_rate: number | null;
-  }[];
-};
-
 function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    customer_id: "",
-    contact_person: "",
+    billing_customer_id: "",
     billing_address: "",
+    billing_addr_key: "",
+    same_as_billing: true,
+    shipping_customer_id: "",
     delivery_address: "",
+    shipping_addr_key: "",
+    contact_person: "",
     salesperson_name: salespersonDefault,
     payment_terms: "Net 30",
     expected_dispatch_date: "",
@@ -429,82 +462,22 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     notes: "",
   });
   const [lines, setLines] = useState<LineForm[]>([{ product_id: "", name: "", sku: "", unit: "piece", ordered_qty: "", unit_price: "", discount_pct: "0", gst_rate: "0" }]);
-  const [link, setLink] = useState<{ id: string; number: string } | null>(null);
-  const [linking, setLinking] = useState(false);
 
   const productsQ = useQuery({
     queryKey: ["products"],
     queryFn: async () => (await api.get<ProductOpt[]>("/products")) ?? [],
   });
-  const debtorsQ = useQuery({
-    queryKey: ["debtor-options"],
-    queryFn: async () => (await api.get<DebtorOpt[]>("/debtors")) ?? [],
-  });
-  const quotationsQ = useQuery({
-    queryKey: ["quotations"],
-    queryFn: async () => (await api.get<QuotationLink[]>("/quotations")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customer-options"],
+    queryFn: async () => (await api.get<CustomerOpt[]>("/customers")) ?? [],
   });
 
   const activeProducts = (productsQ.data ?? []).filter((p) => p.status === "active");
-  const debtors = debtorsQ.data ?? [];
-  const openQuotations = (quotationsQ.data ?? []).filter(
-    (q) => q.status === "draft" || q.status === "sent" || q.status === "accepted",
-  );
-
-  /**
-   * Copy every detail of a quotation into the SO form. Lines use the
-   * quotation's EFFECTIVE price — the checker-approved `updated_unit_price`
-   * when set, otherwise the original `unit_price` (mirrors the convert flow).
-   */
-  const applyQuotation = (q: QuotationLink) => {
-    setForm((f) => ({
-      ...f,
-      customer_id: q.customer_id ?? "",
-      contact_person: q.contact_person ?? "",
-      billing_address: q.billing_address ?? "",
-      delivery_address: q.delivery_address ?? "",
-      salesperson_name: q.salesperson_name ?? f.salesperson_name,
-      payment_terms: q.payment_terms ?? f.payment_terms,
-      expected_delivery_date: q.expected_delivery_date ?? "",
-      freight: q.freight != null ? String(q.freight) : "",
-      notes: q.notes ?? "",
-    }));
-    if (q.lines.length > 0) {
-      setLines(q.lines.map((l) => {
-        const eff = l.updated_unit_price ?? l.unit_price;
-        const gross = (Number(l.quantity) || 0) * (Number(eff) || 0);
-        let discountPct = 0;
-        if (l.discount_type === "pct") discountPct = Math.min(100, Math.max(0, Number(l.discount_value) || 0));
-        else if (l.discount_type === "amount" && gross > 0) {
-          discountPct = Math.min(100, Math.max(0, (Math.min(Number(l.discount_value) || 0, gross) / gross) * 100));
-        }
-        return {
-          product_id: l.product_id ?? "",
-          name: l.name,
-          sku: l.sku,
-          unit: l.unit,
-          ordered_qty: String(l.quantity),
-          unit_price: String(Math.round((Number(eff) || 0) * 100) / 100),
-          discount_pct: String(Math.round(discountPct * 100) / 100),
-          gst_rate: String(l.gst_rate ?? 0),
-        };
-      }));
-    }
-    setLink({ id: q.id, number: q.quotation_number });
-  };
-
-  const pickQuotation = async (id: string) => {
-    if (!id) return;
-    setLinking(true);
-    try {
-      const q = await api.get<QuotationLink>(`/quotations/${id}`);
-      applyQuotation(q);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load the quotation");
-    } finally {
-      setLinking(false);
-    }
-  };
+  const customers = customersQ.data ?? [];
+  const billCustomer = customers.find((c) => c.id === form.billing_customer_id);
+  const shipCustomer = customers.find((c) => c.id === form.shipping_customer_id);
+  const billAddrOpts = addressOptionsFor(billCustomer, "billing");
+  const shipAddrOpts = addressOptionsFor(shipCustomer, "shipping");
 
   const setLine = (i: number, patch: Partial<LineForm>) => {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -526,18 +499,33 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     });
   };
 
-  const pickCustomer = (id: string) => {
-    // A manual customer change breaks the quotation link — drop it so the
-    // link stays truthful (details were copied, not re-fetched).
-    if (link) setLink(null);
-    const d = debtors.find((x) => x.id === id);
+  const pickBillingCustomer = (id: string) => {
+    const d = customers.find((x) => x.id === id);
+    const addr = d ? defaultAddressFor(d, "billing") : "";
     setForm((f) => ({
       ...f,
-      customer_id: id,
+      billing_customer_id: id,
       contact_person: d?.contact_name ?? "",
-      billing_address: d?.registered_address ?? "",
-      delivery_address: d?.registered_address ?? "",
+      billing_address: addr,
+      billing_addr_key: "",
       payment_terms: d?.payment_terms_days ? `Net ${d.payment_terms_days}` : f.payment_terms,
+      ...(f.same_as_billing
+        ? {
+            shipping_customer_id: id,
+            delivery_address: d ? defaultAddressFor(d, "shipping") || addr : "",
+            shipping_addr_key: "",
+          }
+        : {}),
+    }));
+  };
+
+  const pickShippingCustomer = (id: string) => {
+    const d = customers.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      shipping_customer_id: id,
+      delivery_address: d ? defaultAddressFor(d, "shipping") : "",
+      shipping_addr_key: "",
     }));
   };
 
@@ -558,14 +546,16 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
         if (!l.ordered_qty || Number(l.ordered_qty) <= 0) throw new Error("Ordered qty must be > 0 on every line");
         if (Number(l.unit_price) < 0) throw new Error("Unit price must be >= 0");
       }
+      const shipId = form.same_as_billing ? form.billing_customer_id : form.shipping_customer_id;
+      const shipAddr = form.same_as_billing ? form.billing_address : form.delivery_address;
       await api.post("/goods-sales-orders", {
-        customer_id: form.customer_id || null,
+        customer_id: form.billing_customer_id || null,
+        billing_customer_id: form.billing_customer_id || null,
+        shipping_customer_id: shipId || null,
         contact_person: form.contact_person || null,
         billing_address: form.billing_address || null,
-        delivery_address: form.delivery_address || null,
+        delivery_address: shipAddr || null,
         salesperson_name: form.salesperson_name || null,
-        linked_quotation_id: link?.id ?? null,
-        linked_quotation_number: link?.number ?? null,
         payment_terms: form.payment_terms || null,
         expected_dispatch_date: form.expected_dispatch_date || null,
         expected_delivery_date: form.expected_delivery_date || null,
@@ -585,7 +575,7 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods_so"] });
-      toast.success("Sales order created — confirm it before dispatching");
+      toast.success("Sales order created — send it to the warehouse for approval");
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -599,50 +589,86 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-5 p-5">
-          <Section title="Customer & delivery">
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/5 px-3 py-2">
-              <Link2 className="h-4 w-4 text-info" />
-              <select
-                className="inp max-w-sm"
-                value={link?.id ?? ""}
-                onChange={(e) => pickQuotation(e.target.value)}
-                disabled={linking}
-              >
-                <option value="">Link an open quotation…</option>
-                {openQuotations.map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.quotation_number} — {q.customer_name ?? q.prospect_name ?? "Prospect"} · {fmtMoney(q.grand_total)}
-                  </option>
-                ))}
-              </select>
-              {linking && <Loader2 className="h-3.5 w-3.5 animate-spin text-info" />}
-              {link && !linking && (
-                <>
-                  <span className="text-[11px] text-info">
-                    Linked to <span className="font-mono">{link.number}</span> — customer, delivery and lines copied with the quotation's effective prices
-                  </span>
-                  <button type="button" onClick={() => setLink(null)}
-                    className="ml-auto rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground">
-                    Unlink
-                  </button>
-                </>
-              )}
-            </div>
+          <Section title="Billing & shipping">
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Customer (debtor) *" full>
-                <select className="inp" value={form.customer_id} onChange={(e) => pickCustomer(e.target.value)}>
+              <L label="Bill to (customer) *">
+                <select className="inp" value={form.billing_customer_id} onChange={(e) => pickBillingCustomer(e.target.value)}>
                   <option value="">—</option>
-                  {debtors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </L>
+              <L label="Billing address (saved)">
+                <select
+                  className="inp"
+                  value={form.billing_addr_key}
+                  disabled={!form.billing_customer_id}
+                  onChange={(e) => {
+                    const opt = billAddrOpts.find((o) => o.key === e.target.value);
+                    setForm({ ...form, billing_addr_key: e.target.value, billing_address: opt ? opt.full : form.billing_address });
+                  }}
+                >
+                  <option value="">{billAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                  {billAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
                 </select>
               </L>
               <L label="Contact person"><input className="inp" value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></L>
+              <L label="Billing address (details)" full>
+                <input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+              </L>
+              <label className="flex items-center gap-2 text-sm md:col-span-3">
+                <input
+                  type="checkbox"
+                  checked={form.same_as_billing}
+                  onChange={(e) => {
+                    const same = e.target.checked;
+                    setForm((f) => ({
+                      ...f,
+                      same_as_billing: same,
+                      ...(same
+                        ? { shipping_customer_id: f.billing_customer_id, delivery_address: f.billing_address, shipping_addr_key: f.billing_addr_key }
+                        : {}),
+                    }));
+                  }}
+                />
+                Shipping same as billing
+              </label>
+              {!form.same_as_billing && (
+                <>
+                  <L label="Ship to (customer)">
+                    <select className="inp" value={form.shipping_customer_id} onChange={(e) => pickShippingCustomer(e.target.value)}>
+                      <option value="">—</option>
+                      {customers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </L>
+                  <L label="Shipping address (saved)" full>
+                    <select
+                      className="inp"
+                      value={form.shipping_addr_key}
+                      disabled={!form.shipping_customer_id}
+                      onChange={(e) => {
+                        const opt = shipAddrOpts.find((o) => o.key === e.target.value);
+                        setForm({ ...form, shipping_addr_key: e.target.value, delivery_address: opt ? opt.full : form.delivery_address });
+                      }}
+                    >
+                      <option value="">{shipAddrOpts.length ? "Pick a saved address…" : "No saved addresses — type below"}</option>
+                      {shipAddrOpts.map((o) => <option key={o.key} value={o.key}>{o.label} — {o.full.slice(0, 60)}</option>)}
+                    </select>
+                  </L>
+                  <L label="Delivery address (details)" full>
+                    <input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Fetched from the customer — editable" />
+                  </L>
+                </>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Terms & schedule">
+            <div className="grid gap-3 md:grid-cols-3">
               <L label="Payment terms">
                 <select className="inp" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}>
                   {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </L>
-              <L label="Billing address" full><input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} placeholder="Auto-filled from debtor" /></L>
-              <L label="Delivery address" full><input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Auto-filled from debtor" /></L>
               <L label="Salesperson"><input className="inp" value={form.salesperson_name} onChange={(e) => setForm({ ...form, salesperson_name: e.target.value })} /></L>
               <L label="Expected dispatch"><input type="date" className="inp" value={form.expected_dispatch_date} onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })} /></L>
               <L label="Expected delivery"><input type="date" className="inp" value={form.expected_delivery_date} onChange={(e) => setForm({ ...form, expected_delivery_date: e.target.value })} /></L>
@@ -655,33 +681,42 @@ function NewSOModal({ salespersonDefault, onClose }: { salespersonDefault: strin
               {lines.map((l, i) => (
                 <div key={i} className="grid gap-2 rounded-lg border border-border bg-muted/20 p-2 sm:grid-cols-12">
                   <div className="sm:col-span-4">
-                    <select className="inp" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Product</div>
+                    <select className="inp" aria-label="Product" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
                       <option value="">Pick product…</option>
                       {activeProducts.map((p) => <option key={p.id} value={p.id}>{p.sku} — {p.name}</option>)}
                     </select>
                   </div>
                   <div className="sm:col-span-3">
-                    <input className="inp" placeholder="Item name (free text)" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Item name</div>
+                    <input className="inp" placeholder="Item name (free text)" aria-label="Item name" value={l.name} onChange={(e) => setLine(i, { name: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <input className="inp num" placeholder="Qty" value={l.ordered_qty} onChange={(e) => setLine(i, { ordered_qty: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Qty</div>
+                    <input className="inp num" placeholder="Qty" aria-label="Ordered quantity" value={l.ordered_qty} onChange={(e) => setLine(i, { ordered_qty: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <input className="inp num" placeholder="Price" title="Defaults to the product selling price" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Price</div>
+                    <input className="inp num" placeholder="Price" aria-label="Unit price" title="Defaults to the product selling price" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <input className="inp num" placeholder="Disc%" title="Discount percentage 0–100 (GST applies to the discounted value)" value={l.discount_pct} onChange={(e) => setLine(i, { discount_pct: e.target.value })} />
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">Disc %</div>
+                    <input className="inp num" placeholder="Disc%" aria-label="Discount percent" title="Discount percentage 0–100 (GST applies to the discounted value)" value={l.discount_pct} onChange={(e) => setLine(i, { discount_pct: e.target.value })} />
                   </div>
                   <div className="sm:col-span-1">
-                    <select className="inp" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })}>
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">GST %</div>
+                    <select className="inp" aria-label="GST rate" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })}>
                       {GST_OPTIONS.map((g) => <option key={g} value={g}>{g}%</option>)}
                     </select>
                   </div>
-                  <div className="flex items-center justify-end sm:col-span-1">
-                    <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
-                      className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                  <div className="sm:col-span-1">
+                    <div className="mb-1 hidden text-[10px] uppercase tracking-widest text-muted-foreground sm:block">&nbsp;</div>
+                    <div className="flex items-center justify-end">
+                      <button type="button" title="Remove line" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls))}
+                        className="rounded-md border border-border p-1.5 text-muted-foreground hover:border-destructive hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="text-[9px] text-muted-foreground sm:col-span-11">
                     {l.product_id ? `${l.sku} · ${l.unit} · selling price ${fmtMoney(Number(l.unit_price) || 0)}` : "Free-text line — pick a product to auto-fill the selling price"}

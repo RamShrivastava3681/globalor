@@ -25,8 +25,8 @@ type ApprovalView = {
   valid_until: string | null;
   customer_name: string;
   contact_person: string | null;
-  debtor_status: string;
-  debtor_comments: string;
+  customer_status: string;
+  customer_comments: string;
   status: string;
   lines: ApprovalLine[];
   freight: number;
@@ -60,7 +60,7 @@ function ApprovalPage() {
   const quote = q.data;
   if (!quote) return <div className="grid min-h-screen place-items-center text-muted-foreground">This approval link is invalid or expired.</div>;
 
-  const decided = quote.debtor_status === "approved" || quote.debtor_status === "rejected";
+  const decided = quote.customer_status === "approved" || quote.customer_status === "rejected";
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
@@ -123,11 +123,11 @@ function ApprovalPage() {
 
         <div className="mt-6 border-t border-border pt-6">
           <div className="text-xs uppercase tracking-widest text-muted-foreground">Your response</div>
-          <div className="mt-1 text-lg capitalize">{quote.debtor_status.replace("_", " ")}</div>
-          {quote.debtor_comments && (
+          <div className="mt-1 text-lg capitalize">{quote.customer_status.replace("_", " ")}</div>
+          {quote.customer_comments && (
             <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-sm">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Your comments</div>
-              {quote.debtor_comments}
+              {quote.customer_comments}
             </div>
           )}
         </div>

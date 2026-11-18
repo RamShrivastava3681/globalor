@@ -1,10 +1,15 @@
 import { Toaster as Sonner } from "sonner";
+import { useAppearance } from "@/hooks/use-appearance";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  // Toasts must follow the app theme — otherwise dark mode shows light
+  // Sonner toasts (and richColors variants) over a dark UI.
+  const { resolvedTheme } = useAppearance();
   return (
     <Sonner
+      theme={resolvedTheme}
       className="toaster group"
       toastOptions={{
         classNames: {

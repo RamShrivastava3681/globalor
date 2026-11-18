@@ -16,7 +16,7 @@ export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "oper
 // Resource names used with canWrite() — matches backend permission resources
 export type WriteResource =
   | "suppliers"
-  | "debtors"
+  | "customers"
   | "invoices"
   | "purchase-invoices"
   | "purchase-orders"
@@ -31,24 +31,28 @@ export type WriteResource =
   | "checker-desk"
   | "funding-queue"
   | "upload"
+  | "cash"
+  | "logistics"
   | "admin";
 
 // Permission map mirrors the backend
 export const roleWritePermissions: Record<AppRole, readonly (WriteResource | "*")[]> = {
   factor_admin: ["*"],
   operations: [
-    "suppliers", "debtors", "invoices", "purchase-invoices",
+    "suppliers", "customers", "invoices", "purchase-invoices",
     "purchase-orders", "stock-movements", "advances", "expenses",    "vendors",
     "products",
     "goods-purchase-orders",
     "goods-sales-orders",
     "quotations",
+    "logistics",
+    "upload",
   ],
   checker: ["checker-desk"],
-  treasury: ["funding-queue"],
+  treasury: ["funding-queue", "cash"],
   // Clients maintain their own product catalogue and place their own
   // purchase orders + goods receipts (maker model).
-  client: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
+  client: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations", "logistics"],
   viewer: [],
 };
 

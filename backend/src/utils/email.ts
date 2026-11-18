@@ -101,8 +101,8 @@ export async function sendWelcomeEmail(params: WelcomeEmailParams): Promise<void
 
 export interface NoaEmailParams {
   to: string;
-  debtorName: string;
-  debtorContactName: string | null;
+  customerName: string;
+  customerContactName: string | null;
   invoiceNumber: string;
   amount: number;
   companyName: string;
@@ -183,7 +183,7 @@ export async function sendQuotationEmail(params: QuotationEmailParams): Promise<
   }
 }
 
-export interface QuotationDebtorEmailParams {
+export interface QuotationCustomerEmailParams {
   to: string;
   customerName: string;
   contactName: string | null;
@@ -193,8 +193,8 @@ export interface QuotationDebtorEmailParams {
   approvalUrl: string;
 }
 
-/** "Send to debtor" — one-time secure-token approval link email. */
-export async function sendQuotationDebtorEmail(params: QuotationDebtorEmailParams): Promise<void> {
+/** "Send to customer" — one-time secure-token approval link email. */
+export async function sendQuotationCustomerEmail(params: QuotationCustomerEmailParams): Promise<void> {
   const t = getTransporter();
   if (!t) return;
 
@@ -254,9 +254,77 @@ export async function sendQuotationDebtorEmail(params: QuotationDebtorEmailParam
       subject: `Quotation ${params.quotationNumber} — your approval is requested`,
       html,
     });
-    console.log(`   ✅ Quotation debtor email sent to ${params.to}`);
+    console.log(`   ✅ Quotation customer email sent to ${params.to}`);
   } catch (err) {
-    console.error(`   ❌ Failed to send quotation debtor email to ${params.to}:`, err);
+    console.error(`   ❌ Failed to send quotation customer email to ${params.to}:`, err);
+  }
+}
+
+export interface PurchaseOrderEmailParams {
+  to: string;
+  customerName: string;
+  poNumber: string;
+  amount: number;
+  companyName: string;
+}
+
+/** PO approved by checker → informational notification to the client (fire-and-forget; failure never rolls back approval). */
+export async function sendPurchaseOrderEmail(params: PurchaseOrderEmailParams): Promise<void> {
+  const t = getTransporter();
+  if (!t) return;
+
+  const { smtp } = config;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f9; }
+    .container { max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #1a365d 0%, #2563eb 100%); color: #ffffff; padding: 32px 36px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+    .body { padding: 32px 36px; color: #1f2937; }
+    .body p { line-height: 1.6; margin: 0 0 16px; font-size: 15px; }
+    .details { background: #f0f4ff; border-radius: 8px; padding: 20px 24px; margin: 20px 0; border: 1px solid #dbeafe; }
+    .details .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .details .row + .row { border-top: 1px solid #e5e7eb; }
+    .details .label { color: #6b7280; }
+    .details .value { font-weight: 600; color: #1e40af; }
+    .footer { padding: 24px 36px; text-align: center; color: #9ca3af; font-size: 13px; border-top: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Purchase order ${params.poNumber}</h1>
+    </div>
+    <div class="body">
+      <p>Dear <strong>${params.customerName}</strong>,</p>
+      <p><strong>${params.companyName}</strong> has approved purchase order <strong>${params.poNumber}</strong> totalling <strong>$${params.amount.toLocaleString()}</strong>. No action is required from you at this stage.</p>
+      <div class="details">
+        <div class="row"><span class="label">Purchase order</span><span class="value">${params.poNumber}</span></div>
+        <div class="row"><span class="label">Total</span><span class="value">$${params.amount.toLocaleString()}</span></div>
+      </div>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} ${params.companyName}. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await t.sendMail({
+      from: `"${smtp.fromName}" <${smtp.fromEmail || smtp.user}>`,
+      to: params.to,
+      subject: `Purchase order ${params.poNumber} approved`,
+      html,
+    });
+    console.log(`   ✅ Purchase order email sent to ${params.to}`);
+  } catch (err) {
+    console.error(`   ❌ Failed to send purchase order email to ${params.to}:`, err);
   }
 }
 
@@ -265,7 +333,7 @@ export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
   if (!t) return;
 
   const { smtp } = config;
-  const name = params.debtorContactName || params.debtorName;
+  const name = params.customerContactName || params.customerName;
 
   const html = `
 <!DOCTYPE html>
@@ -329,8 +397,8 @@ export async function sendNoaEmail(params: NoaEmailParams): Promise<void> {
 
 export interface ReminderEmailParams {
   to: string;
-  debtorName: string;
-  debtorContactName: string | null;
+  customerName: string;
+  customerContactName: string | null;
   invoiceNumber: string;
   amount: number;
   dueDate: string | null;
@@ -375,7 +443,7 @@ export async function sendReminderEmail(params: ReminderEmailParams): Promise<vo
       <div class="sub">Invoice overdue by ${days} day${days === 1 ? "" : "s"}</div>
     </div>
     <div class="body">
-      <p>Dear <strong>${params.debtorName}</strong>,</p>
+      <p>Dear <strong>${params.customerName}</strong>,</p>
       <p>This is a friendly reminder that the following invoice from <strong>${params.companyName}</strong> is now <strong>${days} day${days === 1 ? "" : "s"} past its due date</strong>. We would appreciate your prompt settlement.</p>
       <div class="details">
         <div class="row"><span class="label">Invoice Number</span><span class="value">${params.invoiceNumber}</span></div>

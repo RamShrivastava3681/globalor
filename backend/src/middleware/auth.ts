@@ -105,10 +105,11 @@ export function requireRole(...roles: AppRole[]) {
 // ── Permission-based access control ──
 //
 // Resource names used with requireWriteAccess():
-//   "suppliers", "debtors", "invoices", "purchase-invoices",
+//   "suppliers", "customers", "invoices", "purchase-invoices",
 //   "purchase-orders", "stock-movements", "advances", "expenses",
 //   "vendors", "products", "goods-purchase-orders", "goods-sales-orders",
-//   "quotations", "checker-desk", "funding-queue", "upload", "admin"
+//   "quotations", "checker-desk", "funding-queue", "upload", "admin", "cash",
+//   "logistics"
 
 type ResourcePermission = {
   read: string[];   // '*' means all
@@ -124,7 +125,7 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
     read: ["*"],
     write: [
       "suppliers",
-      "debtors",
+      "customers",
       "invoices",
       "purchase-invoices",
       "purchase-orders",
@@ -136,6 +137,8 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
       "goods-purchase-orders",
       "goods-sales-orders",
       "quotations",
+      "logistics",
+      "upload",
     ],
   },
   checker: {
@@ -144,14 +147,14 @@ const rolePermissions: Record<AppRole, ResourcePermission> = {
   },
   treasury: {
     read: ["*"],
-    write: ["funding-queue"],
+    write: ["funding-queue", "cash"],
   },
   client: {
     read: ["*"],
     // Clients write through the normal flow (their own data); they also
     // maintain their own product catalogue and place their own purchase
     // orders + goods receipts + sales orders/dispatches + quotations (maker model).
-    write: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations"],
+    write: ["products", "goods-purchase-orders", "goods-sales-orders", "quotations", "logistics"],
   },
   viewer: {
     read: ["*"],
@@ -238,19 +241,21 @@ export async function countUsers(): Promise<number> {
  *
  * When the user has a company_id, results are scoped to that company only.
  * Super admins (company_id = null) see all data — no filter is returned.
+ * Factor admins also see all data (they manage their company's full context).
  *
  * Usage:
  *   const items = await scanTable(TABLE, getCompanyFilter(req.user!));
  */
-export function getCompanyFilter(user: { company_id: string | null }): {
+export function getCompanyFilter(user: { company_id: string | null; roles?: AppRole[] }): {
   filterExpression?: string;
   expressionAttributeValues?: Record<string, unknown>;
 } {
-  if (user.company_id) {
-    return {
-      filterExpression: "company_id = :cid",
-      expressionAttributeValues: { ":cid": user.company_id },
-    };
+  // Super admins (company_id = null) and factor admins see all data
+  if (!user.company_id || user.roles?.includes("factor_admin")) {
+    return {};
   }
-  return {};
+  return {
+    filterExpression: "company_id = :cid",
+    expressionAttributeValues: { ":cid": user.company_id },
+  };
 }

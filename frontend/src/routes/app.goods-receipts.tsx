@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
@@ -10,8 +10,10 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/goods-receipts")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { po?: string; createFromPo?: string; fromQueue?: string } => ({
     po: typeof search?.po === "string" ? search.po : undefined,
+    createFromPo: typeof search?.createFromPo === "string" ? search.createFromPo : undefined,
+    fromQueue: typeof search?.fromQueue === "string" ? search.fromQueue : undefined,
   }),
   component: GoodsReceiptsPage,
 });
@@ -37,6 +39,9 @@ type GRN = {
   goods_purchase_order_id: string;
   po_number: string | null;
   supplier_name: string | null;
+  supplier_address: string | null;
+  billing_address: string | null;
+  shipping_address: string | null;
   warehouse: string | null;
   received_date: string;
   challan_number: string | null;
@@ -64,6 +69,10 @@ type PO = {
   id: string;
   po_number: string;
   supplier_name: string | null;
+  bill_to_customer_name: string | null;
+  billing_address: string | null;
+  ship_to_customer_name: string | null;
+  shipping_address: string | null;
   warehouse: string | null;
   status: string;
   lines: POLine[];
@@ -75,14 +84,27 @@ const GRN_STATUS: Record<GRN["status"], string> = {
   cancelled: "border-border bg-muted text-muted-foreground line-through",
 };
 
-function GoodsReceiptsPage() {
-  const { po: preselectedPo } = Route.useSearch();
+export function GoodsReceiptsPage({ embedded = false, preselectedPo: preselectedPoProp }: { embedded?: boolean; preselectedPo?: string } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { po?: string; createFromPo?: string; fromQueue?: string } });
+  const linkPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
+  const preselectedPo = preselectedPoProp ?? (embedded ? undefined : (((routerSearch as any)?.po ?? linkPo) as string | undefined));
+  const navigate = useNavigate();
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-purchase-orders");
   const canOverride = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [preselectPo, setPreselectPo] = useState<string | undefined>(preselectedPo);
+
+  // Deep-link from My Queue: ?createFromPo=<poId> opens the GRN form preselected.
+  useEffect(() => {
+    if (!embedded && linkPo && canEdit) {
+      setPreselectPo(linkPo);
+      setOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkPo, embedded, canEdit]);
   const [statusFilter, setStatusFilter] = useState<"all" | GRN["status"]>("all");
 
   const grnsQ = useQuery({
@@ -188,7 +210,14 @@ function GoodsReceiptsPage() {
                           <div className="text-[10px] text-muted-foreground">{fmtDate(g.received_date)}{g.challan_number ? ` · challan ${g.challan_number}` : ""}</div>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs text-primary">{g.po_number ?? "—"}</td>
-                        <td className="px-5 py-3">{g.supplier_name ?? "—"}</td>
+                        <td className="px-5 py-3">
+                          <div>{g.supplier_name ?? "—"}</div>
+                          {(g.billing_address || g.shipping_address) && (
+                            <div className="max-w-56 truncate text-[10px] text-muted-foreground" title={`Bill: ${g.billing_address ?? "—"} | Ship: ${g.shipping_address ?? "—"}`}>
+                              Bill: {g.billing_address ?? "—"} | Ship: {g.shipping_address ?? "—"}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right num text-success">{accepted.toLocaleString()}</td>
                         <td className="px-5 py-3 text-right num text-destructive">{rejected > 0 ? rejected.toLocaleString() : "—"}</td>
                         <td className="px-5 py-3 text-right num font-medium">{fmtMoney(value)}</td>
@@ -239,7 +268,23 @@ function GoodsReceiptsPage() {
         )}
       </div>
 
-      {open && <NewGRNModal preselectPo={preselectPo} canOverride={canOverride} onClose={() => setOpen(false)} />}
+      {open && (
+        <NewGRNModal
+          preselectPo={preselectPo}
+          canOverride={canOverride}
+          onClose={() => {
+            setOpen(false);
+            if (!embedded && linkPo) {
+              if ((routerSearch as any)?.fromQueue) {
+                // Queue-driven flow: the task completes server-side on create — return to My Queue.
+                navigate({ to: "/app/tasks", replace: true });
+              } else {
+                navigate({ to: "/app/goods-receipts", search: { po: undefined, createFromPo: undefined }, replace: true });
+              }
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -417,6 +462,11 @@ function NewGRNModal({ preselectPo, canOverride, onClose }: { preselectPo?: stri
 
           {poId && po && (
             <>
+              <div className="grid gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs sm:grid-cols-3">
+                <div><span className="text-muted-foreground">Supplier: </span><span className="font-medium">{po.supplier_name ?? "—"}</span></div>
+                <div><span className="text-muted-foreground">Bill to: </span><span className="font-medium">{[po.bill_to_customer_name, po.billing_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Ship to: </span><span className="font-medium">{[po.ship_to_customer_name, po.shipping_address].filter(Boolean).join(" — ") || po.warehouse || "—"}</span></div>
+              </div>
               <div className="relative">
                 <ScanBarcode className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -488,7 +538,7 @@ function NewGRNModal({ preselectPo, canOverride, onClose }: { preselectPo?: stri
 
           {!poId && (
             <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Pick a purchase order that has been <strong>sent</strong> or is <strong>partially received</strong>. Drafts and unapproved POs cannot receive goods.
+              Pick a purchase order that has been <strong>sent</strong> (checker-approved) or is <strong>partially received</strong>. Drafts and orders awaiting checker approval cannot receive goods.
             </p>
           )}
 

@@ -13,10 +13,11 @@ import { requireAuth, requireRole, getCompanyFilter, type AuthRequest } from "..
 import { generateId, nowISO, daysBetween, safeMoney } from "../utils/helpers.js";
 import { sendWelcomeEmail } from "../utils/email.js";
 import { runOverdueReminderSweep } from "../utils/reminders.js";
+import { scanCustomersMerged, getInvoicePartyId } from "../utils/customers.js";
 import { config } from "../config.js";
 import type {
-  AppRole, UserRole, Profile, Invoice, Debtor, Alert,
-  NoaInvoiceResult, NoaStatus, User,
+  AppRole, UserRole, Profile, Invoice, Customer, Alert,
+  NoaInvoiceResult, NoaStatus, User, Company
 } from "../types/index.js";
 
 const router = Router();
@@ -32,6 +33,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   company_name: z.string().min(1),
+  company_id: z.string().optional(),
   contact_name: z.string().optional(),
   role: z.enum(["client", "factor_admin", "treasury", "checker", "operations", "viewer"]),
 });
@@ -45,7 +47,7 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     }
 
     const parsed = createUserSchema.parse(req.body);
-    const { email, password, company_name, contact_name, role } = parsed;
+    const { email, password, company_name, company_id, contact_name, role } = parsed;
 
     // Check if user exists
     const existingUsers = await scanTable<User>(TABLES.USERS, {
@@ -62,8 +64,35 @@ router.post("/users", requireAuth, requireRole("factor_admin"), async (req: Auth
     const password_hash = await bcrypt.hash(password, 10);
     const now = nowISO();
 
-    // Determine company_id: super admin creates users for their own company; otherwise use null
-    const assignedCompanyId = req.user!.company_id ?? null;
+    // Determine company_id:
+    let assignedCompanyId = company_id || req.user!.company_id;
+    
+    // If we still don't have a company_id, try to find an existing company by name
+    if (!assignedCompanyId) {
+      const existingCompanies = await scanTable<Company>(TABLES.COMPANIES, {
+        filterExpression: "#name = :name",
+        expressionAttributeNames: { "#name": "name" },
+        expressionAttributeValues: { ":name": company_name },
+      });
+      
+      if (existingCompanies.length > 0) {
+        assignedCompanyId = existingCompanies[0].id;
+      } else {
+        // Create a new company
+        assignedCompanyId = generateId();
+        const newCompany: Company = {
+          id: assignedCompanyId,
+          name: company_name,
+          email: email,
+          phone: null,
+          address: null,
+          settings: null,
+          created_at: now,
+          updated_at: now,
+        };
+        await putItem(TABLES.COMPANIES, newCompany as any);
+      }
+    }
 
     // Create user
     const user: User = { id, email, password_hash, company_id: assignedCompanyId, created_at: now };
@@ -241,7 +270,7 @@ router.delete("/users/:userId", requireAuth, requireRole("factor_admin"), async 
 router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async (req: AuthRequest, res: Response) => {
   try {
     const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const debtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
+    const customers = await scanCustomersMerged(getCompanyFilter(req.user!) as any);
 
     const alertsToCreate: Alert[] = [];
 
@@ -254,7 +283,7 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          debtor_id: i.debtor_id,
+          customer_id: getInvoicePartyId(i),
           type: "overdue",
           severity: dpd > 60 ? "critical" : dpd > 30 ? "warning" : "info",
           message: `Invoice ${i.invoice_number} overdue ${dpd} days — $${i.amount.toLocaleString()}`,
@@ -264,16 +293,16 @@ router.post("/generate-alerts", requireAuth, requireRole("factor_admin"), async 
         });
       }
       if (Number(i.amount) >= 100000) {
-        const debtor = debtors.find((d) => d.id === i.debtor_id);
+        const customer = customers.find((d) => d.id === getInvoicePartyId(i));
         alertsToCreate.push({
           id: generateId(),
           client_id: i.client_id,
           company_id: i.company_id,
           invoice_id: i.id,
-          debtor_id: i.debtor_id,
+          customer_id: getInvoicePartyId(i),
           type: "large_invoice",
           severity: "info",
-          message: `Large invoice received: $${i.amount.toLocaleString()} from ${debtor?.name ?? "debtor"}`,
+          message: `Large invoice received: $${i.amount.toLocaleString()} from ${customer?.name ?? "customer"}`,
           is_read: false,
           created_at: nowISO(),
           created_by: req.user!.id,
@@ -301,6 +330,18 @@ router.post("/run-overdue-reminders", requireAuth, requireRole("factor_admin"), 
     res.json(result);
   } catch (err) {
     console.error("Run overdue reminders error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/admin/run-logistics-poll ── (manual trigger of the logistics polling + alert sweep)
+router.post("/run-logistics-poll", requireAuth, requireRole("factor_admin"), async (_req: AuthRequest, res: Response) => {
+  try {
+    const { runLogisticsPoll } = await import("../logistics/polling.js");
+    const result = await runLogisticsPoll();
+    res.json(result);
+  } catch (err) {
+    console.error("Run logistics poll error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

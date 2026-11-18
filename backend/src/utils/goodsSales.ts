@@ -15,7 +15,8 @@ export function roundQty(n: number): number {
 /**
  * Derived SO status from the manual status + dispatched quantities.
  * `partially/fully_dispatched` are never set by hand — they fall out of
- * confirmed dispatches.
+ * confirmed dispatches. `confirmed` is the legacy pre-approval-chain status:
+ * it is kept dispatchable/invoicable so old orders are never stranded.
  */
 export function soDerivedStatus(
   manualStatus: GoodsSalesOrder["manual_status"],

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { api } from "@/lib/api-client";
@@ -14,6 +14,9 @@ import {
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/checker")({
+  validateSearch: (search: Record<string, unknown>): { review?: string | undefined } => ({
+    review: (search.review as string) || undefined,
+  }),
   component: CheckerPage,
 });
 
@@ -22,7 +25,7 @@ export const Route = createFileRoute("/app/checker")({
    ═══════════════════════════════════════════════════════════════ */
 
 type Row = {
-  kind: "sale" | "purchase" | "proforma" | "quotation";
+  kind: "sale" | "purchase" | "proforma" | "quotation" | "po" | "sales_order";
   id: string;
   invoice_number: string;
   amount: number;
@@ -74,6 +77,8 @@ const URGENCY_CONFIG = {
 const KIND_CONFIG = {
   sale: { label: "Sale (AR)", icon: FileText, color: "bg-primary/10 text-primary border-primary/20" },
   purchase: { label: "Purchase (AP)", icon: ShoppingCart, color: "bg-warning/10 text-warning border-warning/20" },
+  po: { label: "Purchase order", icon: ShoppingCart, color: "bg-warning/10 text-warning border-warning/20" },
+  sales_order: { label: "Sales order", icon: ClipboardCheck, color: "bg-primary/10 text-primary border-primary/20" },
   proforma: { label: "Proforma", icon: FileSignature, color: "bg-info/10 text-info border-info/20" },
   quotation: { label: "Quotation", icon: Send, color: "bg-info/10 text-info border-info/20" },
 } as const;
@@ -100,6 +105,10 @@ function CheckerPage() {
   const { isAdmin, isChecker, user, canWrite } = useAuth();
   const canReview = canWrite("checker-desk");
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  // Deep-link from My Queue: ?review=<kind>:<id> opens that document's review drawer.
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { review?: string } });
+  const routeReview = (routerSearch as any)?.review as string | undefined;
 
   // ── Filters ──
   const [side, setSide] = useState<"all" | "sale" | "purchase" | "proforma" | "quotation">("all");
@@ -147,6 +156,25 @@ function CheckerPage() {
     refetchInterval: 30_000,
   });
 
+  const posQ = useQuery({
+    queryKey: ["checker-pos"],
+    queryFn: async () => {
+      const data = await api.get<any[]>("/goods-purchase-orders") ?? [];
+      return data.filter((p: any) => p.status === "pending_approval" || p.manual_status === "pending_approval");
+    },
+    refetchInterval: 30_000,
+  });
+
+  // Sales orders signed off by the warehouse — awaiting the checker (step 2).
+  const salesOrdersQ = useQuery({
+    queryKey: ["checker-sales-orders"],
+    queryFn: async () => {
+      const data = await api.get<any[]>("/goods-sales-orders") ?? [];
+      return data.filter((s: any) => s.status === "pending_checker_approval" || s.manual_status === "pending_checker_approval");
+    },
+    refetchInterval: 30_000,
+  });
+
   // ── Mutations (all preserved exactly) ──
   const reviewQuotation = useMutation({
     mutationFn: async ({ id, decision, comments }: { id: string; decision: "approved" | "rejected"; comments?: string }) => {
@@ -155,6 +183,7 @@ function CheckerPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-quotations"] });
       qc.invalidateQueries({ queryKey: ["quotations"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Quotation pricing reviewed");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -168,6 +197,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-proformas"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Proforma reviewed");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -181,6 +211,7 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Decision recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -194,7 +225,39 @@ function CheckerPage() {
       qc.invalidateQueries({ queryKey: ["checker-purchases"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success("Decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Goods purchase orders — checker approval ALSO sends the order (to
+  // supplier/client) so GRN receiving + logistics unblock immediately.
+  const reviewPO = useMutation({
+    mutationFn: async ({ id, decision, comments }: { id: string; decision: "approved" | "rejected"; comments?: string }) => {
+      if (decision === "approved") await api.post(`/goods-purchase-orders/${id}/approve`);
+      else await api.post(`/goods-purchase-orders/${id}/reject`, { comments: comments || null });
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["checker-pos"] });
+      qc.invalidateQueries({ queryKey: ["goods_po"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
+      toast.success(v.decision === "approved" ? "Purchase order approved & sent — goods can now be received" : "Purchase order sent back to draft");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Sales orders — approving releases the order: dispatch + invoicing unblock.
+  const reviewSO = useMutation({
+    mutationFn: async ({ id, decision, comments }: { id: string; decision: "approved" | "rejected"; comments?: string }) => {
+      if (decision === "approved") await api.post(`/goods-sales-orders/${id}/approve`);
+      else await api.post(`/goods-sales-orders/${id}/reject`, { comments: comments || null });
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["checker-sales-orders"] });
+      qc.invalidateQueries({ queryKey: ["goods_so"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
+      toast.success(v.decision === "approved" ? "Sales order approved — dispatch & invoicing unblocked" : "Sales order sent back to draft");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -206,6 +269,10 @@ function CheckerPage() {
         try {
           if (row.kind === "proforma") {
             await api.post(`/purchase-orders/${row.id}/review`, { decision: "approved" });
+          } else if (row.kind === "po") {
+            await api.post(`/goods-purchase-orders/${row.id}/approve`);
+          } else if (row.kind === "sales_order") {
+            await api.post(`/goods-sales-orders/${row.id}/approve`);
           } else if (row.kind === "quotation") {
             await api.post(`/quotations/${row.id}/review`, { decision: "approved" });
           } else if (row.kind === "sale") {
@@ -223,15 +290,20 @@ function CheckerPage() {
     onSuccess: (results) => {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
       qc.invalidateQueries({ queryKey: ["checker-purchases"] });
+      qc.invalidateQueries({ queryKey: ["checker-pos"] });
+      qc.invalidateQueries({ queryKey: ["checker-sales-orders"] });
       qc.invalidateQueries({ queryKey: ["checker-proformas"] });
       qc.invalidateQueries({ queryKey: ["checker-quotations"] });
       qc.invalidateQueries({ queryKey: ["quotations"] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["goods_po"] });
+      qc.invalidateQueries({ queryKey: ["goods_so"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["workflow-queue"] });
       toast.success(`Approved ${results.approved} item${results.approved !== 1 ? "s" : ""}${results.failed > 0 ? `, ${results.failed} failed` : ""}`);
       setApproveAllOpen(false);
       setSelectedIds(new Set());
@@ -284,7 +356,7 @@ function CheckerPage() {
         kind: "sale", id: i.id, invoice_number: i.invoice_number, amount: amt,
         po_number: i.po_number, advance: adv, net: Math.max(0, amt - adv),
         issue_date: i.issue_date, due_date: i.due_date,
-        party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
+        party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—", client_id: i.client_id,
         noa_status: i.noa_status, noa_comments: i.noa_comments,
         has_contractual_due_date: i.has_contractual_due_date,
       };
@@ -310,7 +382,7 @@ function CheckerPage() {
       net: Number(p.amount),
       issue_date: p.proforma_date ?? p.issue_date,
       due_date: null,
-      party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
+      party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
@@ -333,15 +405,59 @@ function CheckerPage() {
       approval_comments: p.approval_comments,
       revised_count: (p.lines ?? []).filter((l: any) => l.updated_unit_price != null).length,
     })),
-  ], [salesQ.data, purchasesQ.data, proformasQ.data, quotationsQ.data, advMap]);
+    ...((posQ.data ?? []) as Array<Record<string, any>>).map((p): Row => ({
+      kind: "po" as const,
+      id: p.id,
+      invoice_number: p.po_number,
+      amount: Number(p.grand_total),
+      po_number: p.po_number,
+      advance: 0,
+      net: Number(p.grand_total),
+      issue_date: p.po_date ?? p.created_at,
+      due_date: p.expected_delivery_date ?? null,
+      party: p.supplier_name ?? "—",
+      client: p.bill_to_customer_name || p.ship_to_customer_name || "—",
+      client_id: p.client_id,
+    })),
+    ...((salesOrdersQ.data ?? []) as Array<Record<string, any>>).map((s): Row => ({
+      kind: "sales_order" as const,
+      id: s.id,
+      invoice_number: s.so_number,
+      amount: Number(s.grand_total),
+      po_number: null,
+      advance: 0,
+      net: Number(s.grand_total),
+      issue_date: s.order_date ?? s.created_at,
+      due_date: s.expected_delivery_date ?? null,
+      party: s.customer_name ?? "—",
+      client: s.salesperson_name || "—",
+      client_id: s.client_id,
+    })),
+  ], [salesQ.data, purchasesQ.data, proformasQ.data, quotationsQ.data, posQ.data, salesOrdersQ.data, advMap]);
+
+  // ── Deep-link: open the exact review drawer for ?review=<kind>:<id> ──
+  useEffect(() => {
+    if (!routeReview || reviewDrawer) return;
+    const sep = routeReview.indexOf(":");
+    if (sep <= 0) return;
+    const kind = routeReview.slice(0, sep);
+    const id = routeReview.slice(sep + 1);
+    const row = allRows.find((r) => r.kind === kind && r.id === id);
+    if (row) {
+      setReviewDrawer(row);
+      setSearchQuery(row.invoice_number || "");
+      navigate({ to: "/app/checker", search: { review: undefined }, replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeReview, allRows]);
 
   // ── Filter + Sort ──
   const filteredRows = useMemo(() => allRows
     .filter((r) => {
       let sideMatch: boolean;
       if (side === "all") sideMatch = true;
-      else if (side === "sale") sideMatch = r.kind === "sale" || (r.kind === "proforma" && r.side === "sales");
-      else if (side === "purchase") sideMatch = r.kind === "purchase" || (r.kind === "proforma" && r.side === "purchase");
+      else if (side === "sale") sideMatch = r.kind === "sale" || r.kind === "sales_order" || (r.kind === "proforma" && r.side === "sales");
+      else if (side === "purchase") sideMatch = r.kind === "purchase" || r.kind === "po" || (r.kind === "proforma" && r.side === "purchase");
       else if (side === "proforma") sideMatch = r.kind === "proforma";
       else if (side === "quotation") sideMatch = r.kind === "quotation";
       else sideMatch = false;
@@ -360,10 +476,12 @@ function CheckerPage() {
   // ── Computed stats ──
   const totalCount = filteredRows.length;
   const totalExposure = filteredRows.reduce((s, r) => s + r.net, 0);
-  const salesCount = allRows.filter((r) => r.kind === "sale" || (r.kind === "proforma" && r.side === "sales")).length;
-  const salesAmount = allRows.filter((r) => r.kind === "sale" || (r.kind === "proforma" && r.side === "sales")).reduce((s, r) => s + r.net, 0);
-  const purchaseCount = allRows.filter((r) => r.kind === "purchase" || (r.kind === "proforma" && r.side === "purchase")).length;
-  const purchaseAmount = allRows.filter((r) => r.kind === "purchase" || (r.kind === "proforma" && r.side === "purchase")).reduce((s, r) => s + r.net, 0);
+  const salesCount = allRows.filter((r) => r.kind === "sale" || r.kind === "sales_order" || (r.kind === "proforma" && r.side === "sales")).length;
+  const salesAmount = allRows.filter((r) => r.kind === "sale" || r.kind === "sales_order" || (r.kind === "proforma" && r.side === "sales")).reduce((s, r) => s + r.net, 0);
+  const purchaseCount = allRows.filter((r) => r.kind === "purchase" || r.kind === "po" || (r.kind === "proforma" && r.side === "purchase")).length;
+  const purchaseAmount = allRows.filter((r) => r.kind === "purchase" || r.kind === "po" || (r.kind === "proforma" && r.side === "purchase")).reduce((s, r) => s + r.net, 0);
+  const salesOrderCount = allRows.filter((r) => r.kind === "sales_order").length;
+  const salesOrderAmount = allRows.filter((r) => r.kind === "sales_order").reduce((s, r) => s + r.net, 0);
   const proformaCount = allRows.filter((r) => r.kind === "proforma").length;
   const proformaAmount = allRows.filter((r) => r.kind === "proforma").reduce((s, r) => s + r.net, 0);
   const quotationCount = allRows.filter((r) => r.kind === "quotation").length;
@@ -426,7 +544,7 @@ function CheckerPage() {
     return filteredRows.filter((r) => selectedIds.has(r.id)).reduce((s, r) => s + r.net, 0);
   }, [selectedIds, filteredRows]);
 
-  const isLoading = salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading || quotationsQ.isLoading;
+  const isLoading = salesQ.isLoading || purchasesQ.isLoading || proformasQ.isLoading || quotationsQ.isLoading || posQ.isLoading || salesOrdersQ.isLoading;
 
   const eyebrow = "Operations";
   const titleText = "Approval Center";
@@ -448,8 +566,8 @@ function CheckerPage() {
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed max-w-2xl">
               {canReview
-                ? "Review and release financial documents before they enter the funding workflow."
-                : "View-only. Only the checker (or admin) can approve invoices into the funding queue."}
+                ? "Review and release financial documents and purchase orders before they enter the next workflow. Approving a purchase order also sends it — receiving and shipping unblock immediately."
+                : "View-only. Only the checker (or admin) can approve purchase orders and invoices into the next workflow."}
             </p>
             <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
@@ -577,8 +695,7 @@ function CheckerPage() {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${kCfg.color}`}>
-                          <Icon className="h-2.5 w-2.5" />
-                          {r.kind === "quotation" ? "Quote" : r.kind === "proforma" ? "Proforma" : r.kind === "sale" ? "Sale" : "Purchase"}
+                          <Icon className="h-2.5 w-2.5" />                                {r.kind === "quotation" ? "Quote" : r.kind === "po" ? "PO" : r.kind === "proforma" ? "Proforma" : r.kind === "sale" ? "Sale" : r.kind === "sales_order" ? "SO" : "Purchase"}
                         </span>
                         <span className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${uCfg.color}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${uCfg.dot}`} />
@@ -641,6 +758,8 @@ function CheckerPage() {
                     // Approve selected individually
                     for (const r of filteredRows.filter((r) => selectedIds.has(r.id))) {
                       if (r.kind === "proforma") reviewProforma.mutate({ id: r.id, decision: "approved" });
+                      else if (r.kind === "po") reviewPO.mutate({ id: r.id, decision: "approved" });
+                      else if (r.kind === "sales_order") reviewSO.mutate({ id: r.id, decision: "approved" });
                       else if (r.kind === "quotation") reviewQuotation.mutate({ id: r.id, decision: "approved" });
                       else if (r.kind === "sale") reviewSale.mutate({ id: r.id, decision: "approved" });
                       else reviewPurchase.mutate({ id: r.id, decision: "approved" });
@@ -674,6 +793,8 @@ function CheckerPage() {
                 <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Sales invoices</span>
                   <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Purchase invoices</span>
+                  <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Sales orders</span>
+                  <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Purchase orders</span>
                   <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Proformas</span>
                   <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-success" /> Quotations</span>
                 </div>
@@ -734,7 +855,7 @@ function CheckerPage() {
                             <td className="px-4 py-3">
                               <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${kCfg.color}`}>
                                 <Icon className="h-2.5 w-2.5" />
-                                {r.kind === "quotation" ? "Quote" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
+                                {r.kind === "quotation" ? "Quote" : r.kind === "po" ? "Purchase order" : r.kind === "proforma" ? `Proforma (${r.side === "sales" ? "AR" : "AP"})` : r.kind === "sale" ? "Sale (AR)" : r.kind === "sales_order" ? "Sales order" : "Purchase (AP)"}
                               </span>
                             </td>
                             <td className="px-4 py-3">
@@ -784,6 +905,8 @@ function CheckerPage() {
                                   <button
                                     onClick={() => {
                                       if (r.kind === "proforma") reviewProforma.mutate({ id: r.id, decision: "approved" });
+                                      else if (r.kind === "po") reviewPO.mutate({ id: r.id, decision: "approved" });
+                                      else if (r.kind === "sales_order") reviewSO.mutate({ id: r.id, decision: "approved" });
                                       else if (r.kind === "quotation") reviewQuotation.mutate({ id: r.id, decision: "approved" });
                                       else if (r.kind === "sale") reviewSale.mutate({ id: r.id, decision: "approved" });
                                       else reviewPurchase.mutate({ id: r.id, decision: "approved" });
@@ -795,6 +918,8 @@ function CheckerPage() {
                                   <button
                                     onClick={() => {
                                       if (r.kind === "proforma") reviewProforma.mutate({ id: r.id, decision: "rejected" });
+                                      else if (r.kind === "po") reviewPO.mutate({ id: r.id, decision: "rejected" });
+                                      else if (r.kind === "sales_order") reviewSO.mutate({ id: r.id, decision: "rejected" });
                                       else if (r.kind === "quotation") reviewQuotation.mutate({ id: r.id, decision: "rejected" });
                                       else if (r.kind === "sale") reviewSale.mutate({ id: r.id, decision: "rejected" });
                                       else reviewPurchase.mutate({ id: r.id, decision: "disputed" });
@@ -891,6 +1016,8 @@ function CheckerPage() {
         <ReviewDrawer row={reviewDrawer} onClose={() => setReviewDrawer(null)} canReview={canReview} user={user} isAdmin={isAdmin}
           onApprove={() => {
             if (reviewDrawer.kind === "proforma") reviewProforma.mutate({ id: reviewDrawer.id, decision: "approved" });
+            else if (reviewDrawer.kind === "po") reviewPO.mutate({ id: reviewDrawer.id, decision: "approved" });
+            else if (reviewDrawer.kind === "sales_order") reviewSO.mutate({ id: reviewDrawer.id, decision: "approved" });
             else if (reviewDrawer.kind === "quotation") reviewQuotation.mutate({ id: reviewDrawer.id, decision: "approved" });
             else if (reviewDrawer.kind === "sale") reviewSale.mutate({ id: reviewDrawer.id, decision: "approved" });
             else reviewPurchase.mutate({ id: reviewDrawer.id, decision: "approved" });
@@ -898,12 +1025,14 @@ function CheckerPage() {
           }}
           onReject={() => {
             if (reviewDrawer.kind === "proforma") reviewProforma.mutate({ id: reviewDrawer.id, decision: "rejected" });
+            else if (reviewDrawer.kind === "po") reviewPO.mutate({ id: reviewDrawer.id, decision: "rejected" });
+            else if (reviewDrawer.kind === "sales_order") reviewSO.mutate({ id: reviewDrawer.id, decision: "rejected" });
             else if (reviewDrawer.kind === "quotation") reviewQuotation.mutate({ id: reviewDrawer.id, decision: "rejected" });
             else if (reviewDrawer.kind === "sale") reviewSale.mutate({ id: reviewDrawer.id, decision: "rejected" });
             else reviewPurchase.mutate({ id: reviewDrawer.id, decision: "disputed" });
             setReviewDrawer(null);
           }}
-          isPending={reviewProforma.isPending || reviewQuotation.isPending || reviewSale.isPending || reviewPurchase.isPending}
+          isPending={reviewProforma.isPending || reviewPO.isPending || reviewQuotation.isPending || reviewSale.isPending || reviewPurchase.isPending || reviewSO.isPending}
         />
       )}
 
@@ -991,7 +1120,7 @@ function ReviewDrawer({
               <div className="flex items-center gap-2 mb-1">
                 <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${kCfg.color}`}>
                   <Icon className="h-2.5 w-2.5" />
-                  {row.kind === "quotation" ? "Quotation" : row.kind === "proforma" ? "Proforma" : row.kind === "sale" ? "Sales Invoice" : "Purchase Invoice"}
+                  {row.kind === "quotation" ? "Quotation" : row.kind === "po" ? "Purchase order" : row.kind === "proforma" ? "Proforma" : row.kind === "sale" ? "Sales Invoice" : row.kind === "sales_order" ? "Sales Order" : "Purchase Invoice"}
                 </span>
                 <span className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${uCfg.color}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${uCfg.dot}`} />

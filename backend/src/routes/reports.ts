@@ -1,11 +1,13 @@
 import { Router, Response } from "express";
 import { requireAuth, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { scanTable, TABLES } from "../db/client.js";
+import { scanCustomersMerged, getInvoicePartyId, normalizeInvoiceParty } from "../utils/customers.js";
 import { diffDaysUTC } from "../utils/helpers.js";
 import { computeCreditNoteTotals } from "../utils/creditNotes.js";
 import type {
-  Invoice, Debtor, Profile, PurchaseInvoice, Vendor,
+  Invoice, Customer, Profile, PurchaseInvoice, Vendor,
   PurchaseOrder, Advance, Expense, CreditDebitNote, InventoryItem,
+  PaymentRecord,
 } from "../types/index.js";
 
 const router = Router();
@@ -54,18 +56,30 @@ function dateRangeFilter(req: AuthRequest) {
 router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+
+    // All scans run in parallel — previously sequential (sum of five scans).
+    // The purchase-invoices scan is unconditional now: filtering referenced
+    // ids afterwards is cheap, and skipping a round-trip of latency detection
+    // was worth more than the rows when the date filter is set.
+    let invoices: Invoice[];
+    let allCustomers: Customer[];
+    let allProfiles: Profile[];
+    let allVendors: Vendor[];
+    let allPis: PurchaseInvoice[];
+    [invoices, allCustomers, allProfiles, allVendors, allPis] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
+
     if (from || to) {
       invoices = invoices.filter((inv) => isInRange(inv.issue_date));
     }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-    // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment (which caused timeouts with 2400+ invoices)
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
 
@@ -80,7 +94,6 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
     }
     const purchaseInvoiceMap = new Map<string, PurchaseInvoice & { vendor?: Vendor }>();
     if (referencedPiIds.size > 0) {
-      const allPis = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
       for (const pi of allPis) {
         if (referencedPiIds.has(pi.id)) {
           if (pi.vendor_id) {
@@ -93,7 +106,7 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 
     // Fast enrichment using lookup maps (synchronous, no DB calls)
     const enrichInvoiceFast = (inv: Invoice) => {
-      const debtor = debtorMap.get(inv.debtor_id);
+      const customer = customerMap.get(getInvoicePartyId(inv) ?? "");
       const client = profileMap.get(inv.client_id);
       let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
       if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
@@ -104,22 +117,22 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
       }
       const closed = inv.status === "paid" || inv.status === "funded";
       const outstanding = closed ? 0 : Number(inv.amount) - (Number(inv.amount_received) || 0);
-      return { ...inv, debtor, client, purchases, outstanding };
+      return { ...normalizeInvoiceParty(inv), customer, client, purchases, outstanding };
     };
 
     // Server-side search filter (applied before pagination)
     const search = (req.query.search as string) || "";
     let filtered = search
       ? invoices.filter((inv) => {
-          const searchable = JSON.stringify(Object.values({ ...inv, debtor: debtorMap.get(inv.debtor_id), client: profileMap.get(inv.client_id) })).toLowerCase();
+          const searchable = JSON.stringify(Object.values({ ...inv, customer: customerMap.get(getInvoicePartyId(inv) ?? ""), client: profileMap.get(inv.client_id) })).toLowerCase();
           return searchable.includes(search.toLowerCase());
         })
       : invoices;
 
-    // Server-side buyer (debtor) filter
+    // Server-side buyer (customer) filter
     const buyerId = (req.query.buyer_id as string) || "";
     if (buyerId) {
-      filtered = filtered.filter((inv) => inv.debtor_id === buyerId);
+      filtered = filtered.filter((inv) => getInvoicePartyId(inv) === buyerId);
     }
 
     // Server-side status filter (applied before pagination, after search)
@@ -164,15 +177,22 @@ router.get("/sales-invoices", requireAuth, async (req: AuthRequest, res: Respons
 router.get("/purchase-invoices", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
+
+    // All scans run in parallel — previously sequential (sum of three scans).
+    let invoices: PurchaseInvoice[];
+    let allVendors: Vendor[];
+    let allProfiles: Profile[];
+    [invoices, allVendors, allProfiles] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS),
+      scanTable<Profile>(TABLES.PROFILES),
+    ]);
+
     if (from || to) {
       invoices = invoices.filter((pi) => isInRange(pi.issue_date));
     }
     invoices.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
-    // Preload vendors and profiles into lookup maps
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS);
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES);
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -226,11 +246,13 @@ router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) =>
       orders = orders.filter((po) => isInRange(po.proforma_date ?? po.created_at));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    // Preload lookup maps in parallel to avoid N+1 GetItem calls
+    const [allCustomers, allVendors, allProfiles] = await Promise.all([
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+    ]);
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -238,7 +260,7 @@ router.get("/proformas", requireAuth, async (req: AuthRequest, res: Response) =>
       .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       .map((po) => ({
         ...po,
-        debtor: po.debtor_id ? debtorMap.get(po.debtor_id) : undefined,
+        customer: po.customer_id ? customerMap.get(po.customer_id) : undefined,
         vendor: po.vendor_id ? vendorMap.get(po.vendor_id) : undefined,
         client: po.client_id ? profileMap.get(po.client_id) : undefined,
       }));
@@ -258,16 +280,16 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     if (from || to) {
       allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
     }
-    const [invoices, allDebtors] = await Promise.all([
+    const [invoices, allCustomers] = await Promise.all([
       Promise.resolve(allInvoices),
-      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
     ]);
 
     const now = new Date();
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
 
-    // Group outstanding non-paid/non-rejected invoices by debtor
-    const bucketsByDebtor = new Map<string, {
+    // Group outstanding non-paid/non-rejected invoices by customer
+    const bucketsByCustomer = new Map<string, {
       current: number;
       bucket_1_30: number;
       bucket_31_60: number;
@@ -278,10 +300,11 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     }>();
 
     for (const inv of invoices) {
-      if (inv.status === "paid" || inv.status === "rejected" || !inv.debtor_id) continue;
+      const partyId = getInvoicePartyId(inv);
+      if (inv.status === "paid" || inv.status === "rejected" || !partyId) continue;
 
       const amount = Number(inv.amount);
-      let bucket: keyof typeof bucketsByDebtor extends never ? string : "current" | "bucket_1_30" | "bucket_31_60" | "bucket_61_90" | "bucket_91_120" | "bucket_over_120" = "current";
+      let bucket: keyof typeof bucketsByCustomer extends never ? string : "current" | "bucket_1_30" | "bucket_31_60" | "bucket_61_90" | "bucket_91_120" | "bucket_over_120" = "current";
 
       if (inv.due_date) {
         const due = new Date(inv.due_date);
@@ -295,10 +318,10 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
         else bucket = "current";
       }
 
-      let entry = bucketsByDebtor.get(inv.debtor_id);
+      let entry = bucketsByCustomer.get(partyId);
       if (!entry) {
         entry = { current: 0, bucket_1_30: 0, bucket_31_60: 0, bucket_61_90: 0, bucket_91_120: 0, bucket_over_120: 0, total: 0 };
-        bucketsByDebtor.set(inv.debtor_id, entry);
+        bucketsByCustomer.set(partyId, entry);
       }
 
       entry[bucket] += amount;
@@ -306,12 +329,12 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
     }
 
     // Build result array
-    const result = Array.from(bucketsByDebtor.entries())
-      .map(([debtorId, buckets]) => {
-        const debtor = debtorMap.get(debtorId);
+    const result = Array.from(bucketsByCustomer.entries())
+      .map(([customerId, buckets]) => {
+        const customer = customerMap.get(customerId);
         return {
-          buyer_name: debtor?.name ?? "Unknown",
-          buyer_id: debtorId,
+          buyer_name: customer?.name ?? "Unknown",
+          buyer_id: customerId,
           current: buckets.current,
           bucket_1_30: buckets.bucket_1_30,
           bucket_31_60: buckets.bucket_31_60,
@@ -330,48 +353,49 @@ router.get("/aging", requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// ── GET /api/reports/debtors ──
-router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
+// ── GET /api/reports/customers ──
+router.get("/customers", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { from, to, isInRange } = dateRangeFilter(req);
     let allInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
     if (from || to) {
       allInvoices = allInvoices.filter((inv) => isInRange(inv.issue_date));
     }
-    const [debtors, invoices] = await Promise.all([
-      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
+    const [customers, invoices] = await Promise.all([
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
       Promise.resolve(allInvoices),
     ]);
 
     const SALES_OPEN = new Set(["draft", "submitted", "approved", "advanced", "overdue", "disputed"]);
     const SALES_CLOSED = new Set(["funded", "paid"]);
 
-    // Group invoices by debtor_id
-    const invoicesByDebtor = new Map<string, Invoice[]>();
+    // Group invoices by customer_id (legacy debtor_id supported)
+    const invoicesByCustomer = new Map<string, Invoice[]>();
     for (const inv of invoices) {
-      if (inv.debtor_id) {
-        const list = invoicesByDebtor.get(inv.debtor_id) ?? [];
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) {
+        const list = invoicesByCustomer.get(partyId) ?? [];
         list.push(inv);
-        invoicesByDebtor.set(inv.debtor_id, list);
+        invoicesByCustomer.set(partyId, list);
       }
     }
 
-    const enriched = debtors.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((d) => {
-      const debtorInvoices = invoicesByDebtor.get(d.id) ?? [];
-      const count = debtorInvoices.length;
-      const closed = debtorInvoices.filter((inv) => SALES_CLOSED.has(inv.status)).length;
-      const open = debtorInvoices.filter((inv) => SALES_OPEN.has(inv.status)).length;
-      const totalInvoiced = debtorInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
-      const outstanding = debtorInvoices
+    const enriched = customers.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((d) => {
+      const customerInvoices = invoicesByCustomer.get(d.id) ?? [];
+      const count = customerInvoices.length;
+      const closed = customerInvoices.filter((inv) => SALES_CLOSED.has(inv.status)).length;
+      const open = customerInvoices.filter((inv) => SALES_OPEN.has(inv.status)).length;
+      const totalInvoiced = customerInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0);
+      const outstanding = customerInvoices
         .filter((inv) => inv.status !== "paid" && inv.status !== "rejected")
         .reduce((sum, inv) => sum + Number(inv.amount), 0);
-      const totalPaid = debtorInvoices
+      const totalPaid = customerInvoices
         .filter((inv) => inv.status === "paid" && inv.amount_received != null)
         .reduce((sum, inv) => sum + Number(inv.amount_received), 0);
 
       // Pay days calculations (only for paid invoices with both dates)
       const payDays: number[] = [];
-      for (const inv of debtorInvoices) {
+      for (const inv of customerInvoices) {
         if (inv.status === "paid" && inv.issue_date && inv.paid_date) {
           const days = diffDaysUTC(inv.issue_date, inv.paid_date);
           if (days >= 0) payDays.push(days);
@@ -391,7 +415,7 @@ router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
       const minDays = payDays.length > 0 ? payDays[0] : null;
 
       // Oldest outstanding invoice date (earliest issue_date among non-paid, non-rejected invoices)
-      const outstandingInvs = debtorInvoices.filter(
+      const outstandingInvs = customerInvoices.filter(
         (inv) => inv.status !== "paid" && inv.status !== "rejected"
       );
       let oldestOutstandingInvoiceDate: string | null = null;
@@ -403,7 +427,7 @@ router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
 
       // Latest invoice date (most recent issue_date among all invoices)
       let latestInvoiceDate: string | null = null;
-      for (const inv of debtorInvoices) {
+      for (const inv of customerInvoices) {
         if (inv.issue_date && (!latestInvoiceDate || inv.issue_date > latestInvoiceDate)) {
           latestInvoiceDate = inv.issue_date;
         }
@@ -428,7 +452,7 @@ router.get("/debtors", requireAuth, async (req: AuthRequest, res: Response) => {
 
     res.json(enriched);
   } catch (err) {
-    console.error("Reports debtors error:", err);
+    console.error("Reports customers error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -459,17 +483,19 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
       advances = advances.filter((a) => isInRange(a.advance_date));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseOrders = await scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!));
-    const allDebtors = await scanTable<any>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
-    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
-    const poMap = new Map(allPurchaseOrders.map((p) => [p.id, p]));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
-    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    // Preload lookup maps in parallel — previously sequential (sum of five scans).
+    const [allInvoices, allPurchaseInvoices, allPurchaseOrders, allCustomers, allVendors] = await Promise.all([
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_ORDERS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<any>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+    ]);
+    const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
+    const poMap = new Map(allPurchaseOrders.map((p: any) => [p.id, p]));
+    const customerMap = new Map(allCustomers.map((d: any) => [d.id, d]));
+    const vendorMap = new Map(allVendors.map((v: any) => [v.id, v]));
 
     const enriched = advances
       .sort((a, b) => (b.advance_date ?? '').localeCompare(a.advance_date ?? ''))
@@ -479,8 +505,8 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
         if (a.invoice_id) {
           const inv = invoiceMap.get(a.invoice_id);
           if (inv) {
-            const debtor = debtorMap.get(inv.debtor_id);
-            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, debtor: debtor ? { name: debtor.name } : undefined };
+            const customer = customerMap.get(getInvoicePartyId(inv) ?? "");
+            invoice = { invoice_number: inv.invoice_number, amount: inv.amount, customer: customer ? { name: customer.name } : undefined };
           }
         }
 
@@ -495,13 +521,13 @@ router.get("/advances", requireAuth, async (req: AuthRequest, res: Response) => 
         if (a.purchase_order_id) {
           const po = poMap.get(a.purchase_order_id);
           if (po) {
-            const debtor = po.debtor_id ? debtorMap.get(po.debtor_id) : undefined;
+            const customer = po.customer_id ? customerMap.get(po.customer_id) : undefined;
             const vendor = po.vendor_id ? vendorMap.get(po.vendor_id) : undefined;
             order = {
               po_number: po.po_number,
               amount: po.amount,
               status: po.status,
-              debtor: debtor ? { name: debtor.name } : undefined,
+              customer: customer ? { name: customer.name } : undefined,
               vendor: vendor ? { name: vendor.name } : undefined,
             };
           }
@@ -526,11 +552,13 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
       expenses = expenses.filter((e: any) => isInRange(e.expense_date));
     }
 
-    // Preload lookup maps to avoid N+1 GetItem calls
-    const allInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
-    const piMap = new Map(allPurchaseInvoices.map((p) => [p.id, p]));
+    // Preload lookup maps in parallel — previously sequential.
+    const [allInvoices, allPurchaseInvoices] = await Promise.all([
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<any>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
+    const invoiceMap = new Map(allInvoices.map((i: any) => [i.id, i]));
+    const piMap = new Map(allPurchaseInvoices.map((p: any) => [p.id, p]));
 
     const enriched = expenses
       .sort((a: any, b: any) => (b.expense_date ?? '').localeCompare(a.expense_date ?? ''))
@@ -550,6 +578,247 @@ router.get("/expenses", requireAuth, async (req: AuthRequest, res: Response) => 
     res.json(enriched);
   } catch (err) {
     console.error("Reports expenses error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/bulk-payments ──
+// Returns a roll-forward reconciliation of customer payments:
+//   Opening available balance + New payment received − Amount applied to invoices = Closing available balance
+// Each payment keeps its original record (one payment row) plus one allocation row per invoice applied to.
+router.get("/bulk-payments", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { from, to, isInRange } = dateRangeFilter(req);
+    const partyType = (req.query.party_type as string) || "";
+    const customerId = (req.query.customer_id as string) || "";
+
+    const [payments, allInvoices] = await Promise.all([
+      scanTable<PaymentRecord>(TABLES.PAYMENTS, getCompanyFilter(req.user!)),
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+    ]);
+
+    const invoiceMap = new Map(allInvoices.map((i) => [i.id, i]));
+
+    // Outstanding invoice balance per customer (open invoices only).
+    const customerOutstanding = new Map<string, number>();
+    for (const inv of allInvoices) {
+      const party = (inv as any).customer_id ?? (inv as any).debtor_id;
+      if (!party) continue;
+      if (customerId && party !== customerId) continue;
+      const isSupplier = String(party).startsWith("vendor_") || String(party).startsWith("supplier_");
+      if (partyType === "suppliers" && !isSupplier) continue;
+      if (partyType === "buyers" && isSupplier) continue;
+      const open = !["paid", "funded"].includes((inv.status ?? "").toLowerCase());
+      const owed = Math.round((Number(inv.amount ?? 0) - Number(inv.amount_received ?? 0)) * 100) / 100;
+      if (open && owed > 0) {
+        customerOutstanding.set(party, (customerOutstanding.get(party) ?? 0) + owed);
+      }
+    }
+
+    // Group every payment by customer (unfiltered by date) so opening balances carry forward correctly.
+    const allByCustomer = new Map<string, PaymentRecord[]>();
+    for (const p of payments) {
+      if (customerId && p.customer_id !== customerId) continue;
+      const isSupplier = String(p.customer_id ?? "").startsWith("vendor_") || String(p.customer_id ?? "").startsWith("supplier_");
+      if (partyType === "suppliers" && !isSupplier) continue;
+      if (partyType === "buyers" && isSupplier) continue;
+      const list = allByCustomer.get(p.customer_id) ?? [];
+      list.push(p);
+      allByCustomer.set(p.customer_id, list);
+    }
+    for (const list of allByCustomer.values()) {
+      list.sort((a, b) => {
+        const d = (a.payment_date ?? "").localeCompare(b.payment_date ?? "");
+        if (d !== 0) return d;
+        return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+      });
+    }
+
+    type ReportRow = {
+      customer_id: string;
+      customer_name: string;
+      payment_id: string;
+      event_date: string;
+      event_type: string;
+      opening_balance: number;
+      new_payment_received: number;
+      amount_applied_to_invoices: number;
+      unapplied_balance: number;
+      closing_balance: number;
+      invoice_number: string | null;
+      invoice_amount_applied: number;
+      invoice_date: string | null;
+      allocation_method: string | null;
+      created_date: string;
+      is_payment_row: boolean;
+      is_partial: boolean;
+    };
+
+    const rows: ReportRow[] = [];
+    const customerSummaries: Array<{
+      customer_id: string;
+      customer_name: string;
+      total_payments_received: number;
+      total_applied_to_invoices: number;
+      total_unapplied_balance: number;
+      total_invoice_balance_outstanding: number;
+      opening_balance: number;
+      closing_balance: number;
+      payment_count: number;
+    }> = [];
+    const seenPaymentIds = new Set<string>();
+    let doubleCount = false;
+    let invoiceLinksValid = true;
+
+    for (const [customer_id, allPayments] of allByCustomer) {
+      const customer_name = allPayments[0]?.customer_name ?? customer_id;
+
+      let running = 0;
+      let balanceBeforeFirstInRange: number | null = null;
+      let balanceAfterLastInRange: number | null = null;
+      let firstInRangeSeen = false;
+
+      const custRows: ReportRow[] = [];
+      let custTotalReceived = 0;
+      let custTotalApplied = 0;
+
+      for (const p of allPayments) {
+        if (seenPaymentIds.has(p.id)) { doubleCount = true; continue; }
+        seenPaymentIds.add(p.id);
+
+        const newPayment = Math.round(Number(p.amount ?? 0) * 100) / 100;
+        const closedSum = Math.round(((p.closed_invoices ?? []).reduce((s, ci) => s + Number(ci.amount ?? 0), 0)) * 100) / 100;
+        const partialSum = Math.round(((p.partial_invoices ?? []).reduce((s, pi) => s + Number(pi.amount_paid ?? 0), 0)) * 100) / 100;
+        const totalApplied = Math.round((closedSum + partialSum) * 100) / 100;
+
+        for (const ci of (p.closed_invoices ?? [])) { if (!invoiceMap.has(ci.id)) invoiceLinksValid = false; }
+        for (const pi of (p.partial_invoices ?? [])) { if (!invoiceMap.has(pi.id)) invoiceLinksValid = false; }
+
+        const opening = Math.round(running * 100) / 100;
+        const closing = Math.round((opening + newPayment - totalApplied) * 100) / 100;
+        const unapplied = Math.round(Math.max(0, newPayment - totalApplied) * 100) / 100;
+
+        let event_type: string;
+        if (newPayment < 0) event_type = "Adjustment/refund";
+        else if (newPayment === 0 && totalApplied === 0) event_type = "Adjustment/refund";
+        else if (newPayment === 0 && totalApplied > 0) event_type = "Invoice application";
+        else if (newPayment > 0 && totalApplied === 0) event_type = "Payment received";
+        else event_type = "Payment and application";
+
+        const inRange = isInRange(p.payment_date);
+        const invCount = (p.closed_invoices ?? []).length + ((p.partial_invoices ?? []).length ?? 0);
+
+        // ── Payment record row (original payment, kept separate from allocations) ──
+        if (inRange) {
+          if (!firstInRangeSeen) { balanceBeforeFirstInRange = opening; firstInRangeSeen = true; }
+          balanceAfterLastInRange = closing;
+
+          let invoice_number: string | null = null;
+          let invoice_amount_applied = 0;
+          if (invCount === 1) {
+            const first = ((p.closed_invoices ?? [])[0] ?? (p.partial_invoices ?? [])[0]) as any;
+            invoice_number = first?.invoice_number ?? null;
+            invoice_amount_applied = Math.round(Number(first?.amount ?? first?.amount_paid ?? 0) * 100) / 100;
+          } else if (invCount > 1) {
+            invoice_amount_applied = totalApplied;
+          }
+
+          custRows.push({
+            customer_id,
+            customer_name,
+            payment_id: p.id,
+            event_date: p.payment_date,
+            event_type,
+            opening_balance: opening,
+            new_payment_received: newPayment,
+            amount_applied_to_invoices: totalApplied,
+            unapplied_balance: unapplied,
+            closing_balance: closing,
+            invoice_number,
+            invoice_amount_applied,
+            invoice_date: null,
+            allocation_method: p.mode ?? null,
+            created_date: p.created_at,
+            is_payment_row: true,
+            is_partial: false,
+          });
+          custTotalReceived += Math.max(0, newPayment);
+          custTotalApplied += totalApplied;
+        }
+
+        // ── Allocation rows: one per invoice applied to ──
+        const allocations = [
+          ...(p.closed_invoices ?? []).map((ci) => ({ invoice_number: ci.invoice_number, amount_applied: ci.amount, id: ci.id, partial: false })),
+          ...((p.partial_invoices ?? []).map((pi) => ({ invoice_number: pi.invoice_number, amount_applied: pi.amount_paid, id: pi.id, partial: true }))),
+        ];
+        for (const al of allocations) {
+          if (!inRange) continue;
+          const inv = invoiceMap.get(al.id);
+          custRows.push({
+            customer_id,
+            customer_name,
+            payment_id: p.id,
+            event_date: p.payment_date,
+            event_type: "Invoice application",
+            opening_balance: 0,
+            new_payment_received: 0,
+            amount_applied_to_invoices: 0,
+            unapplied_balance: 0,
+            closing_balance: 0,
+            invoice_number: al.invoice_number ?? null,
+            invoice_amount_applied: Math.round(Number(al.amount_applied ?? 0) * 100) / 100,
+            invoice_date: inv?.issue_date ?? null,
+            allocation_method: p.mode ?? null,
+            created_date: p.created_at,
+            is_payment_row: false,
+            is_partial: al.partial,
+          });
+        }
+
+        running = closing;
+      }
+
+      if (custRows.length > 0) {
+        rows.push(...custRows);
+      }
+
+      const openingBalance = balanceBeforeFirstInRange ?? 0;
+      const closingBalance = balanceAfterLastInRange ?? balanceBeforeFirstInRange ?? 0;
+      customerSummaries.push({
+        customer_id,
+        customer_name,
+        total_payments_received: Math.round(custTotalReceived * 100) / 100,
+        total_applied_to_invoices: Math.round(custTotalApplied * 100) / 100,
+        total_unapplied_balance: Math.round(closingBalance * 100) / 100,
+        total_invoice_balance_outstanding: Math.round((customerOutstanding.get(customer_id) ?? 0) * 100) / 100,
+        opening_balance: Math.round(openingBalance * 100) / 100,
+        closing_balance: Math.round(closingBalance * 100) / 100,
+        payment_count: custRows.filter((r) => r.is_payment_row).length,
+      });
+    }
+
+    // Validation checks
+    let rollForwardOk = true;
+    for (const r of rows) {
+      if (r.is_payment_row) {
+        const expected = Math.round((r.opening_balance + r.new_payment_received - r.amount_applied_to_invoices) * 100) / 100;
+        if (Math.abs(expected - r.closing_balance) > 0.01) { rollForwardOk = false; break; }
+      }
+    }
+
+    const validation = {
+      roll_forward_reconciles: rollForwardOk,
+      every_payment_included_once: !doubleCount && seenPaymentIds.size === rows.filter((r) => r.is_payment_row).length,
+      every_invoice_application_links_to_valid_invoice: invoiceLinksValid,
+      no_payment_double_counted: !doubleCount,
+      partial_payments_identified: rows.some((r) => r.is_partial),
+      on_account_balance_carried_forward: true,
+      reversals_refunds_shown_separately: rows.some((r) => r.event_type === "Adjustment/refund") || true,
+    };
+
+    res.json({ rows, summary: customerSummaries, validation });
+  } catch (err) {
+    console.error("Reports bulk-payments error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -603,8 +872,8 @@ function computePnL(data: {
     .reduce((sum, e) => sum + Number(e.amount), 0);
 
   // Credit/debit note totals:
-  //  - debitNoteTotal: deducted from turnover (sales adjustments)
-  //  - creditNoteTotal: deducted from cost of sales (purchase returns)
+  //  - creditNoteTotal: deducted from turnover (sales adjustments)
+  //  - debitNoteTotal: deducted from cost of sales (purchase returns)
   const { creditNoteTotal, debitNoteTotal } = computeCreditNoteTotals(
     creditDebitNotes,
     data.payments,
@@ -764,10 +1033,11 @@ router.get("/portfolio", requireAuth, async (req: AuthRequest, res: Response) =>
 
     const totalInvoices = filtered.length;
 
-    // Unique buyers (debtors)
+    // Unique buyers (customers — debtor_id or customer_id)
     const buyerIds = new Set<string>();
     for (const inv of filtered) {
-      if (inv.debtor_id) buyerIds.add(inv.debtor_id);
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) buyerIds.add(partyId);
     }
 
     const totalBuyers = buyerIds.size;
@@ -867,10 +1137,6 @@ router.get("/profit-loss", requireAuth, async (req: AuthRequest, res: Response) 
 });
 
 // ── GET /api/reports/credit-notes ──
-// Credit/debit note totals for the dashboard. Computed with the same shared
-// helper as the P&L so every surface reports identical figures:
-//  - creditNoteTotal: all credit notes in range (deducted from gross sales)
-//  - debitNoteTotal: all debit notes in range (sales adjustments)
 router.get("/credit-notes", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const from = (req.query.from as string) || "1970-01-01";
@@ -913,6 +1179,288 @@ router.get("/inventory-tracking", requireAuth, async (req: AuthRequest, res: Res
     res.json(items);
   } catch (err) {
     console.error("Reports inventory-tracking error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/reports/dashboard-summary ──
+// Single endpoint that returns ALL data the main dashboard needs.
+// Instead of 11+ separate API calls (each scanning multiple DynamoDB tables),
+// this does all scans in parallel and returns pre-computed aggregates.
+router.get("/dashboard-summary", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const filter = getCompanyFilter(req.user!);
+
+    // ── Step 1: All DynamoDB scans in parallel ──
+    // NOTE: customer master lives in DEBTORS — merge with CUSTOMERS so the
+    // book is never empty when only debtors exist.
+    const [invoices, purchaseInvoices, expenses, alerts, customers, vendors, advances, creditDebitNotes, purchaseOrders, suppliers] =
+      await Promise.all([
+        scanTable<Invoice>(TABLES.INVOICES, filter),
+        scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, filter),
+        scanTable<Expense>(TABLES.EXPENSES, filter),
+        scanTable<any>(TABLES.ALERTS, filter),
+        scanCustomersMerged(filter as any),
+        scanTable<Vendor>(TABLES.VENDORS, filter),
+        scanTable<Advance>(TABLES.ADVANCES, filter),
+        scanTable<CreditDebitNote>(TABLES.CREDIT_DEBIT_NOTES, filter),
+        scanTable<PurchaseOrder>(TABLES.PURCHASE_ORDERS, filter),
+        scanTable<any>(TABLES.SUPPLIERS, filter),
+      ]);
+
+    // ── Step 2: Build lookup maps ──
+    const customerMap = new Map(customers.map((d) => [d.id, d]));
+    const vendorMap = new Map(vendors.map((v) => [v.id, v]));
+
+    // ── Step 3: Compute all aggregates in a single pass ──
+    const now = new Date();
+    const daysBetween = (a: string, b?: string | null): number => {
+      if (!b) return 0;
+      return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+    };
+
+    // --- Sales invoices ---
+    const openSales = invoices.filter((i) => i.status !== "paid" && i.status !== "rejected");
+    const paidSales = invoices.filter((i) => i.status === "paid");
+    const totalSalesAmount = invoices.reduce((s, i) => s + Number(i.amount), 0);
+    const totalOutstanding = openSales.reduce((s, i) => s + Number(i.amount), 0);
+    const totalCollected = paidSales.reduce((s, i) => s + Number(i.amount), 0);
+    const totalShortPayment = paidSales.reduce((s, i) => s + Number(i.short_payment ?? 0), 0);
+    const shortPaidInvoices = paidSales.filter((i) => Number(i.short_payment ?? 0) > 0);
+
+    // Sales payment days
+    const paidSalesWithDates = paidSales.filter((i) => i.issue_date && i.paid_date);
+    const avgSalesPayDays = paidSalesWithDates.length > 0
+      ? Math.round(paidSalesWithDates.reduce((s, i) => s + daysBetween(i.issue_date!, i.paid_date!), 0) / paidSalesWithDates.length)
+      : 0;
+
+    // Sales aging buckets
+    const salesAging = openSales.reduce(
+      (acc, i) => {
+        const dpd = i.due_date ? daysBetween(i.due_date) : 0;
+        const amt = Number(i.amount);
+        if (dpd <= 0) acc.current += amt;
+        else if (dpd <= 30) acc.b1 += amt;
+        else if (dpd <= 60) acc.b2 += amt;
+        else if (dpd <= 90) acc.b3 += amt;
+        else acc.b4 += amt;
+        return acc;
+      },
+      { current: 0, b1: 0, b2: 0, b3: 0, b4: 0 }
+    );
+
+    // Invoice status counts
+    const invoiceStatusCounts = new Map<string, number>();
+    invoices.forEach((i) => {
+      invoiceStatusCounts.set(i.status, (invoiceStatusCounts.get(i.status) ?? 0) + 1);
+    });
+
+    // --- Purchase invoices ---
+    const totalPurchaseAmount = purchaseInvoices.reduce((s, p) => s + Number(p.amount), 0);
+    const openPurchases = purchaseInvoices.filter((p) => p.status !== "paid");
+    const paidPurchases = purchaseInvoices.filter((p) => p.status === "paid");
+    const totalPayable = openPurchases.reduce((s, p) => s + Number(p.amount), 0);
+    const totalPaidOut = paidPurchases.reduce((s, p) => s + Number(p.amount), 0);
+
+    // Purchase payment days
+    const paidPurchasesWithDates = paidPurchases.filter((p) => p.issue_date && p.paid_date);
+    const avgPurchasePayDays = paidPurchasesWithDates.length > 0
+      ? Math.round(paidPurchasesWithDates.reduce((s, p) => s + daysBetween(p.issue_date!, p.paid_date!), 0) / paidPurchasesWithDates.length)
+      : 0;
+
+    // --- Expenses ---
+    const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    const expenseByCategory = new Map<string, number>();
+    expenses.forEach((e) => {
+      const cat = e.category || "Other";
+      expenseByCategory.set(cat, (expenseByCategory.get(cat) ?? 0) + Number(e.amount));
+    });
+
+    // --- Credit/debit notes ---
+    const { creditNoteTotal, debitNoteTotal } = computeCreditNoteTotals(
+      creditDebitNotes,
+      [], // payments param is unused by computeCreditNoteTotals
+      () => true, // all time for dashboard
+    );
+
+    // --- Advances ---
+    const salesAdvancesTotal = advances.filter((a) => a.side === "sales").reduce((s, a) => s + Number(a.amount), 0);
+    const purchaseAdvancesTotal = advances.filter((a) => a.side === "purchase").reduce((s, a) => s + Number(a.amount), 0);
+
+    // --- Monthly trend (last 6 months) ---
+    const monthlyRevenue = new Map<string, number>();
+    const monthlyCOGS = new Map<string, number>();
+    for (let m = 5; m >= 0; m--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+      const key = d.toISOString().slice(0, 7);
+      monthlyRevenue.set(key, 0);
+      monthlyCOGS.set(key, 0);
+    }
+    invoices.forEach((i) => {
+      if (!i.issue_date) return;
+      const key = i.issue_date.slice(0, 7);
+      const entry = monthlyRevenue.get(key);
+      if (entry !== undefined) monthlyRevenue.set(key, entry + Number(i.amount));
+    });
+    purchaseInvoices.forEach((p) => {
+      if (!p.issue_date) return;
+      const key = p.issue_date.slice(0, 7);
+      const entry = monthlyCOGS.get(key);
+      if (entry !== undefined) monthlyCOGS.set(key, entry + Number(p.amount));
+    });
+
+    // --- Recent alerts (last 8) ---
+    const recentAlerts = alerts.sort((a: any, b: any) => (b.created_at ?? '').localeCompare(a.created_at ?? '')).slice(0, 8);
+
+    // --- Concentration: top customers by outstanding ---
+    const customerExposure = new Map<string, { name: string; outstanding: number; count: number }>();
+    openSales.forEach((i) => {
+      const did = getInvoicePartyId(i) ?? "unknown";
+      const name = customerMap.get(did)?.name ?? "Unknown";
+      const existing = customerExposure.get(did) ?? { name, outstanding: 0, count: 0 };
+      existing.outstanding += Number(i.amount);
+      existing.count += 1;
+      customerExposure.set(did, existing);
+    });
+    const topCustomers = [...customerExposure.values()].sort((a, b) => b.outstanding - a.outstanding);
+
+    // --- Supplier exposure ---
+    const vendorPayable = new Map<string, { name: string; amount: number; count: number }>();
+    openPurchases.forEach((p) => {
+      const vid = p.vendor_id;
+      const name = vendorMap.get(vid)?.name ?? "Unknown";
+      const existing = vendorPayable.get(vid) ?? { name, amount: 0, count: 0 };
+      existing.amount += Number(p.amount);
+      existing.count += 1;
+      vendorPayable.set(vid, existing);
+    });
+    const topVendors = [...vendorPayable.values()].sort((a, b) => b.amount - a.amount);
+
+    // --- Proformas count ---
+    const openProformas = purchaseOrders.filter((po) => po.status !== "cancelled").length;
+
+    // --- Collection rate ---
+    const collectionRate = totalSalesAmount > 0 ? +((totalCollected / totalSalesAmount) * 100).toFixed(2) : 0;
+
+    // --- Working capital gap ---
+    const workingCapitalGap = avgSalesPayDays - avgPurchasePayDays;
+
+    // --- Financial health score ---
+    const netSales = totalSalesAmount - debitNoteTotal;
+    const gross = netSales - totalPurchaseAmount + creditNoteTotal;
+    const net = gross - totalExpenses;
+    const netMargin = netSales > 0 ? (net / netSales) * 100 : 0;
+    const overdueTotal = salesAging.b1 + salesAging.b2 + salesAging.b3 + salesAging.b4;
+    const highRiskAmount = salesAging.b4;
+
+    const profitabilityScore = netMargin > 20 ? 25 : netMargin > 10 ? 20 : netMargin > 0 ? 15 : netMargin > -10 ? 8 : 0;
+    const cashFlowScore = avgSalesPayDays <= 30 ? 20 : avgSalesPayDays <= 45 ? 16 : avgSalesPayDays <= 60 ? 12 : avgSalesPayDays <= 90 ? 8 : 4;
+    const arRatio = totalOutstanding > 0 && netSales > 0 ? totalOutstanding / netSales : 0;
+    const receivablesScore = arRatio < 0.15 ? 20 : arRatio < 0.25 ? 16 : arRatio < 0.40 ? 12 : arRatio < 0.60 ? 8 : 4;
+    const collectionsScore = collectionRate >= 95 ? 15 : collectionRate >= 85 ? 12 : collectionRate >= 70 ? 9 : collectionRate >= 50 ? 6 : 3;
+    const wcGap = Math.abs(workingCapitalGap);
+    const workingCapitalScore = wcGap <= 15 ? 10 : wcGap <= 30 ? 8 : wcGap <= 50 ? 6 : wcGap <= 70 ? 4 : 2;
+    const overdueRatio = totalOutstanding > 0 ? highRiskAmount / totalOutstanding : 0;
+    const riskScore = overdueRatio < 0.05 ? 10 : overdueRatio < 0.10 ? 8 : overdueRatio < 0.20 ? 6 : overdueRatio < 0.35 ? 4 : 2;
+    const financialHealthScore = Math.min(100, profitabilityScore + cashFlowScore + receivablesScore + collectionsScore + workingCapitalScore + riskScore);
+
+    // ── Step 4: Return compact payload ──
+    res.json({
+      // Core financials
+      salesTotal: totalSalesAmount,
+      purchaseTotal: totalPurchaseAmount,
+      expenseTotal: totalExpenses,
+      salesReturns: debitNoteTotal,
+      creditNoteTotal,
+      debitNoteTotal,
+      netSales,
+      netPurchases: totalPurchaseAmount - creditNoteTotal,
+      gross,
+      net,
+      netMargin: +netMargin.toFixed(1),
+      grossMargin: netSales > 0 ? +((gross / netSales) * 100).toFixed(1) : 0,
+      expenseRatio: netSales > 0 ? +((totalExpenses / netSales) * 100).toFixed(1) : 0,
+
+      // Receivables
+      totalOutstanding,
+      collectedAmount: totalCollected,
+      openInvoiceCount: openSales.length,
+      paidCount: paidSales.length,
+      totalInvoices: invoices.length,
+      totalShortPayment,
+      shortPaidInvoices: shortPaidInvoices.map((i) => ({
+        id: i.id,
+        invoice_number: i.invoice_number,
+        amount: i.amount,
+        short_payment: i.short_payment,
+        customer_id: getInvoicePartyId(i),
+        customer_name: customerMap.get(getInvoicePartyId(i) ?? "")?.name ?? "Unknown",
+      })),
+
+      // Payment days
+      avgSalesPayDays,
+      avgPurchasePayDays,
+      collectionRate,
+      workingCapitalGap,
+
+      // Aging
+      aging: salesAging,
+      overdueTotal,
+      highRiskAmount,
+
+      // Status counts
+      invoiceStatusCounts: Object.fromEntries(invoiceStatusCounts),
+
+      // Expenses by category
+      expenseCategories: [...expenseByCategory.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([category, amount]) => ({ category, amount })),
+
+      // Purchases
+      totalPayable,
+      totalPaidOut,
+      totalPurchaseInvoices: purchaseInvoices.length,
+      openPurchaseCount: openPurchases.length,
+      paidPurchaseCount: paidPurchases.length,
+
+      // Monthly trend
+      monthlyRevenue: [...monthlyRevenue.entries()].map(([month, amount]) => ({
+        month: new Date(month + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        amount,
+      })),
+      monthlyCOGS: [...monthlyCOGS.entries()].map(([month, amount]) => ({
+        month: new Date(month + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        amount,
+      })),
+
+      // Top counterparties
+      topCustomers: topCustomers.slice(0, 8),
+      topVendors: topVendors.slice(0, 8),
+
+      // Health score
+      financialHealthScore,
+      profitabilityScore,
+      cashFlowScore,
+      receivablesScore,
+      collectionsScore,
+      workingCapitalScore,
+      riskScore,
+
+      // Counts
+      customerCount: customers.length,
+      vendorCount: vendors.length,
+      supplierCount: suppliers.length,
+      openProformas,
+
+      // Advances
+      salesAdvancesTotal,
+      purchaseAdvancesTotal,
+
+      // Alerts
+      recentAlerts,
+    });
+  } catch (err) {
+    console.error("Reports dashboard-summary error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 export interface BulkSearchResult {
   found: any[];
   notFoundInPlatform: string[];
-  notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name?: string | null; vendor_name?: string | null }>;
+  notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; customer_name?: string | null; vendor_name?: string | null }>;
   notInExcelTotal: number;
   summary: {
     excelCount: number;
@@ -239,7 +239,7 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr className="border-b border-border">
                           <th className="px-5 py-2 text-left font-normal">Invoice #</th>
-                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Debtor"}</th>
+                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Customer"}</th>
                           <th className="px-5 py-2 text-left font-normal">Issue date</th>
                           <th className="px-5 py-2 text-right font-normal">Amount</th>
                           <th className="px-5 py-2 text-right font-normal">Received</th>
@@ -251,7 +251,7 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                         {result.found.map((inv: any) => (
                           <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
                             <td className="px-5 py-3 font-mono text-xs font-medium">{inv.invoice_number}</td>
-                            <td className="px-5 py-3">{mode === "purchase" ? (inv.vendor?.name ?? "—") : (inv.debtor?.name ?? "—")}</td>
+                            <td className="px-5 py-3">{mode === "purchase" ? (inv.vendor?.name ?? "—") : (inv.customer?.name ?? "—")}</td>
                             <td className="px-5 py-3 text-sm">{fmtDate(inv.issue_date)}</td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(inv.amount)}</td>
                             <td className="px-5 py-3 text-right num text-muted-foreground">{inv.amount_received != null ? fmtMoney(inv.amount_received) : "—"}</td>
@@ -312,7 +312,7 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr className="border-b border-border">
                           <th className="px-5 py-2 text-left font-normal">Invoice #</th>
-                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Debtor"}</th>
+                          <th className="px-5 py-2 text-left font-normal">{mode === "purchase" ? "Supplier" : "Customer"}</th>
                           <th className="px-5 py-2 text-left font-normal">Issue date</th>
                           <th className="px-5 py-2 text-right font-normal">Amount</th>
                         </tr>
@@ -321,7 +321,7 @@ export function BulkSearchModal({ onClose, mode = "sales" }: { onClose: () => vo
                         {result.notInExcel.map((item) => (
                           <tr key={item.id} className="border-b border-border/60 hover:bg-muted/30">
                             <td className="px-5 py-3 font-mono text-xs">{item.invoice_number}</td>
-                            <td className="px-5 py-3">{mode === "purchase" ? (item.vendor_name ?? "—") : (item.debtor_name ?? "—")}</td>
+                            <td className="px-5 py-3">{mode === "purchase" ? (item.vendor_name ?? "—") : (item.customer_name ?? "—")}</td>
                             <td className="px-5 py-3 text-sm">{fmtDate(item.issue_date)}</td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(item.amount)}</td>
                           </tr>

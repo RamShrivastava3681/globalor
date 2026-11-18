@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import { config } from "./config.js";
 
 import { requireAuth } from "./middleware/auth.js";
@@ -8,7 +9,7 @@ import { requireAuth } from "./middleware/auth.js";
 import { apiLimiter, uploadLimiter, publicLimiter } from "./middleware/rateLimiter.js";
 
 // Admin seed
-import { seedAdmin } from "./seed.js";
+import { seedAdmin, seedLogisticsProviders } from "./seed.js";
 
 // DynamoDB table creation
 import { createTables } from "./db/schema.js";
@@ -22,7 +23,7 @@ import { recomputeAll } from "./utils/forecast.js";
 // Route imports
 import authRoutes from "./routes/auth.js";
 import profileRoutes from "./routes/profiles.js";
-import debtorRoutes from "./routes/debtors.js";
+import customerRoutes from "./routes/customers.js";
 import vendorRoutes from "./routes/vendors.js";
 import supplierRoutes from "./routes/suppliers.js";
 import invoiceRoutes from "./routes/invoices.js";
@@ -38,6 +39,7 @@ import noaRoutes from "./routes/noa.js";
 import uploadRoutes from "./routes/upload.js";
 import reportRoutes from "./routes/reports.js";
 import productRoutes from "./routes/products.js";
+import productSkuRoutes from "./routes/productSkus.js";
 import catalogueSettingRoutes from "./routes/catalogueSettings.js";
 import goodsPurchaseOrderRoutes from "./routes/goodsPurchaseOrders.js";
 import goodsReceiptRoutes from "./routes/goodsReceipts.js";
@@ -46,12 +48,24 @@ import goodsDispatchRoutes from "./routes/goodsDispatches.js";
 import quotationRoutes from "./routes/quotations.js";
 import forecastVariableRoutes from "./routes/forecastVariables.js";
 import approvalRoutes from "./routes/approvals.js";
+import workflowTaskRoutes from "./routes/workflowTasks.js";
 
 const app = express();
 
 // ── Global middleware ──
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+// Gzip all JSON responses — invoice lists are large and compress ~80%,
+// which is the single biggest win for slow-loading pages on remote networks.
+app.use(compression());
+app.use(
+  express.json({
+    limit: "50mb",
+    verify: (req: any, _res, buf) => {
+      // Preserve the raw body for logistics webhook signature verification
+      if (req.url?.startsWith("/api/logistics/webhooks/")) req.rawBody = buf.toString("utf8");
+    },
+  }),
+);
 
 // Global rate limiter applied to all routes
 app.use(apiLimiter);
@@ -75,7 +89,7 @@ app.use("/api/auth", authRoutes);
 
 // Standard API routes
 app.use("/api/profiles", profileRoutes);
-app.use("/api/debtors", debtorRoutes);
+app.use("/api/customers", customerRoutes);
 app.use("/api/vendors", vendorRoutes);
 app.use("/api/suppliers", supplierRoutes);
 app.use("/api/invoices", invoiceRoutes);
@@ -87,6 +101,7 @@ app.use("/api/expenses", expenseRoutes);
 app.use("/api/stock-movements", stockMovementRoutes);
 app.use("/api/inventory-items", inventoryItemRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/product-skus", productSkuRoutes);
 app.use("/api/catalogue-settings", catalogueSettingRoutes);
 app.use("/api/goods-purchase-orders", goodsPurchaseOrderRoutes);
 app.use("/api/goods-receipts", goodsReceiptRoutes);
@@ -101,6 +116,7 @@ app.use("/api/noa", publicLimiter, noaRoutes);
 
 // Public quotation-approval endpoints get the same moderate limiter
 app.use("/api/approvals", publicLimiter, approvalRoutes);
+app.use("/api/workflow-tasks", workflowTaskRoutes);
 
 // Upload endpoints get a upload-specific limiter
 app.use("/api/upload", uploadLimiter, uploadRoutes);
@@ -138,6 +154,20 @@ app.use("/api/balance-sheet-items", requireAuth, balanceSheetItemRoutes);
 // Companies (super admin company switcher)
 import companyRoutes from "./routes/companies.js";
 app.use("/api/companies", companyRoutes);
+
+// Cash Command Centre (Treasury & Liquidity)
+import cashRoutes from "./routes/cash.js";
+app.use("/api/cash", cashRoutes);
+
+// Logistics module (shipments, providers, settings, carrier webhooks)
+import shipmentRoutes from "./routes/shipments.js";
+app.use("/api/shipments", shipmentRoutes);
+
+import logisticsProviderRoutes from "./routes/logisticsProviders.js";
+app.use("/api/logistics", logisticsProviderRoutes);
+
+import shipmentWebhookRoutes from "./routes/shipmentWebhooks.js";
+app.use("/api/logistics/webhooks", shipmentWebhookRoutes);
 
 // ── Health check (no rate limit) ──
 app.get("/health", (_req, res) => {
@@ -179,10 +209,26 @@ app.listen(config.port, async () => {
   // Seed admin user from env vars
   await seedAdmin();
 
+  // Seed demo logistics providers (manual + stub) for companies that have none
+  await seedLogisticsProviders();
+
   // Kick the reminder sweep ~60s after boot (gives startup time to settle),
   // then every 24h. Manual trigger: POST /api/admin/run-overdue-reminders.
   setTimeout(dailyOverdueReminderTick, 60_000);
   setInterval(dailyOverdueReminderTick, 24 * 60 * 60 * 1000);
+
+  // Daily logistics poll: carrier tracking refresh + delay/stale/eway/POD alerts.
+  const { runLogisticsPoll } = await import("./logistics/polling.js");
+  const dailyLogisticsTick = async () => {
+    try {
+      const { polled, events, alerts } = await runLogisticsPoll();
+      console.log(`   🚚 Logistics poll: ${polled} polled, ${events} events, ${alerts} alerts`);
+    } catch (err) {
+      console.error("   ❌ Logistics poll failed:", err);
+    }
+  };
+  setTimeout(dailyLogisticsTick, 120_000);
+  setInterval(dailyLogisticsTick, 24 * 60 * 60 * 1000);
 
   // Daily "ensure fresh" forecast recompute (in addition to the event triggers).
   const dailyForecastTick = async () => {

@@ -12,13 +12,15 @@ import {
   TABLES,
 } from "../db/client.js";
 import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
-import { generateId, generateNoaToken, generateDocNumber, nowISO } from "../utils/helpers.js";
+import { generateId, generateNoaToken, generateDocNumber, nowISO, inferCompanyId } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { config } from "../config.js";
 import { sendNoaEmail, sendReminderEmail } from "../utils/email.js";
-import type { Invoice, InvoiceLine, Debtor, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
+import type { Invoice, InvoiceLine, Customer, Profile, PurchaseInvoice, Vendor, DocMeta, GoodsSalesOrder, ReminderEntry } from "../types/index.js";
 import type { StockMovement, MovementDirection } from "../types/index.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId, normalizeInvoiceParty } from "../utils/customers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
 import { getFileStream } from "../s3/client.js";
 import { Readable } from "stream";
 
@@ -56,15 +58,15 @@ const router = Router();
 // ── GET /api/invoices/check-duplicates ── (find duplicate invoice numbers across sales & purchase invoices)
 router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    // Scan both sales and purchase invoices
-    const salesInvoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const purchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-
-    // Preload debtors, vendors, and profiles for enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    // All scans run in parallel — previously sequential (sum of five scans).
+    const [salesInvoices, purchaseInvoices, allCustomers, allVendors, allProfiles] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+    ]);
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
@@ -76,7 +78,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
       amount: number;
       status: string;
       client_id: string;
-      debtor_id?: string;
+      customer_id?: string | null;
       vendor_id?: string;
       issue_date?: string;
       created_at?: string;
@@ -93,7 +95,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
         amount: inv.amount,
         status: inv.status,
         client_id: inv.client_id,
-        debtor_id: inv.debtor_id,
+        customer_id: getInvoicePartyId(inv),
         issue_date: inv.issue_date,
         created_at: inv.created_at,
       });
@@ -129,7 +131,7 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
         amount: number;
         status: string;
         client?: { company_name?: string; contact_name?: string };
-        debtor?: { name?: string };
+        customer?: { name?: string };
         vendor?: { name?: string };
         issue_date?: string;
         created_at?: string;
@@ -146,14 +148,14 @@ router.get("/check-duplicates", requireAuth, async (req: AuthRequest, res: Respo
             client: profileMap.get(e.client_id)
               ? { company_name: profileMap.get(e.client_id)?.company_name, contact_name: profileMap.get(e.client_id)?.contact_name ?? undefined }
               : undefined,
-            debtor: e.debtor_id ? debtorMap.get(e.debtor_id) : undefined,
+            customer: e.customer_id ? customerMap.get(e.customer_id) : undefined,
             vendor: e.vendor_id ? vendorMap.get(e.vendor_id) : undefined,
           })),
         });
       }
     }
 
-    res.json(duplicates);
+    res.json({ duplicates, totalDuplicates: duplicates.length });
   } catch (err) {
     console.error("Check duplicate invoices error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -165,22 +167,24 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
-
-    // Preload all debtors, profiles, vendors, and purchase invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allPurchaseInvoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    // Run all table scans in parallel — previously these were sequential awaits,
+    // so response time was the SUM of five full-table scans.
+    const [invoices, allCustomers, allProfiles, allVendors, allPurchaseInvoices] = await Promise.all([
+      scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+    ]);
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
     const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
     const piMap = new Map(allPurchaseInvoices.map((pi) => [pi.id, pi]));
 
     // Fast synchronous enrichment function
     const enrichInv = (inv: Invoice) => {
-      const debtor = inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined;
+      const partyId = getInvoicePartyId(inv);
+      const customer = partyId ? customerMap.get(partyId) : undefined;
       const client = inv.client_id ? profileMap.get(inv.client_id) : undefined;
       let purchases: (PurchaseInvoice & { vendor?: Vendor })[] | undefined;
       if (inv.purchase_invoice_ids && inv.purchase_invoice_ids.length > 0) {
@@ -195,16 +199,16 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           })
           .filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
       }
-      return { ...inv, debtor, client, purchases };
+      return { ...normalizeInvoiceParty(inv), customer, client, purchases };
     };
 
-    // Server-side search filtering (including debtor name and visible UID)
+    // Server-side search filtering (including customer name and visible UID)
     const searchQuery = (req.query.search as string || "").toLowerCase().trim();
     let filteredInvoices = invoices;
     if (searchQuery) {
       filteredInvoices = invoices.filter((inv) => {
         const q = searchQuery;
-        const debtorName = (debtorMap.get(inv.debtor_id)?.name ?? "").toLowerCase();
+        const customerName = (customerMap.get(getInvoicePartyId(inv) ?? "")?.name ?? "").toLowerCase();
         const visibleUid = inv.id.slice(-8).toLowerCase();
         return (
           inv.invoice_number?.toLowerCase().includes(q) ||
@@ -212,7 +216,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           inv.status?.toLowerCase().includes(q) ||
           inv.id.toLowerCase().includes(q) ||
           visibleUid.includes(q) ||
-          debtorName.includes(q)
+          customerName.includes(q)
         );
       });
     }
@@ -295,6 +299,51 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ── GET /api/invoices/stats ──
+// Compact aggregates for the sales dashboard + "review all drafts". Scans ONLY
+// the invoices table (the enriched GET / runs five scans) and returns small
+// rows — the dashboard needs status/amount/date/customer-name, not documents
+// or line items. Must stay registered before "/:id".
+router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const invoices = await scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!));
+    const customerIds = new Set<string>();
+    for (const inv of invoices) {
+      const partyId = getInvoicePartyId(inv);
+      if (partyId) customerIds.add(partyId);
+    }
+    // Resolve names for the buyer filter + top-customers chart.
+    const nameById = new Map<string, string>();
+    await Promise.all(
+      [...customerIds].map(async (id) => {
+        const c = await getCustomerById(id).catch(() => undefined);
+        if (c?.name) nameById.set(id, c.name);
+      }),
+    );
+
+    const rows = invoices.map((inv) => {
+      const partyId = getInvoicePartyId(inv);
+      return {
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        amount: Number(inv.amount) || 0,
+        amount_received: Number(inv.amount_received) || 0,
+        short_payment: Number((inv as any).short_payment) || 0,
+        status: inv.status,
+        issue_date: inv.issue_date ?? null,
+        due_date: (inv as any).due_date ?? null,
+        created_at: (inv as any).created_at ?? null,
+        customer_id: partyId,
+        customer_name: partyId ? nameById.get(partyId) ?? "Unknown" : "Unknown",
+      };
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error("Get invoice stats error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── GET /api/invoices/by-purchase/:purchaseInvoiceId ──
 router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
@@ -308,13 +357,13 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
       pi.linked_sales_invoice_ids.map(async (invId) => {
         const inv = await getItem(TABLES.INVOICES, { id: invId }) as Invoice | undefined;
         if (!inv) return null;
-        const debtor = await getItem(TABLES.DEBTORS, { id: inv.debtor_id }) as Debtor | undefined;
+        const customer = await getCustomerById(getInvoicePartyId(inv));
         return {
           id: inv.id,
           invoice_number: inv.invoice_number,
           amount: inv.amount,
           status: inv.status,
-          debtor: debtor ? { name: debtor.name } : undefined,
+          customer: customer ? { name: customer.name } : undefined,
         };
       }),
     );
@@ -328,7 +377,7 @@ router.get("/by-purchase/:purchaseInvoiceId", requireAuth, async (req: AuthReque
 
 // ── POST /api/invoices ──
 const createInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   invoice_number: z.string().min(1).max(80),
   amount: z.number(),
   advance_rate: z.number().min(0).max(100).optional().default(0),
@@ -342,6 +391,8 @@ const createInvoiceSchema = z.object({
   po_number: z.string().max(80).nullable().optional(),
   po_date: z.string().nullable().optional(),
   purchase_invoice_ids: z.array(z.string()).optional().default([]),
+  /** Optional link to a goods sales order — traceability only. Amount/lines stay as typed; never mandatory. */
+  goods_sales_order_id: z.string().trim().max(200).nullable().optional(),
   documents: z.array(z.any()).optional().default([]),
   inventory_items: z.array(z.object({
     item_name: z.string().min(1),
@@ -381,7 +432,8 @@ const fromSoSchema = z.object({
   lines: z.array(fromSoLineSchema).min(1, "Add at least one line"),
 });
 
-const CONFIRMED_SO_STATUSES = ["confirmed", "partially_dispatched", "fully_dispatched"];
+// Legacy "confirmed" is kept so pre-approval-chain SOs stay invoicable.
+const CONFIRMED_SO_STATUSES = ["approved", "confirmed", "partially_dispatched", "fully_dispatched"];
 
 router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
@@ -398,11 +450,14 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       return;
     }
     if (!CONFIRMED_SO_STATUSES.includes(so.status)) {
-      res.status(400).json({ error: `Only confirmed sales orders can be invoiced (current: ${so.status})` });
+      const awaiting = so.status === "pending_warehouse_approval" ? "warehouse" : so.status === "pending_checker_approval" ? "checker" : null;
+      res.status(400).json({ error: awaiting
+        ? `Sales order ${so.so_number} is awaiting ${awaiting} approval — invoicing unblocks once approved`
+        : `Only approved sales orders can be invoiced (current: ${so.status})` });
       return;
     }
     if (!so.customer_id) {
-      res.status(400).json({ error: "This sales order has no customer — assign a debtor before invoicing" });
+      res.status(400).json({ error: "This sales order has no customer — assign a customer before invoicing" });
       return;
     }
 
@@ -511,11 +566,18 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
     const fromAgreed = round2(advanceDeducted - fromReceived);
 
     // 5. Create the invoice — `amount` is the NET receivable (what funding reads).
+    // Due date is mandatory: always visible as issue_date + payment terms (default 30).
+    const fromSoTerms = Number(parsed.payment_terms_days) > 0 ? Number(parsed.payment_terms_days) : 30;
+    const fromSoDueDate = parsed.due_date || (() => {
+      const d = new Date(parsed.issue_date);
+      d.setDate(d.getDate() + fromSoTerms);
+      return d.toISOString().slice(0, 10);
+    })();
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
-      company_id: req.user!.company_id,
-      debtor_id: so.customer_id,
+      company_id: inferCompanyId(req.user!.company_id, so.company_id),
+      customer_id: so.customer_id,
       supplier_id: null,
       invoice_number: generateDocNumber("INV"),
       amount: netReceivable,
@@ -523,7 +585,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       fee_rate: 0,
       amount_received: null,
       issue_date: parsed.issue_date,
-      due_date: parsed.due_date || null,
+      due_date: fromSoDueDate,
       paid_date: null,
       receipt_date: null,
       advance_received_date: null,
@@ -543,7 +605,7 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
       po_date: parsed.po_date || null,
       purchase_invoice_ids: [],
       purchase_order_id: null,
-      payment_terms_days: parsed.payment_terms_days,
+      payment_terms_days: fromSoTerms,
       bl_date: null,
       due_date_source: "invoice",
       has_contractual_due_date: false,
@@ -645,12 +707,24 @@ router.post("/from-so", requireAuth, requireWriteAccess("invoices"), async (req:
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: so.customer_id,
+      customer_id: so.customer_id,
       invoice_id: id,
       type: "invoice_created",
       severity: "info",
       message: `Invoice ${invoice.invoice_number} created from ${so.so_number} — goods $${grandTotal.toLocaleString()}, net $${netReceivable.toLocaleString()} after $${advanceDeducted.toLocaleString()} advance`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: the SO invoice task is done; the new draft invoice needs review.
+    completeTasksForDoc(invoice.company_id, "sales_order", so.id, req.user!.id, "dispatch_invoice");
+    completeTasksForDoc(invoice.company_id, "sales_order", so.id, req.user!.id, "create_invoice");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: so.customer_name,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Review sales invoice ${invoice.invoice_number}`,
+      next_action: "Approve invoice", amount: netReceivable,
+      linked_docs: [{ type: "sales_order", id: so.id, number: so.so_number }],
     });
 
     res.status(201).json(invoice);
@@ -671,21 +745,38 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     const now = nowISO();
     const noa_token = generateNoaToken();
 
-    const termsDays = parsed.payment_terms_days;
-    const dueDate = parsed.due_date !== null
-      ? (parsed.due_date || (() => {
-          const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
-          const d = new Date(base);
-          d.setDate(d.getDate() + termsDays);
-          return d.toISOString().slice(0, 10);
-        })())
-      : null;
+    // Look up the customer to infer company_id for super admins (who have company_id = null)
+    const customer = await getCustomerById(parsed.customer_id);
+
+    // Optional sales-order link (manual invoice): traceability only — the
+    // amount/lines stay exactly as typed. Deliberately no status gate: a
+    // manual invoice must stay creatable with or without an order.
+    let linkedSoId: string | null = parsed.goods_sales_order_id || null;
+    let linkedSoNumber: string | null = null;
+    if (linkedSoId) {
+      const so = await getItem(TABLES.GOODS_SALES_ORDERS, { id: linkedSoId }) as GoodsSalesOrder | undefined;
+      if (!so || (req.user!.company_id && so.company_id !== req.user!.company_id)) {
+        res.status(404).json({ error: "Linked sales order not found" });
+        return;
+      }
+      linkedSoNumber = so.so_number;
+    }
+
+    // Due date is mandatory — never null. Always issue_date + terms (default 30).
+    const termsDays = Number(parsed.payment_terms_days) > 0 ? Number(parsed.payment_terms_days) : 30;
+    const dueDate = parsed.due_date || (() => {
+      const base = parsed.due_date_source === "bl" && parsed.bl_date ? new Date(parsed.bl_date) : new Date(parsed.issue_date);
+      const d = new Date(base);
+      d.setDate(d.getDate() + termsDays);
+      return d.toISOString().slice(0, 10);
+    })();
 
     const invoice: Invoice = {
       id,
       client_id: req.user!.id,
-      company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      company_id: inferCompanyId(req.user!.company_id, customer?.company_id),
+      customer_id: parsed.customer_id,
+      debtor_id: parsed.customer_id,
       supplier_id: null,
       invoice_number: parsed.invoice_number,
       amount: parsed.amount,
@@ -712,7 +803,9 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
       po_date: parsed.po_date || null,
       purchase_invoice_ids: parsed.purchase_invoice_ids || [],
       purchase_order_id: null,
-      payment_terms_days: parsed.payment_terms_days,
+      goods_sales_order_id: linkedSoId,
+      goods_sales_order_number: linkedSoNumber,
+      payment_terms_days: termsDays,
       bl_date: parsed.bl_date || null,
       due_date_source: parsed.due_date_source,
       has_contractual_due_date: parsed.has_contractual_due_date,
@@ -775,16 +868,24 @@ router.post("/", requireAuth, requireWriteAccess("invoices"), async (req: AuthRe
     }
 
     // Create activity alert
-    const debtor = await getItem(TABLES.DEBTORS, { id: parsed.debtor_id }) as Debtor | undefined;
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       invoice_id: id,
       type: "invoice_created",
       severity: "info",
-      message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${debtor ? ` — ${debtor.name}` : ""}`,
+      message: `Invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${customer ? ` — ${customer.name}` : ""}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: new draft invoice needs review.
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: customer?.name ?? null,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Review sales invoice ${invoice.invoice_number}`,
+      next_action: "Approve invoice", amount: invoice.amount, due_date: dueDate,
     });
 
     res.status(201).json(invoice);
@@ -804,7 +905,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
-    const debtor = invoice.debtor_id ? await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined : undefined;
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
     const salesOrder = invoice.goods_sales_order_id
       ? await getItem(TABLES.GOODS_SALES_ORDERS, { id: invoice.goods_sales_order_id }) as GoodsSalesOrder | undefined
@@ -824,7 +925,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       purchases = results.filter(Boolean) as (PurchaseInvoice & { vendor?: Vendor })[];
     }
 
-    res.json({ ...invoice, debtor, client, purchases, sales_order: salesOrder });
+    res.json({ ...normalizeInvoiceParty(invoice), customer, client, purchases, sales_order: salesOrder });
   } catch (err) {
     console.error("Get invoice error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -858,12 +959,22 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("invoices"), async (r
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "invoice_created",
       severity: "info",
       message: `Invoice ${invoice.invoice_number} submitted for checker review — $${invoice.amount.toLocaleString()}`,
       created_by: req.user!.id,
+    });
+
+    // My Queue: review task done → checker approval task opens.
+    completeTasksForDoc(invoice.company_id, "sales_invoice", invoice.id, req.user!.id, "review");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "sales_invoice", stage: "approve", doc_type: "sales_invoice",
+      doc_id: invoice.id, doc_number: invoice.invoice_number, counterparty: null,
+      doc_status: "submitted", owner_role: "checker",
+      required_action: `Approve sales invoice ${invoice.invoice_number} (checker)`,
+      next_action: "Record UTR", amount: invoice.amount, due_date: invoice.due_date ?? null,
     });
 
     res.json(updated);
@@ -880,8 +991,54 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
     delete updates.id;
     delete updates.created_at;
 
+    // Guard: due date must stay visible. If caller clears due_date, recompute
+    // from issue_date + terms instead of saving null.
+    if (updates.due_date == null || updates.due_date === "") {
+      const existing = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
+      const issue = (updates.issue_date as string) ?? existing?.issue_date;
+      const rawTerms = (updates.payment_terms_days as number) ?? existing?.payment_terms_days ?? 30;
+      const terms = Number(rawTerms) > 0 ? Number(rawTerms) : 30;
+      if (issue) {
+        const d = new Date(issue);
+        d.setDate(d.getDate() + terms);
+        updates.due_date = d.toISOString().slice(0, 10);
+      } else {
+        delete updates.due_date;
+      }
+    }
+    if (updates.payment_terms_days != null && !(Number(updates.payment_terms_days) > 0)) {
+      updates.payment_terms_days = 30;
+    }
+
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Invoice not found" }); return; }
+    // My Queue: paid invoices drop out; checker decisions auto-advance.
+    const uStatus = String((updated as any).status ?? "");
+    const uCompany = (updated as any).company_id ?? req.user!.company_id;
+    if (uStatus === "paid") {
+      completeTasksForDoc(uCompany, "sales_invoice", req.params.id, req.user!.id);
+    } else if (uStatus === "approved" || uStatus === "rejected") {
+      const u = updated as any;
+      completeTasksForDoc(uCompany, "sales_invoice", req.params.id, req.user!.id);
+      const cp = await getCustomerById(u.customer_id).catch(() => null);
+      if (uStatus === "approved") {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "sales_invoice", stage: "record_utr", doc_type: "sales_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: cp?.name ?? null,
+          doc_status: "approved", owner_role: "treasury",
+          required_action: `Record UTR for ${u.invoice_number}`,
+          next_action: "Confirm receipt", amount: u.amount, due_date: u.due_date ?? null,
+        });
+      } else {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "sales_invoice", stage: "review", doc_type: "sales_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: cp?.name ?? null,
+          doc_status: "rejected", owner_role: "finance",
+          required_action: `Rework sales invoice ${u.invoice_number} (checker rejected)`,
+          next_action: "Resubmit", amount: u.amount,
+        });
+      }
+    }
     res.json(updated);
   } catch (err) {
     console.error("Update invoice error:", err);
@@ -893,6 +1050,8 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("invoices", "checker-des
 router.delete("/:id", requireAuth, requireWriteAccess("invoices"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.INVOICES, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted invoice.
+    cancelTasksForDoc(req.user!.company_id, "sales_invoice", req.params.id, "Invoice deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete invoice error:", err);
@@ -934,7 +1093,7 @@ router.post("/bulk-delete", requireAuth, requireWriteAccess("invoices"), async (
 
 // ── POST /api/invoices/batch ── (mass import from Excel)
 const batchInvoiceSchema = z.object({
-  debtor_id: z.string().min(1),
+  customer_id: z.string().min(1),
   payment_terms_days: z.number().min(0).optional().default(30),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   bl_date: z.string().nullable().optional(),
@@ -957,6 +1116,10 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     const created: Invoice[] = [];
     const errors: Array<{ invoice_number: string; error: string }> = [];
 
+    // Look up the customer to infer company_id for super admins
+    const customer = await getCustomerById(parsed.customer_id);
+    const resolvedCompanyId = inferCompanyId(req.user!.company_id, customer?.company_id);
+
     // Build all invoice objects first
     const invoicesToCreate: Invoice[] = [];
     for (const item of parsed.invoices) {
@@ -974,8 +1137,9 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
         const invoice: Invoice = {
           id,
           client_id: req.user!.id,
-          company_id: req.user!.company_id,
-          debtor_id: parsed.debtor_id,
+          company_id: resolvedCompanyId,
+          customer_id: parsed.customer_id,
+          debtor_id: parsed.customer_id,
           supplier_id: null,
           invoice_number: item.invoice_number,
           amount: item.amount,
@@ -1043,7 +1207,7 @@ router.post("/batch", requireAuth, requireWriteAccess("invoices"), async (req: A
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
-      debtor_id: parsed.debtor_id,
+      customer_id: parsed.customer_id,
       type: "invoice_created",
       severity: "info",
       message: `Batch imported ${created.length} invoice${created.length !== 1 ? "s" : ""}${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
@@ -1147,7 +1311,7 @@ router.post("/batch-close", requireAuth, requireWriteAccess("funding-queue"), as
   }
 });
 
-// ── POST /api/invoices/bulk-pay ── (mark invoices as paid from debtor bulk payment modal)
+// ── POST /api/invoices/bulk-pay ── (mark invoices as paid from customer bulk payment modal)
 const bulkPaySchema = z.object({
   items: z.array(z.object({
     id: z.string().min(1),
@@ -1348,8 +1512,8 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
       /(?:Order\s*(?:Number|#|No)?\s*[:.]?\s*)([A-Za-z0-9][A-Za-z0-9\/\-._]{2,30})/i,
     ]);
 
-    // ── Debtor / Bill-To company name ──
-    let debtorName = findField([
+    // ── Customer / Bill-To company name ──
+    let customerName = findField([
       /(?:Bill\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
       /(?:Ship\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
       /(?:Customer\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
@@ -1357,23 +1521,23 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
       /(?:Sold\s*To\s*[:.]?\s*)\n?\s*([A-Za-z0-9][A-Za-z0-9\s&.,'()-]{2,60})/i,
     ]);
 
-    // ── Debtor address (lines after company name) ──
-    let debtorAddress = null;
-    if (debtorName) {
-      const escName = debtorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // ── Customer address (lines after company name) ──
+    let customerAddress = null;
+    if (customerName) {
+      const escName = customerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const addrPattern = new RegExp(`${escName}\\s*\\n\\s*([A-Za-z0-9\\s,.#'-]{5,100})`, 'i');
       const addrMatch = extractedText.match(addrPattern);
       if (addrMatch) {
-        debtorAddress = addrMatch[1].trim();
+        customerAddress = addrMatch[1].trim();
       }
     }
 
-    // ── Debtor email ──
+    // ── Customer email ──
     const contactEmail = findField([
       /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
     ]);
 
-    // ── Debtor phone ──
+    // ── Customer phone ──
     const contactPhone = findField([
       /(?:Phone|Tel|Telephone|Mobile|Call)\s*[:.]?\s*([+]?[\d\s\-()]{7,20})/i,
       /([+]\d{1,3}[\s-]?\d{1,4}[\s-]?\d{1,4}[\s-]?\d{1,9})/,
@@ -1400,9 +1564,9 @@ router.post("/parse-invoice", requireAuth, async (req: AuthRequest, res: Respons
     };
 
     const result = {
-      debtor: {
-        name: debtorName || "",
-        registered_address: debtorAddress || "",
+      customer: {
+        name: customerName || "",
+        registered_address: customerAddress || "",
         contact_email: contactEmail || "",
         contact_phone: contactPhone || "",
         registration_no: registrationNo || "",
@@ -1438,20 +1602,20 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     // Normalize input invoice numbers for case-insensitive matching
     const searchSet = new Set(invoiceNumbers.map((n) => n.toLowerCase().trim()));
 
-    // Preload all invoices, debtors, and profiles
-    const [allInvoices, allDebtors, allProfiles] = await Promise.all([
+    // Preload all invoices, customers, and profiles
+    const [allInvoices, allCustomers, allProfiles] = await Promise.all([
       scanTable<Invoice>(TABLES.INVOICES, getCompanyFilter(req.user!)),
-      scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
       scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
     ]);
 
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
 
     // Separate invoices into found vs not-in-excel
-    const found: Array<Invoice & { debtor?: Debtor; client?: Profile }> = [];
+    const found: Array<Invoice & { customer?: Customer; client?: Profile }> = [];
     const platformInvoiceNumbers = new Set<string>();
-    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_id: string | null }> = [];
+    const platformInvoices: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; customer_id: string | null }> = [];
 
     for (const inv of allInvoices) {
       const normalized = inv.invoice_number.toLowerCase().trim();
@@ -1461,13 +1625,13 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         invoice_number: inv.invoice_number,
         amount: inv.amount,
         issue_date: inv.issue_date,
-        debtor_id: inv.debtor_id,
+        customer_id: getInvoicePartyId(inv),
       });
 
       if (searchSet.has(normalized)) {
         found.push({
-          ...inv,
-          debtor: inv.debtor_id ? debtorMap.get(inv.debtor_id) : undefined,
+          ...normalizeInvoiceParty(inv),
+          customer: getInvoicePartyId(inv) ? customerMap.get(getInvoicePartyId(inv)!) : undefined,
           client: inv.client_id ? profileMap.get(inv.client_id) : undefined,
         });
       }
@@ -1477,7 +1641,7 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
     const notFoundInPlatform = invoiceNumbers.filter((n) => !platformInvoiceNumbers.has(n.toLowerCase().trim()));
 
     // Platform invoices NOT in the Excel (limit to 500 for performance)
-    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; debtor_name: string | null }> = [];
+    const notInExcel: Array<{ id: string; invoice_number: string; amount: number; issue_date: string | null; customer_name: string | null }> = [];
     let notInExcelTotal = 0;
 
     for (const pi of platformInvoices) {
@@ -1486,7 +1650,7 @@ router.post("/bulk-search", requireAuth, async (req: AuthRequest, res: Response)
         if (notInExcel.length < 500) {
           notInExcel.push({
             ...pi,
-            debtor_name: pi.debtor_id ? (debtorMap.get(pi.debtor_id)?.name ?? null) : null,
+            customer_name: pi.customer_id ? (customerMap.get(pi.customer_id)?.name ?? null) : null,
           });
         }
       }
@@ -1521,16 +1685,16 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
 
-    // Lookup debtor for email
-    const debtor = await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined;
+    // Lookup customer for email
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
     const companyName = client?.company_name || "A client";
 
     const noaEntry: ReminderEntry = {
       sent_at: nowISO(),
       type: "noa",
-      to: debtor?.contact_email || "",
-      note: debtor?.contact_email ? "Notice of Assignment sent" : "NOA sent — no debtor email on file",
+      to: customer?.contact_email || "",
+      note: customer?.contact_email ? "Notice of Assignment sent" : "NOA sent — no customer email on file",
     };
     const reminderLog = [...(invoice.reminder_log ?? []), noaEntry];
     await updateItem(TABLES.INVOICES, { id: req.params.id }, {
@@ -1543,19 +1707,19 @@ router.post("/:id/send-noa", requireAuth, requireWriteAccess("invoices"), async 
     const link = `/noa/${invoice.noa_token}`;
     const fullUrl = `${config.appUrl}${link}`;
 
-    // Send NOA email to debtor (non-blocking)
-    if (debtor?.contact_email) {
+    // Send NOA email to customer (non-blocking)
+    if (customer?.contact_email) {
       sendNoaEmail({
-        to: debtor.contact_email,
-        debtorName: debtor.name,
-        debtorContactName: debtor.contact_name,
+        to: customer.contact_email,
+        customerName: customer.name,
+        customerContactName: customer.contact_name,
         invoiceNumber: invoice.invoice_number,
         amount: invoice.amount,
         companyName,
         noaUrl: fullUrl,
       });
     } else {
-      console.warn(`   ⚠️ No contact email for debtor "${debtor?.name ?? invoice.debtor_id}" — NOA not emailed.`);
+      console.warn(`   ⚠️ No contact email for customer "${customer?.name ?? getInvoicePartyId(invoice)}" — NOA not emailed.`);
     }
 
     res.json({ noa_status: "sent", noa_link: link });
@@ -1594,7 +1758,14 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
     // Money step — never a blind read-modify-write. Conditional on the
     // previously-read `amount_received` with a bounded retry, so two concurrent
     // payments can't lose each other's contribution.
+    // Legacy rows carry amount_received = null; the numeric comparison below
+    // can never match a NULL-typed attribute, so seed it to 0 first (no
+    // concurrency risk: null means no payment was ever recorded).
     let current = invoice;
+    if (current.amount_received == null) {
+      await updateItem(TABLES.INVOICES, { id: req.params.id }, { amount_received: 0, updated_at: nowISO() });
+      current = { ...current, amount_received: 0 };
+    }
     let updated: any = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       const receivedSoFar = Number(current.amount_received ?? 0);
@@ -1649,7 +1820,7 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
     createActivityAlert({
       client_id: invoice.client_id,
       company_id: invoice.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "payment_received",
       severity: "info",
@@ -1658,6 +1829,10 @@ router.post("/:id/payment", requireAuth, requireAnyWriteAccess("invoices", "fund
         : `Partial payment for ${invoice.invoice_number}: $${payment.toLocaleString()} ($${updated.amount_received.toLocaleString()} of $${amount.toLocaleString()})`,
       created_by: req.user!.id,
     });
+    // My Queue: fully-paid invoices drop out of the queue.
+    if ((updated as any).status === "paid") {
+      completeTasksForDoc(invoice.company_id, "sales_invoice", invoice.id, req.user!.id);
+    }
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -1685,10 +1860,10 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
       return;
     }
 
-    const debtor = await getItem(TABLES.DEBTORS, { id: invoice.debtor_id }) as Debtor | undefined;
+    const customer = await getCustomerById(getInvoicePartyId(invoice));
     const client = await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined;
-    if (!debtor?.contact_email) {
-      res.status(400).json({ error: "This debtor has no contact email on file — add one before reminding" });
+    if (!customer?.contact_email) {
+      res.status(400).json({ error: "This customer has no contact email on file — add one before reminding" });
       return;
     }
 
@@ -1697,9 +1872,9 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
       : 0;
     const invoiceUrl = `${config.appUrl}/noa/${invoice.noa_token}`;
     sendReminderEmail({
-      to: debtor.contact_email,
-      debtorName: debtor.name,
-      debtorContactName: debtor.contact_name ?? null,
+      to: customer.contact_email,
+      customerName: customer.name,
+      customerContactName: customer.contact_name ?? null,
       invoiceNumber: invoice.invoice_number,
       amount: invoice.amount,
       dueDate: invoice.due_date,
@@ -1711,7 +1886,7 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
     const entry: ReminderEntry = {
       sent_at: nowISO(),
       type: "manual",
-      to: debtor.contact_email,
+      to: customer.contact_email,
       note: `Manual reminder sent (overdue ${daysOverdue} day${daysOverdue === 1 ? "" : "s"})`,
     };
     const updated = await updateItem(TABLES.INVOICES, { id: req.params.id }, {
@@ -1723,7 +1898,7 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
     createActivityAlert({
       client_id: invoice.client_id,
       company_id: invoice.company_id,
-      debtor_id: invoice.debtor_id,
+      customer_id: invoice.customer_id,
       invoice_id: invoice.id,
       type: "invoice_created",
       severity: "info",
@@ -1737,10 +1912,10 @@ router.post("/:id/remind", requireAuth, requireAnyWriteAccess("invoices", "fundi
   }
 });
 
-// ── GET /api/invoices/:id/remind-debtor/:token ── (public, token-authenticated)
-// The link a reminder email points at: the debtor's one-time token verifies
+// ── GET /api/invoices/:id/remind-customer/:token ── (public, token-authenticated)
+// The link a reminder email points at: the customer's one-time token verifies
 // they can see this invoice's summary without a login (mirrors /api/noa/:token).
-router.get("/:id/remind-debtor/:token", async (req: Request, res: Response) => {
+router.get("/:id/remind-customer/:token", async (req: Request, res: Response) => {
   try {
     const invoice = await getItem(TABLES.INVOICES, { id: req.params.id }) as Invoice | undefined;
     if (!invoice || !invoice.noa_token || invoice.noa_token !== req.params.token) {

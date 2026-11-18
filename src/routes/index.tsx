@@ -5,7 +5,7 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Globalor — Trading Intelligence & Factoring Platform" },
-      { name: "description", content: "Submit invoices, advance capital in hours, and monitor debtor risk in real time." },
+      { name: "description", content: "Submit invoices, advance capital in hours, and monitor customer risk in real time." },
       { property: "og:title", content: "Globalor — Trading Intelligence Platform" },
       { property: "og:description", content: "Enterprise-grade factoring and global receivables monitoring." },
     ],
@@ -51,7 +51,7 @@ function Landing() {
             Turn outstanding invoices into <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-[#00B8FF] to-[#0099D9] font-semibold">working capital</em> — without losing sight of risk.
           </h1>
           <p className="mt-8 max-w-2xl text-lg text-[#64748B]">
-            Globalor combines invoice factoring with institutional-grade debtor monitoring.
+            Globalor combines invoice factoring with institutional-grade customer monitoring.
             Submit, advance, collect — and watch aging, concentration, and credit risk move in real time.
           </p>
           <div className="mt-12 flex flex-wrap items-center gap-4">
@@ -100,11 +100,11 @@ function Landing() {
             <Feature
               icon={<ChartLine className="h-5 w-5" />}
               title="Aging & DSO"
-              body="Live 0/30/60/90+ buckets per debtor and client. DSO trendlines surface stress before it bites."
+              body="Live 0/30/60/90+ buckets per customer and client. DSO trendlines surface stress before it bites."
             />
             <Feature
               icon={<ShieldCheck className="h-5 w-5" />}
-              title="Debtor credit"
+              title="Customer credit"
               body="Score, limit, and concentration in a single view. Trip a limit and you'll know before the wire moves."
             />
             <Feature

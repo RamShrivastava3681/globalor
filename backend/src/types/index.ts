@@ -1,7 +1,7 @@
 // ── Enums ──
 export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "operations" | "viewer";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "debtor_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created";
+export type AlertType = "overdue" | "large_invoice" | "payment_received" | "invoice_created" | "purchase_invoice_created" | "purchase_order_created" | "customer_created" | "vendor_created" | "supplier_created" | "stock_movement_created" | "product_created" | "sales_order_created" | "dispatch_confirmed" | "quotation_created" | "shipment_created" | "shipment_booked" | "shipment_delayed" | "shipment_exception" | "shipment_delivered" | "shipment_cancelled" | "shipment_stale_tracking" | "shipment_eway_expiring" | "shipment_freight_variance";
 export type InvoiceStatus = "draft" | "submitted" | "approved" | "advanced" | "paid" | "overdue" | "rejected" | "funded";
 
 /** One entry in an invoice's reminder log — NOA sends and overdue reminders. */
@@ -28,7 +28,7 @@ export interface InvoiceLine {
   line_total: number;
 }
 export type NoaStatus = "not_sent" | "sent" | "accepted" | "rejected" | "commented";
-export type PurchaseInvoiceStatus = "draft" | "submitted" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded";
+export type PurchaseInvoiceStatus = "draft" | "submitted" | "approved" | "paid" | "overdue" | "disputed" | "advanced" | "funded" | "partial";
 
 export type AdvanceSide = "sales" | "purchase";
 export type MovementDirection = "in" | "out";
@@ -84,16 +84,35 @@ export interface UserRole {
   role: AppRole;
 }
 
-// ── Debtors ──
-export interface Debtor {
+// ── Customers ──
+/** One saved billing / shipping address on a customer. */
+export interface CustomerAddress {
+  id: string;
+  label: string | null;
+  /** Which documents this address may be picked for (billing vs shipping are kept separate). */
+  kind: "billing" | "shipping" | "both";
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  is_default: boolean;
+}
+
+export interface Customer {
   id: string;
   company_id: string | null;
   name: string;
   legal_entity_name: string | null;
   registration_no: string | null;
   relationship_since: string | null;
-  registered_address: string | null;
+  /** @deprecated Registered address removed — use `addresses` (billing / shipping) instead. Kept for reading legacy records. */
+  registered_address?: string | null;
   postal_code: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
   phone: string | null;
   website: string | null;
   contact_name: string | null;
@@ -102,6 +121,8 @@ export interface Debtor {
   contact_phone: string | null;
   industry: string | null;
   payment_terms_days?: number;
+  /** Saved billing / shipping addresses (pickable on PO / SO). */
+  addresses?: CustomerAddress[] | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -141,6 +162,7 @@ export interface Supplier {
   address_line: string | null;
   address_line2: string | null;
   city: string | null;
+  state?: string | null;
   country: string | null;
   postal_code: string | null;
   contact_name: string | null;
@@ -161,7 +183,10 @@ export interface Invoice {
   id: string;
   client_id: string;
   company_id: string | null;
-  debtor_id: string;
+  customer_id: string;
+  /** Legacy link — live DB rows store the customer in `debtor_id` (debtors table).
+   *  Always populated alongside `customer_id` on write; read via either. */
+  debtor_id?: string | null;
   supplier_id: string | null;
   invoice_number: string;
   amount: number;
@@ -288,7 +313,7 @@ export interface PurchaseOrder {
   client_id: string;
   company_id: string | null;
   side: AdvanceSide;
-  debtor_id: string | null;
+  customer_id: string | null;
   vendor_id: string | null;
   po_number: string;
   proforma_number: string | null;
@@ -326,6 +351,7 @@ export interface PurchaseOrder {
 // ── Goods Purchase Orders (goods PO — distinct from the proforma table) ──
 export type GoodsPurchaseOrderStatus =
   | "draft"
+  | "pending_approval"
   | "approved"
   | "sent"
   | "partially_received"
@@ -359,6 +385,14 @@ export interface GoodsPurchaseOrder {
   /** Supplier OR vendor id (merged dropdowns); name denormalized. */
   supplier_id: string | null;
   supplier_name: string | null;
+  /** Billing party (customer) + address picked from the customer master. */
+  bill_to_customer_id?: string | null;
+  bill_to_customer_name?: string | null;
+  billing_address?: string | null;
+  /** Shipping party — may differ from billing; falls back to billing when same. */
+  ship_to_customer_id?: string | null;
+  ship_to_customer_name?: string | null;
+  shipping_address?: string | null;
   warehouse: string | null;
   expected_delivery_date: string | null;
   payment_terms: string | null;
@@ -369,9 +403,19 @@ export interface GoodsPurchaseOrder {
   subtotal: number;
   gst_total: number;
   grand_total: number;
-  manual_status: "draft" | "approved" | "sent" | "cancelled";
+  manual_status: "draft" | "pending_approval" | "approved" | "sent" | "cancelled";
   status: GoodsPurchaseOrderStatus;
   documents: DocMeta[];
+  /** Checker review trail (maker–checker gate). */
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  /** Client notification (informational only — NOT a gate for GRN/logistics for now). */
+  sent_to_client_at?: string | null;
+  client_status?: "pending" | "approved" | "rejected" | null;
+  client_responded_at?: string | null;
   /** Source supplier proforma this PO was converted from (Phase 8 wiring). */
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
@@ -412,6 +456,9 @@ export interface GoodsReceipt {
   goods_purchase_order_id: string;
   po_number: string | null;
   supplier_name: string | null;
+  supplier_address?: string | null;
+  billing_address?: string | null;
+  shipping_address?: string | null;
   warehouse: string | null;
   received_date: string;
   challan_number: string | null;
@@ -430,7 +477,16 @@ export interface GoodsReceipt {
 }
 
 // ── Goods Sales Orders (SO — the commitment, never touches stock) ──
-export type GoodsSalesOrderStatus = "draft" | "confirmed" | "partially_dispatched" | "fully_dispatched" | "cancelled";
+// `confirmed` is legacy-only (pre approval-chain data); it stays dispatchable/invoicable.
+export type GoodsSalesOrderStatus =
+  | "draft"
+  | "pending_warehouse_approval"
+  | "pending_checker_approval"
+  | "approved"
+  | "confirmed"
+  | "partially_dispatched"
+  | "fully_dispatched"
+  | "cancelled";
 
 export interface GoodsSalesOrderLine {
   product_id: string | null;
@@ -451,7 +507,8 @@ export interface GoodsSalesOrderLine {
 /**
  * The sales commitment. An SO never touches stock — only a confirmed dispatch
  * creates stock-out. Status derives from `manual_status` + dispatches:
- * draft → confirmed → (partially_dispatched) → fully_dispatched | cancelled.
+ * draft → pending_warehouse_approval → pending_checker_approval → approved
+ * → (partially_dispatched) → fully_dispatched | cancelled.
  */
 export interface GoodsSalesOrder {
   id: string;
@@ -459,9 +516,15 @@ export interface GoodsSalesOrder {
   company_id: string | null;
   so_number: string;
   order_date: string;
-  /** Debtor id (merged customer master). */
+  /** Customer id (merged customer master). */
   customer_id: string | null;
   customer_name: string | null;
+  /** Billing party — may differ from the shipping party. */
+  billing_customer_id?: string | null;
+  billing_customer_name?: string | null;
+  /** Shipping party — falls back to the billing party when kept the same. */
+  shipping_customer_id?: string | null;
+  shipping_customer_name?: string | null;
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
@@ -478,9 +541,19 @@ export interface GoodsSalesOrder {
   gst_total: number;
   freight: number | null;
   grand_total: number;
-  manual_status: "draft" | "confirmed" | "cancelled";
+  manual_status: "draft" | "pending_warehouse_approval" | "pending_checker_approval" | "approved" | "cancelled";
   status: GoodsSalesOrderStatus;
   documents: DocMeta[];
+  /** Approval trail — warehouse sign-off (step 1 of the maker–checker gate). */
+  warehouse_review_comments?: string | null;
+  warehouse_reviewed_by?: string | null;
+  warehouse_reviewed_at?: string | null;
+  /** Approval trail — checker review (step 2; approving releases the order). */
+  review_comments?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
   /** Source customer proforma this SO was converted from (Phase 8 wiring). */
   linked_proforma_id?: string | null;
   linked_proforma_number?: string | null;
@@ -528,6 +601,9 @@ export interface GoodsDispatch {
   goods_sales_order_id: string;
   so_number: string | null;
   customer_name: string | null;
+  billing_customer_name?: string | null;
+  billing_address?: string | null;
+  shipping_customer_name?: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   warehouse: string | null;
@@ -559,7 +635,7 @@ export interface GoodsDispatch {
 export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" | "expired" | "converted_to_so";
 /** Maker–checker price approval. "none" = no revised prices, review not needed. */
 export type QuotationApprovalStatus = "none" | "pending_review" | "approved" | "rejected";
-export type QuotationDebtorStatus = "pending" | "approved" | "rejected";
+export type QuotationCustomerStatus = "pending" | "approved" | "rejected";
 
 export interface QuotationLine {
   product_id: string | null;
@@ -581,7 +657,7 @@ export interface QuotationLine {
  * The offer. Three parallel status dimensions (rendered as separate pills):
  * - `status` lifecycle: draft → sent → accepted | rejected | expired → converted_to_so
  * - `approval_status` maker–checker price review: none → pending_review → approved | rejected
- * - `debtor_status` emailed secure-token approval: pending → approved | rejected
+ * - `customer_status` emailed secure-token approval: pending → approved | rejected
  */
 export interface Quotation {
   id: string;
@@ -590,7 +666,7 @@ export interface Quotation {
   quotation_number: string;
   quotation_date: string;
   valid_until: string | null;
-  /** Debtor id, or null for a free-text prospect. */
+  /** Customer id, or null for a free-text prospect. */
   customer_id: string | null;
   prospect_name: string | null;
   customer_name: string | null;
@@ -612,11 +688,11 @@ export interface Quotation {
   approval_comments: string | null;
   approved_by: string | null;
   approved_at: string | null;
-  debtor_status: QuotationDebtorStatus;
-  debtor_comments: string | null;
-  debtor_token: string | null;
-  debtor_sent_at: string | null;
-  debtor_responded_at: string | null;
+  customer_status: QuotationCustomerStatus;
+  customer_comments: string | null;
+  customer_token: string | null;
+  customer_sent_at: string | null;
+  customer_responded_at: string | null;
   converted_to_so_id: string | null;
   converted_to_so_number: string | null;
   converted_at: string | null;
@@ -640,6 +716,49 @@ export interface Advance {
   reference: string | null;
   notes: string | null;
   status: "open" | "applied" | "refunded";
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Workflow tasks (My Queue automation backbone) ──
+export type WorkflowTaskType =
+  | "sales_order"
+  | "purchase_order"
+  | "purchase_invoice"
+  | "sales_invoice"
+  | "proforma"
+  | "payment"
+  | "grn"
+  | "dispatch";
+
+export type WorkflowTaskPriority = "low" | "normal" | "high" | "urgent";
+
+export type WorkflowTaskStatus = "open" | "done" | "cancelled";
+
+export interface WorkflowTask {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  workflow_type: WorkflowTaskType;
+  stage: string;
+  doc_type: string;
+  doc_id: string;
+  doc_number: string | null;
+  counterparty: string | null;
+  doc_status: string | null;
+  owner_role: string;
+  assigned_user: string | null;
+  prev_owner: string | null;
+  required_action: string;
+  next_action: string | null;
+  priority: WorkflowTaskPriority;
+  due_date: string | null;
+  amount: number | null;
+  latest_update: string | null;
+  linked_docs: Array<{ type: string; id: string; number: string }> | null;
+  status: WorkflowTaskStatus;
+  completed_by: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -728,6 +847,55 @@ export interface CatalogueSettings {
  * Snapshot of a catalogue product embedded in document line items
  * (PO, GRN, quotation, SO, dispatch, invoice, stock movement).
  */
+/**
+ * Master product record in the SKU hierarchy. `id` is the primary key; the
+ * master SKU itself is stored in `masterSku` and also copied into `parentSku`.
+ * `parentId` is null so this row is a root node in the tree.
+ */
+export interface ProductSku {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  /** Master SKU for the whole hierarchy (e.g. AD-M-TS-001). Only populated on the master row; colour variants carry the full derivative SKU. */
+  masterSku: string;
+  /** `null` on the master (root). Points at the parent record for colour/size children. */
+  parentId: string | null;
+  /** The parent's master SKU (root = the row's own masterSku). Useful so children never need to join to their parent by id. */
+  parentSku: string | null;
+  /** Display name shown at the top of the product detail panel. */
+  productName: string;
+  itemNumber: string;
+  brand: string | null;
+  gender: string | null;
+  category: string | null;
+  modelNumber: string | null;
+  hsnCode: string | null;
+  taxPercent: number;
+  unitOfMeasure: string;
+  unitCost: number;
+  unitPrice: number;
+  grossMargin: number;
+  /** "MASTER" = the base product; "COLOUR" = a variant of the master. */
+  productType: "MASTER" | "COLOUR";
+  status: ProductSkuStatus;
+  /** Colour label for COLOUR rows (null for MASTER). */
+  colourName: string | null;
+  /** Colour code for COLOUR rows (null for MASTER). */
+  colourCode: string | null;
+  /** Fully derived SKU (e.g. AD-M-TS-001-BLK). */
+  colourSku: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Status of a SKU-type record. */
+export type ProductSkuStatus = "ACTIVE" | "INACTIVE";
+
+/** Units of measure offered by the UI (shared controlled vocabulary). */
+export type UnitOfMeasure = "Piece" | "Kg" | "Litre" | "Box" | "Set" | "Pair" | "Carton" | "Dozen" | "Bottle" | "Roll" | "Meter" | "Gram";
+
+/** Minimal line item for embed/summary listings. */
 export interface ProductLine {
   product_id: string | null;
   sku: string;
@@ -804,7 +972,7 @@ export interface Alert {
   id: string;
   client_id: string | null;
   company_id: string | null;
-  debtor_id: string | null;
+  customer_id: string | null;
   invoice_id: string | null;
   type: AlertType;
   severity: AlertSeverity;
@@ -826,7 +994,7 @@ export interface JwtPayload {
 
 // ── Enriched query results (used by frontend) ──
 export interface InvoiceWithRelations extends Invoice {
-  debtor?: Debtor;
+  customer?: Customer;
   client?: Profile;
   purchases?: (PurchaseInvoice & { vendor?: Vendor })[];
 }
@@ -836,14 +1004,14 @@ export interface PurchaseInvoiceWithVendor extends PurchaseInvoice {
 }
 
 export interface PurchaseOrderWithParties extends PurchaseOrder {
-  debtor?: Debtor;
+  customer?: Customer;
   vendor?: Vendor;
 }
 
 export interface AdvanceWithRelations extends Advance {
-  invoice?: { invoice_number: string; amount: number; debtor?: { name: string } };
+  invoice?: { invoice_number: string; amount: number; customer?: { name: string } };
   purchase?: { invoice_number: string; amount: number; vendor?: { name: string } };
-  order?: { po_number: string; amount: number; status: string; debtor?: { name: string }; vendor?: { name: string } };
+  order?: { po_number: string; amount: number; status: string; customer?: { name: string }; vendor?: { name: string } };
 }
 
 export interface ExpenseWithRelations extends Expense {
@@ -953,7 +1121,7 @@ export interface CreditDebitNote {
   note_number: string;
   date: string;
   amount: number;
-  debtor_supplier_name: string | null;
+  customer_supplier_name: string | null;
   /** Resolved vendor (supplier) id when the note is linked to a supplier. */
   supplier_id: string | null;
   linked_invoice_id: string | null;
@@ -975,17 +1143,21 @@ export interface PaymentRecord {
   id: string;
   client_id: string;
   company_id: string | null;
-  debtor_id: string;
+  customer_id: string;
+  /** Denormalized party name (customer or vendor) — prevents "Unknown" in history. */
+  customer_name?: string;
   amount: number;
   payment_date: string;
   remaining: number;
+  /** Amount of previous unapplied balance consumed to boost this payment (added to close invoices). */
+  balance_consumed?: number;
   invoices_closed: number;
   /** Array of invoice data for invoices that were fully closed (paid) by this payment */
   closed_invoices: Array<{ id: string; invoice_number: string; amount: number }>;
   /** Array of invoice data for invoices that were partially paid by this payment */
   partial_invoices?: Array<{ id: string; invoice_number: string; amount_paid: number }>;
   credit_note_ids: string[];
-  mode: "manual" | "fifo" | "two_pass_fifo";
+  mode: "manual" | "fifo" | "two_pass_fifo" | "on_account";
   created_at: string;
   updated_at: string;
 }
@@ -1001,7 +1173,376 @@ export interface NoaInvoiceResult {
   noa_status: NoaStatus;
   noa_comments: string;
   client_company: string;
-  debtor_name: string;
-  debtor_contact_name: string;
-  debtor_contact_email: string;
+  customer_name: string;
+  customer_contact_name: string;
+  customer_contact_email: string;
+}
+
+// ── Cash Command Centre (Treasury & Liquidity) ──
+// All money fields are plain numbers in dollars (2 decimals). No currency codes.
+
+export type CashAccountType = "BANK" | "CASH" | "MARKETPLACE" | "FIXED_DEPOSIT";
+export type CashAccountStatus = "active" | "inactive";
+
+export interface CashAccount {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  name: string;
+  type: CashAccountType;
+  current_balance: number;
+  restricted_balance: number;
+  status: CashAccountStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExpectedFlowStatus = "EXPECTED" | "OVERDUE" | "RECEIVED" | "PAID" | "CANCELLED";
+
+export interface ExpectedInflow {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  type: string;
+  amount: number;
+  expected_date: string;
+  status: ExpectedFlowStatus;
+  source: "manual" | "invoice" | "settlement";
+  source_id: string | null;
+  customer_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ExpectedOutflowType = "SUPPLIER_PAYMENT" | "OPERATIONAL" | "OTHER";
+
+export interface ExpectedOutflow {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  type: ExpectedOutflowType;
+  amount: number;
+  expected_date: string;
+  status: ExpectedFlowStatus;
+  supplier_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SettlementStatus = "EXPECTED" | "DELAYED" | "RECEIVED" | "DISPUTED";
+
+export interface MarketplaceSettlement {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  marketplace_name: string;
+  net_expected: number;
+  expected_date: string;
+  actual_date: string | null;
+  status: SettlementStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RecurringFrequency = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL";
+
+export interface RecurringExpense {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  category: string;
+  amount: number;
+  frequency: RecurringFrequency;
+  payment_day: number;
+  status: "active" | "paused";
+  created_at: string;
+  updated_at: string;
+}
+
+export type CommitmentStatus = "PENDING" | "APPROVED" | "CANCELLED";
+
+export interface PurchaseCommitment {
+  id: string;
+  client_id: string;
+  company_id: string | null;
+  supplier_name: string;
+  expected_payment_amount: number;
+  expected_payment_date: string;
+  status: CommitmentStatus;
+  linked_po: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TreasurySettings {
+  id: string;
+  company_id: string | null;
+  minimum_buffer: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Logistics module ──
+// Booking freight NEVER moves stock. Inbound stock is credited only on goods
+// receipt; outbound stock is debited only on confirmed dispatch. A carrier
+// marking "delivered" updates the shipment only.
+
+export type ShipmentType = "inbound" | "outbound" | "transfer" | "return";
+export type ShipmentLinkedDocType =
+  | "goods_purchase_order"
+  | "purchase_invoice"
+  | "sales_invoice"
+  | "goods_dispatch"
+  | "manual";
+export type ShipmentPriority = "normal" | "urgent" | "critical";
+export type ShipmentMode = "road" | "air" | "sea" | "rail" | "courier";
+export type ShipmentServiceType = "standard" | "express" | "surface" | "air" | "freight" | "container";
+export type ShipmentBorder = "domestic" | "cross_border";
+export type FreightPayment = "prepaid" | "to_pay" | "collect" | "third_party";
+export type ShipmentStatus =
+  | "draft"
+  | "quote_requested"
+  | "quote_received"
+  | "booked"
+  | "pickup_scheduled"
+  | "picked_up"
+  | "in_transit"
+  | "at_hub"
+  | "at_customs"
+  | "customs_hold"
+  | "out_for_delivery"
+  | "delivered"
+  | "delivery_attempt_failed"
+  | "delayed"
+  | "damaged"
+  | "lost"
+  | "return_initiated"
+  | "returned"
+  | "cancelled";
+export type TrackingSource = "carrier_api" | "webhook" | "manual";
+
+export interface ShipmentParty {
+  name: string;
+  contact_person: string | null;
+  mobile: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  postal_code: string | null;
+  tax_id: string | null;
+}
+
+export interface ShipmentDocRef {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  kind: "pod" | "label" | "invoice" | "certificate" | "other";
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
+export interface ShipmentEway {
+  eway_bill_number: string | null;
+  eway_bill_date: string | null;
+  eway_validity: string | null;
+  transporter_id: string | null;
+  vehicle_number: string | null;
+  lr_number: string | null;
+  delivery_challan_number: string | null;
+}
+
+export interface ShipmentCrossBorder {
+  exporter_of_record: string | null;
+  importer_of_record: string | null;
+  iec_number: string | null;
+  origin_country: string | null;
+  destination_country: string | null;
+  incoterms: string | null;
+  port_of_loading: string | null;
+  port_of_discharge: string | null;
+  final_destination: string | null;
+  commercial_invoice_number: string | null;
+  packing_list_number: string | null;
+  shipping_bill_number: string | null;
+  bill_of_entry_number: string | null;
+  bl_awb_number: string | null;
+  certificate_of_origin: boolean;
+  customs_broker: string | null;
+  customs_status: string | null;
+  duty_tax_amount: number;
+  seal_number: string | null;
+}
+
+export interface Shipment {
+  id: string;
+  company_id: string | null;
+  shipment_number: string;
+  shipment_type: ShipmentType;
+  linked_doc_type: ShipmentLinkedDocType;
+  linked_doc_id: string | null;
+  linked_doc_no: string | null;
+  priority: ShipmentPriority;
+  owner_id: string | null;
+  business_unit: string | null;
+  sales_channel: string | null;
+  status: ShipmentStatus;
+  // Parties
+  pickup: ShipmentParty;
+  pickup_window: string | null;
+  pickup_window_from: string | null;
+  pickup_window_to: string | null;
+  delivery: ShipmentParty;
+  requested_delivery_date: string | null;
+  // Cargo
+  mode: ShipmentMode;
+  service_type: ShipmentServiceType;
+  border: ShipmentBorder;
+  package_count: number;
+  actual_weight: number;
+  volumetric_weight: number;
+  chargeable_weight: number;
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
+  package_unit: string | null;
+  package_unit_count: number;
+  declared_value: number;
+  currency: string;
+  goods_description: string | null;
+  hs_code: string | null;
+  dangerous_goods: boolean;
+  insurance_required: boolean;
+  handling_notes: string | null;
+  internal_notes: string | null;
+  // Commercial — booking creates NO payable; linkage only
+  freight_payment: FreightPayment;
+  estimated_freight: number;
+  quoted_freight: number;
+  booked_freight: number;
+  final_freight: number;
+  fuel_surcharge: number;
+  insurance_charge: number;
+  other_charges: number;
+  total_freight: number;
+  cost_centre: string | null;
+  freight_invoice_id: string | null;
+  freight_supplier: string | null;
+  freight_payment_status: string | null;
+  // Carrier
+  provider_id: string | null;
+  provider_name: string | null;
+  carrier_name: string | null;
+  service_level: string | null;
+  tracking_number: string | null;
+  container_number: string | null;
+  vehicle_number: string | null;
+  driver_name: string | null;
+  driver_mobile: string | null;
+  transporter_id: string | null;
+  booking_reference: string | null;
+  expected_pickup_date: string | null;
+  expected_delivery_date: string | null;
+  actual_pickup_at: string | null;
+  actual_delivery_at: string | null;
+  // Compliance blocks
+  eway: ShipmentEway;
+  cross_border: ShipmentCrossBorder;
+  documents: ShipmentDocRef[];
+  goods_receipt_id: string | null;
+  goods_dispatch_id: string | null;
+  last_event_at: string | null;
+  last_event_source: TrackingSource | null;
+  booking_failure: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface ShipmentEvent {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  status: ShipmentStatus;
+  carrier_raw_status: string | null;
+  event_at: string;
+  location: string | null;
+  description: string | null;
+  source: TrackingSource;
+  attachment_url: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ShipmentQuote {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  provider_id: string | null;
+  provider_name: string;
+  carrier_name: string | null;
+  mode: ShipmentMode;
+  service_level: string | null;
+  estimated_pickup_date: string | null;
+  estimated_delivery_date: string | null;
+  transit_days: number | null;
+  freight_charge: number;
+  fuel_charges: number;
+  other_charges: number;
+  insurance_charge: number;
+  total_cost: number;
+  tracking_available: boolean;
+  cancellation_terms: string | null;
+  is_selected: boolean;
+  expires_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface LogisticsProvider {
+  id: string;
+  company_id: string | null;
+  provider_name: string;
+  carrier_name: string | null;
+  modes: ShipmentMode[];
+  domestic: boolean;
+  cross_border: boolean;
+  service_areas: string | null;
+  integration_status: "manual" | "integrated" | "disabled";
+  adapter_key: string;
+  account_ref: string | null;
+  billing_terms: string | null;
+  default_service_level: string | null;
+  insurance_option: boolean;
+  support_contact: string | null;
+  escalation_contact: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShipmentAudit {
+  id: string;
+  company_id: string | null;
+  shipment_id: string;
+  action: string;
+  old_value: string | null;
+  new_value: string | null;
+  actor_id: string | null;
+  created_at: string;
+}
+
+export interface LogisticsSettings {
+  company_id: string;
+  delay_buffer_days: number;
+  stale_tracking_hours: number;
+  eway_expiry_warn_hours: number;
+  default_provider_id: string | null;
+  default_mode: ShipmentMode;
+  freight_variance_pct: number;
+  pod_grace_hours: number;
+  updated_at: string;
 }

@@ -27,7 +27,7 @@ const ROOT_DIR = path.resolve(__dirname, "../..");
 import type {
   CreditDebitNote,
   Vendor,
-  Debtor,
+  Customer,
 } from "./types/index.js";
 
 const CLIENT_ID = "1781861412998-c880305f"; // arjun.jaiswal@whizunik.com
@@ -57,7 +57,7 @@ function normalize(name: string): string {
     .trim();
 }
 
-/** Extract company name from supplier/debtor field (before " - "). */
+/** Extract company name from supplier/customer field (before " - "). */
 function extractCompany(field: string): string {
   const dashIdx = field.indexOf(" - ");
   if (dashIdx > 0) return field.substring(0, dashIdx).trim();
@@ -71,11 +71,11 @@ function extractReason(field: string): string | null {
   return null;
 }
 
-// ── Vendor/Debtor resolution ──
+// ── Vendor/Customer resolution ──
 const vendorByNorm = new Map<string, Vendor>();
-const debtorByNorm = new Map<string, Debtor>();
+const customerByNorm = new Map<string, Customer>();
 const newVendors = new Map<string, Vendor>();
-const newDebtors = new Map<string, Debtor>();
+const newCustomers = new Map<string, Customer>();
 
 function matchVendor(companyName: string): { id: string; name: string } {
   const norm = normalize(companyName);
@@ -115,20 +115,20 @@ function matchVendor(companyName: string): { id: string; name: string } {
   return { id, name: companyName };
 }
 
-function matchDebtor(companyName: string): { id: string; name: string } {
+function matchCustomer(companyName: string): { id: string; name: string } {
   const norm = normalize(companyName);
-  if (debtorByNorm.has(norm)) {
-    const d = debtorByNorm.get(norm)!;
+  if (customerByNorm.has(norm)) {
+    const d = customerByNorm.get(norm)!;
     return { id: d.id, name: d.name };
   }
-  if (newDebtors.has(norm)) {
-    const d = newDebtors.get(norm)!;
+  if (newCustomers.has(norm)) {
+    const d = newCustomers.get(norm)!;
     return { id: d.id, name: d.name };
   }
-  // Create new debtor
+  // Create new customer
   const id = generateId();
   const now = nowISO();
-  const debtor: Debtor = {
+  const customer: Customer = {
     id,
     company_id: COMPANY_ID,
     name: companyName,
@@ -148,7 +148,7 @@ function matchDebtor(companyName: string): { id: string; name: string } {
     created_at: now,
     updated_at: now,
   };
-  newDebtors.set(norm, debtor);
+  newCustomers.set(norm, customer);
   return { id, name: companyName };
 }
 
@@ -226,8 +226,8 @@ function readDebitFile(filePath: string): ParsedNote[] {
     const dateSerial = Number(row[0]);
     if (isNaN(dateSerial)) continue;
 
-    const debtorField = String(row[1] ?? "").trim();
-    if (!debtorField) continue;
+    const customerField = String(row[1] ?? "").trim();
+    if (!customerField) continue;
 
     const noteNumber = String(row[2] ?? "").trim();
     if (!noteNumber) continue;
@@ -235,12 +235,12 @@ function readDebitFile(filePath: string): ParsedNote[] {
     const amount = Number(row[3]) || 0;
     if (amount === 0) continue;
 
-    const debtorName = extractCompany(debtorField);
-    const reason = extractReason(debtorField);
+    const customerName = extractCompany(customerField);
+    const reason = extractReason(customerField);
 
     notes.push({
       date: excelDateToDate(dateSerial),
-      entityName: debtorName,
+      entityName: customerName,
       noteNumber,
       amount,
       reason,
@@ -254,19 +254,19 @@ function readDebitFile(filePath: string): ParsedNote[] {
 async function main() {
   const now = nowISO();
 
-  // Load existing vendors and debtors for matching
-  console.log("📋 Loading existing vendors and debtors...");
-  const [existingVendors, existingDebtors] = await Promise.all([
+  // Load existing vendors and customers for matching
+  console.log("📋 Loading existing vendors and customers...");
+  const [existingVendors, existingCustomers] = await Promise.all([
     scanTable<Vendor>(TABLES.VENDORS),
-    scanTable<Debtor>(TABLES.DEBTORS),
+    scanTable<Customer>(TABLES.CUSTOMERS),
   ]);
-  console.log(`   Found ${existingVendors.length} vendors, ${existingDebtors.length} debtors.`);
+  console.log(`   Found ${existingVendors.length} vendors, ${existingCustomers.length} customers.`);
 
   for (const v of existingVendors) {
     vendorByNorm.set(normalize(v.name), v);
   }
-  for (const d of existingDebtors) {
-    debtorByNorm.set(normalize(d.name), d);
+  for (const d of existingCustomers) {
+    customerByNorm.set(normalize(d.name), d);
   }
 
   // Process credit notes
@@ -289,7 +289,7 @@ async function main() {
       note_number: note.noteNumber,
       date: note.date,
       amount: note.amount,
-      debtor_supplier_name: note.entityName,
+      customer_supplier_name: note.entityName,
       supplier_id: vendor.id,
       linked_invoice_id: null,
       linked_invoice_type: "purchase",
@@ -316,7 +316,7 @@ async function main() {
   const debitNotes: CreditDebitNote[] = [];
   let debitTotal = 0;
   for (const note of debitParsed) {
-    const debtor = matchDebtor(note.entityName);
+    const customer = matchCustomer(note.entityName);
     debitTotal += note.amount;
 
     const cdn: CreditDebitNote = {
@@ -327,7 +327,7 @@ async function main() {
       note_number: note.noteNumber,
       date: note.date,
       amount: note.amount,
-      debtor_supplier_name: note.entityName,
+      customer_supplier_name: note.entityName,
       supplier_id: null,
       linked_invoice_id: null,
       linked_invoice_type: "sales",
@@ -398,12 +398,12 @@ async function main() {
     console.log(`   ✔ Created ${vendorList.length} new vendors.`);
   }
 
-  // Create new debtors
-  if (newDebtors.size > 0) {
-    const debtorList = Array.from(newDebtors.values());
-    console.log(`   Creating ${debtorList.length} new debtors...`);
-    await batchPutItems(TABLES.DEBTORS, debtorList as any);
-    console.log(`   ✔ Created ${debtorList.length} new debtors.`);
+  // Create new customers
+  if (newCustomers.size > 0) {
+    const customerList = Array.from(newCustomers.values());
+    console.log(`   Creating ${customerList.length} new customers...`);
+    await batchPutItems(TABLES.CUSTOMERS, customerList as any);
+    console.log(`   ✔ Created ${customerList.length} new customers.`);
   }
 
   // Write credit notes
@@ -427,7 +427,7 @@ async function main() {
   console.log(`   Debit notes imported:  ${debitNotes.length} ($${debitTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
   console.log(`   Total notes:           ${allNotes.length}`);
   console.log(`   New vendors created:   ${newVendors.size}`);
-  console.log(`   New debtors created:   ${newDebtors.size}`);
+  console.log(`   New customers created:   ${newCustomers.size}`);
   console.log("═".repeat(50));
 }
 

@@ -5,14 +5,15 @@ import { useState, useMemo } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Building2, Save, Trash2, Eye, FileText, ShoppingCart } from "lucide-react";
+import { Plus, X, Loader2, Building2, Save, Trash2, Eye, FileText, ShoppingCart, Users } from "lucide-react";
 import { toast } from "sonner";
+import { CounterpartyDashboard } from "@/components/counterparty-dashboard";
 
 export const Route = createFileRoute("/app/vendors")({
   component: VendorsPage,
 });
 
-function VendorsPage() {
+export function VendorsPage() {
   const { user, canWrite } = useAuth();
   const canEdit = canWrite("vendors");
   const qc = useQueryClient();
@@ -38,6 +39,10 @@ function VendorsPage() {
     onSuccess: () => {
       toast.success("Supplier removed");
       qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["suppliers"] });
+      qc.invalidateQueries({ queryKey: ["pi-for-vendors"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -75,6 +80,29 @@ function VendorsPage() {
       />
 
       <div className="p-6 md:p-10">
+        {/* ── Dashboard ── */}
+        <CounterpartyDashboard
+          kind="supplier"
+          parties={(vendorsQ.data ?? []).map((v: any) => ({ id: v.id, name: v.name, company_name: v.name, industry: v.industry }))}
+          invoices={(piQ.data ?? []).map((pi: any) => ({
+            id: pi.id,
+            amount: pi.amount,
+            status: pi.status,
+            issue_date: pi.issue_date,
+            due_date: pi.due_date,
+            paid_date: pi.paid_date,
+            vendor_id: pi.vendor_id,
+          }))}
+          loading={vendorsQ.isLoading || piQ.isLoading}
+        />
+
+        <div className="mt-8">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+              <Users className="h-3.5 w-3.5 text-muted-foreground/50" />
+              Supplier directory ({(vendorsQ.data ?? []).length})
+            </h3>
+          </div>
         <Card>
           {(vendorsQ.data ?? []).length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
@@ -146,13 +174,20 @@ function VendorsPage() {
             </div>
           )}
         </Card>
+        </div>
       </div>
 
       {open && user && (
         <AddVendorModal
           editing={editing}
           onClose={() => { setOpen(false); setEditing(null); }}
-          onCreated={() => qc.invalidateQueries({ queryKey: ["vendors"] })}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ["vendors"] });
+            qc.invalidateQueries({ queryKey: ["vendors-min"] });
+            qc.invalidateQueries({ queryKey: ["supplier-options"] });
+            qc.invalidateQueries({ queryKey: ["suppliers"] });
+            qc.invalidateQueries({ queryKey: ["pi-for-vendors"] });
+          }}
         />
       )}
 
@@ -377,7 +412,7 @@ function VendorDetailModal({ vendor, invoices, onClose }: { vendor: any; invoice
                       return (
                         <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                           <td className="px-4 py-2.5">
-                            <Link to="/app/purchases" search={{ view: p.id }} className="font-mono text-xs text-primary hover:underline">
+                            <Link to="/app/purchases" search={{ tab: "list", view: p.id }} className="font-mono text-xs text-primary hover:underline">
                               {p.invoice_number}
                             </Link>
                           </td>

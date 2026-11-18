@@ -87,9 +87,9 @@ function AdminPage() {
     enabled: isAdmin,
   });
 
-  const debtorsQ = useQuery({
-    queryKey: ["debtors-admin"],
-    queryFn: async () => (await api.get<any[]>("/debtors")) ?? [],
+  const customersQ = useQuery({
+    queryKey: ["customers-admin"],
+    queryFn: async () => (await api.get<any[]>("/customers")) ?? [],
     enabled: isAdmin,
   });
 
@@ -428,7 +428,7 @@ function AdminPage() {
               </table>
             </div>
           )}
-          <p className="mt-3 text-[10px] text-muted-foreground">Checkers approve newly submitted invoices into the funding queue (maker–checker). Treasury then pays supplier advances on approval, settles balances on the due date, and records debtor receipts. Marking an invoice paid closes it and removes it from the queue.</p>
+          <p className="mt-3 text-[10px] text-muted-foreground">Checkers approve newly submitted invoices into the funding queue (maker–checker). Treasury then pays supplier advances on approval, settles balances on the due date, and records customer receipts. Marking an invoice paid closes it and removes it from the queue.</p>
         </Card>
       </div>
     </div>

@@ -3,12 +3,12 @@
  *
  * Reads debit-2024-final.xlsx, debit-notes-2025.xlsx, and debit26-final.xlsx,
  * creates debit notes (Receivable Credit Notes) in the credit_debit_notes table,
- * and links each note to its respective debtor.
+ * and links each note to its respective customer.
  *
  * For OLO Report entries in 2026: extracts the invoice reference number from
- * the debtor column (e.g. "Invoice #-04NC2604001") and uses it as the note_number.
+ * the customer column (e.g. "Invoice #-04NC2604001") and uses it as the note_number.
  *
- * If a debtor doesn't exist yet, it is created automatically.
+ * If a customer doesn't exist yet, it is created automatically.
  *
  * Usage: npx tsx src/import-debit-notes.ts
  */
@@ -25,7 +25,7 @@ import {
 } from "./utils/helpers.js";
 import type {
   CreditDebitNote,
-  Debtor,
+  Customer,
 } from "./types/index.js";
 
 const CLIENT_ID = "1781861412998-c880305f"; // arjun.jaiswal@whizunik.com
@@ -55,7 +55,7 @@ function normalize(name: string): string {
     .trim();
 }
 
-/** Extract company/debtor name from description field (before " - "). */
+/** Extract company/customer name from description field (before " - "). */
 function extractCompany(desc: string): string {
   const dashIdx = desc.indexOf(" - ");
   if (dashIdx > 0) return desc.substring(0, dashIdx).trim();
@@ -71,34 +71,34 @@ function extractReason(desc: string): string | null {
 
 /**
  * For OLO Report entries, extract the invoice reference number from the
- * debtor column. E.g.:
+ * customer column. E.g.:
  *   "FEBECA C.A. - OLO Report April 2026-Invoice #-04NC2604001-COMISION..."
  * → "04NC2604001"
  */
-function extractOloInvoiceRef(debtorField: string): string | null {
-  const match = debtorField.match(/Invoice\s*#-([A-Z0-9]+)/i);
+function extractOloInvoiceRef(customerField: string): string | null {
+  const match = customerField.match(/Invoice\s*#-([A-Z0-9]+)/i);
   if (match) return match[1];
   return null;
 }
 
-// ── Debtor resolution ──
-const debtorByNorm = new Map<string, Debtor>();
-const newDebtors = new Map<string, Debtor>();
+// ── Customer resolution ──
+const customerByNorm = new Map<string, Customer>();
+const newCustomers = new Map<string, Customer>();
 
-function matchDebtor(companyName: string): { id: string; name: string } {
+function matchCustomer(companyName: string): { id: string; name: string } {
   const norm = normalize(companyName);
-  if (debtorByNorm.has(norm)) {
-    const d = debtorByNorm.get(norm)!;
+  if (customerByNorm.has(norm)) {
+    const d = customerByNorm.get(norm)!;
     return { id: d.id, name: d.name };
   }
-  if (newDebtors.has(norm)) {
-    const d = newDebtors.get(norm)!;
+  if (newCustomers.has(norm)) {
+    const d = newCustomers.get(norm)!;
     return { id: d.id, name: d.name };
   }
-  // Create new debtor
+  // Create new customer
   const id = generateId();
   const now = nowISO();
-  const debtor: Debtor = {
+  const customer: Customer = {
     id,
     company_id: COMPANY_ID,
     name: companyName,
@@ -118,14 +118,14 @@ function matchDebtor(companyName: string): { id: string; name: string } {
     created_at: now,
     updated_at: now,
   };
-  newDebtors.set(norm, debtor);
+  newCustomers.set(norm, customer);
   return { id, name: companyName };
 }
 
 // ── Parsed note ──
 interface ParsedNote {
   date: string;
-  debtorName: string;
+  customerName: string;
   noteNumber: string;
   amount: number;
   reason: string | null;
@@ -146,19 +146,19 @@ function read2026File(filePath: string): ParsedNote[] {
     const dateSerial = Number(row[0]);
     if (isNaN(dateSerial)) continue;
 
-    const debtorField = String(row[1] ?? "").trim();
-    if (!debtorField) continue;
+    const customerField = String(row[1] ?? "").trim();
+    if (!customerField) continue;
 
     let noteNumber = String(row[2] ?? "").trim();
     const amount = Number(row[3]) || 0;
     if (amount === 0) continue;
 
-    const debtorName = extractCompany(debtorField);
-    const reason = extractReason(debtorField);
+    const customerName = extractCompany(customerField);
+    const reason = extractReason(customerField);
 
-    // For OLO Report entries, extract invoice ref from debtor column
+    // For OLO Report entries, extract invoice ref from customer column
     if (noteNumber.toLowerCase().includes("olo report")) {
-      const oloRef = extractOloInvoiceRef(debtorField);
+      const oloRef = extractOloInvoiceRef(customerField);
       if (oloRef) {
         noteNumber = oloRef;
       }
@@ -166,7 +166,7 @@ function read2026File(filePath: string): ParsedNote[] {
 
     notes.push({
       date: excelDateToDate(dateSerial),
-      debtorName,
+      customerName,
       noteNumber,
       amount,
       reason,
@@ -195,8 +195,8 @@ function read2024File(filePath: string): ParsedNote[] {
     const dateSerial = Number(row[0]);
     if (isNaN(dateSerial)) continue;
 
-    const debtorField = String(row[1] ?? "").trim();
-    if (!debtorField) continue;
+    const customerField = String(row[1] ?? "").trim();
+    if (!customerField) continue;
 
     const noteNumber = String(row[2] ?? "").trim();
     if (!noteNumber) continue;
@@ -204,12 +204,12 @@ function read2024File(filePath: string): ParsedNote[] {
     const amount = Number(row[3]) || 0;
     if (amount === 0) continue;
 
-    const debtorName = extractCompany(debtorField);
-    const reason = extractReason(debtorField);
+    const customerName = extractCompany(customerField);
+    const reason = extractReason(customerField);
 
     notes.push({
       date: excelDateToDate(dateSerial),
-      debtorName,
+      customerName,
       noteNumber,
       amount,
       reason,
@@ -247,12 +247,12 @@ function read2025File(filePath: string): ParsedNote[] {
     const amount = Number(row[4]) || 0;
     if (amount === 0) continue;
 
-    const debtorName = extractCompany(description);
+    const customerName = extractCompany(description);
     const reason = extractReason(description);
 
     notes.push({
       date: excelDateToDate(dateSerial),
-      debtorName,
+      customerName,
       noteNumber,
       amount,
       reason,
@@ -266,13 +266,13 @@ function read2025File(filePath: string): ParsedNote[] {
 async function main() {
   const now = nowISO();
 
-  // Load existing debtors for matching
-  console.log("📋 Loading existing debtors...");
-  const existingDebtors = await scanTable<Debtor>(TABLES.DEBTORS);
-  console.log(`   Found ${existingDebtors.length} debtors in database.`);
+  // Load existing customers for matching
+  console.log("📋 Loading existing customers...");
+  const existingCustomers = await scanTable<Customer>(TABLES.CUSTOMERS);
+  console.log(`   Found ${existingCustomers.length} customers in database.`);
 
-  for (const d of existingDebtors) {
-    debtorByNorm.set(normalize(d.name), d);
+  for (const d of existingCustomers) {
+    customerByNorm.set(normalize(d.name), d);
   }
 
   // Process all three files
@@ -290,7 +290,7 @@ async function main() {
     console.log(`   Found ${parsed.length} debit notes.`);
 
     for (const note of parsed) {
-      const debtor = matchDebtor(note.debtorName);
+      const customer = matchCustomer(note.customerName);
 
       const cdn: CreditDebitNote = {
         id: generateId(),
@@ -300,7 +300,7 @@ async function main() {
         note_number: note.noteNumber,
         date: note.date,
         amount: note.amount,
-        debtor_supplier_name: note.debtorName,
+        customer_supplier_name: note.customerName,
         supplier_id: null,
         linked_invoice_id: null,
         linked_invoice_type: "sales",
@@ -321,14 +321,14 @@ async function main() {
 
   console.log(`\n📊 Total debit notes to import: ${allNotes.length}`);
 
-  // Create new debtors
-  if (newDebtors.size > 0) {
-    const debtorList = Array.from(newDebtors.values());
-    console.log(`\n🏢 Creating ${debtorList.length} new debtors...`);
-    await batchPutItems(TABLES.DEBTORS, debtorList as any);
-    console.log(`   ✔ Created ${debtorList.length} new debtors.`);
+  // Create new customers
+  if (newCustomers.size > 0) {
+    const customerList = Array.from(newCustomers.values());
+    console.log(`\n🏢 Creating ${customerList.length} new customers...`);
+    await batchPutItems(TABLES.CUSTOMERS, customerList as any);
+    console.log(`   ✔ Created ${customerList.length} new customers.`);
   } else {
-    console.log("\n   ✔ No new debtors to create.");
+    console.log("\n   ✔ No new customers to create.");
   }
 
   // Write debit notes in batches of 25
@@ -348,8 +348,8 @@ async function main() {
   console.log("✅ IMPORT COMPLETE");
   console.log("═".repeat(50));
   console.log(`   Debit notes imported: ${allNotes.length}`);
-  console.log(`   New debtors created:  ${newDebtors.size}`);
-  console.log(`   Existing debtors used: ${debtorByNorm.size}`);
+  console.log(`   New customers created:  ${newCustomers.size}`);
+  console.log(`   Existing customers used: ${customerByNorm.size}`);
   console.log("═".repeat(50));
 
   // Breakdown by year

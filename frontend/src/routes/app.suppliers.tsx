@@ -23,6 +23,7 @@ type Supplier = {
   address_line: string | null;
   address_line2: string | null;
   city: string | null;
+  state: string | null;
   country: string | null;
   postal_code: string | null;
   contact_name: string | null;
@@ -43,6 +44,7 @@ const emptyForm = {
   address_line: "",
   address_line2: "",
   city: "",
+  state: "",
   country: "",
   postal_code: "",
   contact_name: "",
@@ -54,7 +56,7 @@ const emptyForm = {
   notes: "",
 };
 
-function SuppliersPage() {
+export function SuppliersPage() {
   const { canWrite } = useAuth();
   const canEdit = canWrite("suppliers");
   const qc = useQueryClient();
@@ -86,6 +88,7 @@ function SuppliersPage() {
         address_line: form.address_line || null,
         address_line2: form.address_line2 || null,
         city: form.city || null,
+        state: form.state || null,
         country: form.country || null,
         postal_code: form.postal_code || null,
         contact_name: form.contact_name || null,
@@ -105,6 +108,12 @@ function SuppliersPage() {
     onSuccess: () => {
       toast.success(editing ? "Supplier updated" : "Supplier onboarded");
       qc.invalidateQueries({ queryKey: ["suppliers"] });
+      // Procurement dropdowns cache merged supplier+vendor lists under
+      // different keys with a 5-min staleTime — bust them so the new
+      // supplier appears immediately in POs and purchase invoices.
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
@@ -119,6 +128,9 @@ function SuppliersPage() {
     onSuccess: () => {
       toast.success("Supplier removed");
       qc.invalidateQueries({ queryKey: ["suppliers"] });
+      qc.invalidateQueries({ queryKey: ["vendors-min"] });
+      qc.invalidateQueries({ queryKey: ["supplier-options"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -139,6 +151,7 @@ function SuppliersPage() {
       address_line: s.address_line ?? "",
       address_line2: s.address_line2 ?? "",
       city: s.city ?? "",
+      state: s.state ?? "",
       country: s.country ?? "",
       postal_code: s.postal_code ?? "",
       contact_name: s.contact_name ?? "",
@@ -154,6 +167,34 @@ function SuppliersPage() {
 
   const suppliers = suppliersQ.data ?? [];
   const purchaseInvoices = purchaseInvoicesQ.data ?? [];
+
+  // Purchase invoices reference the vendors table (vendor_id), while this page
+  // lists the suppliers table — ids rarely match. Match by id OR by
+  // normalized vendor name → supplier company_name so invoices resolve
+  // instead of falling back to "Unknown".
+  const piVendorName = (pi: any): string =>
+    String(pi?.vendor?.name ?? pi?.vendor_name ?? pi?.supplier_name ?? "").trim();
+  const piBelongsToSupplier = (pi: any, supplier: any): boolean => {
+    if (!supplier) return false;
+    if (pi?.vendor_id && supplier?.id && pi.vendor_id === supplier.id) return true;
+    if (pi?.supplier_id && supplier?.id && pi.supplier_id === supplier.id) return true;
+    const a = piVendorName(pi).toLowerCase();
+    const b = String(supplier?.company_name ?? "").trim().toLowerCase();
+    return !!a && !!b && a === b;
+  };
+  const dashboardInvoices = purchaseInvoices.map((pi: any) => ({
+    id: pi.id,
+    amount: pi.amount,
+    status: pi.status,
+    issue_date: pi.issue_date,
+    due_date: pi.due_date,
+    paid_date: pi.paid_date,
+    vendor_id: pi.vendor_id ?? pi.supplier_id ?? null,
+    supplier_id: pi.supplier_id ?? null,
+    vendor_name: piVendorName(pi) || null,
+    supplier_name: pi.supplier_name ?? null,
+    vendor: pi.vendor ?? null,
+  }));
 
   return (
     <div>
@@ -177,15 +218,7 @@ function SuppliersPage() {
         <CounterpartyDashboard
           kind="supplier"
           parties={suppliers}
-          invoices={purchaseInvoices.map((pi: any) => ({
-            id: pi.id,
-            amount: pi.amount,
-            status: pi.status,
-            issue_date: pi.issue_date,
-            due_date: pi.due_date,
-            paid_date: pi.paid_date,
-            vendor_id: pi.vendor_id,
-          }))}
+          invoices={dashboardInvoices}
           loading={suppliersQ.isLoading || purchaseInvoicesQ.isLoading}
         />
 
@@ -206,20 +239,18 @@ function SuppliersPage() {
                     <th className="px-4 py-3 text-left">Company</th>
                     <th className="px-4 py-3 text-left">Contact</th>
                     <th className="px-4 py-3 text-left">Location</th>
-                    <th className="px-4 py-3 text-right">Advance</th>
-                    <th className="px-4 py-3 text-right">Fee</th>
                     <th className="px-4 py-3 text-right" />
                   </tr>
                 </thead>
                 <tbody>
                   {suppliersQ.isLoading && (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-muted-foreground">Loading…</td>
+                      <td colSpan={5} className="p-6 text-center text-muted-foreground">Loading…</td>
                     </tr>
                   )}
                   {!suppliersQ.isLoading && suppliers.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td colSpan={5} className="p-10 text-center text-muted-foreground">
                         No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to add the first one.
                       </td>
                     </tr>
@@ -239,7 +270,7 @@ function SuppliersPage() {
                     const q = searchQuery.toLowerCase();
                     return s.company_name?.toLowerCase().includes(q) || s.industry?.toLowerCase().includes(q) || s.contact_name?.toLowerCase().includes(q) || s.contact_email?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q);
                   }).map((s: any) => {
-                    const supplierInvoices = purchaseInvoices.filter((pi: any) => pi.vendor_id === s.id);
+                    const supplierInvoices = purchaseInvoices.filter((pi: any) => piBelongsToSupplier(pi, s));
                     const totalSpend = supplierInvoices.reduce((sum: number, pi: any) => sum + Number(pi.amount), 0);
                     const outstandingSpend = supplierInvoices
                       .filter((pi: any) => pi.status !== "paid" && pi.status !== "rejected")
@@ -263,8 +294,6 @@ function SuppliersPage() {
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {[s.city, s.country].filter(Boolean).join(", ") || "—"}
                         </td>
-                        <td className="px-4 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
-                        <td className="px-4 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => setViewing(s)} className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary hover:text-primary mr-1">
                             <Eye className="mr-0.5 inline h-3 w-3" />View
@@ -293,7 +322,7 @@ function SuppliersPage() {
       {viewing && (
         <SupplierDetailModal
           supplier={viewing}
-          invoices={purchaseInvoices.filter((pi: any) => pi.vendor_id === viewing.id)}
+          invoices={purchaseInvoices.filter((pi: any) => piBelongsToSupplier(pi, viewing))}
           onClose={() => setViewing(null)}
         />
       )}
@@ -319,9 +348,10 @@ function SuppliersPage() {
               {/* ── Address ── */}
               <Section title="Address">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <F label="Address" full><input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} /></F>
-                  <F label="Address" full><input maxLength={300} className="inp" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} /></F>
+                  <F label="Address line 1" full><input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} placeholder="Street / building" /></F>
+                  <F label="Address line 2" full><input maxLength={300} className="inp" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} placeholder="Area / landmark" /></F>
                   <F label="City"><input maxLength={100} className="inp" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></F>
+                  <F label="State"><input maxLength={100} className="inp" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></F>
                   <F label="Country"><input maxLength={100} className="inp" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} /></F>
                   <F label="PIN / Postal code"><input maxLength={20} className="inp" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} /></F>
                 </div>
@@ -389,11 +419,18 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
   const avgPayDays = payDays.length > 0 ? Math.round(payDays.reduce((a, b) => a + b, 0) / payDays.length) : null;
 
   const [filter, setFilter] = useState<string>("all");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const filtered = invoices.filter((i: any) => {
     if (filter === "open") return i.status !== "paid" && i.status !== "rejected";
     if (filter === "closed") return i.status === "paid";
     return true;
   });
+  const searched = invoiceSearch.trim()
+    ? filtered.filter((i: any) =>
+        [i.invoice_number, i.po_number, i.status]
+          .some((v) => String(v ?? "").toLowerCase().includes(invoiceSearch.trim().toLowerCase())),
+      )
+    : filtered;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onClick={onClose}>
@@ -418,7 +455,8 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
               <DetailRow label="Contact" value={supplier.contact_name || "—"} />
               <DetailRow label="Email" value={supplier.contact_email || "—"} />
               <DetailRow label="Phone" value={supplier.contact_phone || "—"} />
-              <DetailRow label="Location" value={[supplier.city, supplier.country].filter(Boolean).join(", ") || "—"} />
+              <DetailRow label="Address" value={[supplier.address_line, supplier.address_line2].filter(Boolean).join(", ") || "—"} />
+              <DetailRow label="Location" value={[supplier.city, supplier.state, supplier.country, supplier.postal_code].filter(Boolean).join(", ") || "—"} />
               <DetailRow label="Advance rate" value={`${(Number(supplier.advance_rate) * 100).toFixed(1)}%`} />
               <DetailRow label="Fee rate" value={`${(Number(supplier.fee_rate) * 100).toFixed(2)}%`} />
             </div>
@@ -436,8 +474,8 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
           {/* Filter */}
           <FilterBar
             searchPlaceholder="Search invoices…"
-            searchValue=""
-            onSearchChange={() => {}}
+            searchValue={invoiceSearch}
+            onSearchChange={setInvoiceSearch}
             statusOptions={[
               { label: "All", value: "all" },
               { label: "Open", value: "open" },
@@ -446,7 +484,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
             statusValue={filter}
             onStatusChange={(v) => setFilter(v)}
           />
-          <div className="mt-2 text-[10px] text-muted-foreground">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</div>
+          <div className="mt-2 text-[10px] text-muted-foreground">{searched.length} invoice{searched.length !== 1 ? "s" : ""}</div>
 
           {/* Invoices table */}
           <div className="rounded-lg border border-border bg-background/40 overflow-x-auto">
@@ -463,7 +501,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inv: any) => (
+                {searched.map((inv: any) => (
                   <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
                     <td className="px-4 py-2.5 font-mono text-xs text-primary">{inv.invoice_number}</td>
                     <td className="px-4 py-2.5 text-right num font-medium">{fmtMoney(inv.amount)}</td>
@@ -479,7 +517,7 @@ function SupplierDetailModal({ supplier, invoices, onClose }: { supplier: Suppli
                     </td>
                   </tr>
                 ))}
-                {filtered.length === 0 && (
+                {searched.length === 0 && (
                   <tr><td colSpan={7} className="p-6 text-center text-xs text-muted-foreground">No invoices match.</td></tr>
                 )}
               </tbody>

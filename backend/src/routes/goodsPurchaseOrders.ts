@@ -8,9 +8,11 @@ import {
   scanTable,
   TABLES,
 } from "../db/client.js";
-import { requireAuth, requireWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilter, type AuthRequest } from "../middleware/auth.js";
 import { generateId, generateDocNumber, nowISO } from "../utils/helpers.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
+import { defaultCustomerAddressFor } from "../utils/customerAddresses.js";
 import { poDerivedStatus, computeOrderTotals } from "../utils/goodsOrders.js";
 import type {
   GoodsPurchaseOrder, GoodsPurchaseOrderLine,
@@ -64,6 +66,10 @@ const poLineSchema = z.object({
 const createSchema = z.object({
   po_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   supplier_id: z.string().trim().max(200).nullable().optional(),
+  bill_to_customer_id: z.string().trim().max(200).nullable().optional(),
+  billing_address: z.string().trim().max(500).nullable().optional(),
+  ship_to_customer_id: z.string().trim().max(200).nullable().optional(),
+  shipping_address: z.string().trim().max(500).nullable().optional(),
   warehouse: z.string().trim().max(120).nullable().optional(),
   expected_delivery_date: z.string().nullable().optional(),
   payment_terms: z.string().trim().max(60).nullable().optional(),
@@ -169,6 +175,13 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
 
     const { subtotal, gst_total, grand_total } = computeOrderTotals(lines, parsed.freight ?? 0);
     const supplierName = parsed.supplier_id ? (await buildSupplierMap(req.user!.company_id)).get(parsed.supplier_id) ?? null : null;
+    const { getCustomerById } = await import("../utils/customers.js");
+    const billTo = parsed.bill_to_customer_id ? await getCustomerById(parsed.bill_to_customer_id).catch(() => null) : null;
+    // Shipping falls back to the billing party when the user keeps them the same.
+    const shipToId = parsed.ship_to_customer_id || parsed.bill_to_customer_id || null;
+    const shipTo = shipToId && shipToId !== parsed.bill_to_customer_id
+      ? await getCustomerById(shipToId).catch(() => null)
+      : (shipToId ? billTo : null);
 
     const id = generateId();
     const poNumber = generateDocNumber("PO");
@@ -180,6 +193,12 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       po_date: parsed.po_date,
       supplier_id: parsed.supplier_id || null,
       supplier_name: supplierName,
+      bill_to_customer_id: parsed.bill_to_customer_id || null,
+      bill_to_customer_name: billTo?.name ?? null,
+      billing_address: parsed.billing_address ?? defaultCustomerAddressFor(billTo, "billing"),
+      ship_to_customer_id: shipToId,
+      ship_to_customer_name: shipTo?.name ?? null,
+      shipping_address: parsed.shipping_address ?? defaultCustomerAddressFor(shipTo, "shipping") ?? (shipToId === parsed.bill_to_customer_id ? (parsed.billing_address ?? defaultCustomerAddressFor(billTo, "billing")) : null),
       warehouse: parsed.warehouse || null,
       expected_delivery_date: parsed.expected_delivery_date || null,
       payment_terms: parsed.payment_terms || null,
@@ -211,7 +230,7 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
         client_id: req.user!.id,
         company_id: req.user!.company_id,
         side: "purchase",
-        debtor_id: null,
+        customer_id: null,
         vendor_id: parsed.supplier_id || null,
         po_number: poNumber,
         proforma_number: proformaNumber,
@@ -305,6 +324,41 @@ router.post("/", requireAuth, requireWriteAccess("goods-purchase-orders"), async
       created_by: req.user!.id,
     });
 
+    // My Queue: open "send to checker" task.
+    ensureTask(po.company_id, po.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: po.id, doc_number: po.po_number, counterparty: po.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: po.created_by,
+      required_action: `Send purchase order ${po.po_number} to checker`,
+      next_action: "Checker approval", amount: po.grand_total,
+    });
+    // A one-modal proforma is a live funding document — it needs its own
+    // checker-review task or it never enters the queue.
+    if (createdProforma) {
+      ensureTask(createdProforma.company_id, createdProforma.client_id, {
+        workflow_type: "proforma", stage: "approve", doc_type: "proforma",
+        doc_id: createdProforma.id, doc_number: createdProforma.proforma_number ?? createdProforma.po_number,
+        counterparty: createdProforma.vendor_id ?? null,
+        doc_status: "pending_review", owner_role: "checker",
+        required_action: `Approve purchase proforma ${createdProforma.proforma_number ?? createdProforma.po_number} (checker)`,
+        next_action: "Create order", amount: createdProforma.amount,
+        linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
+      });
+    }
+    // A one-modal purchase invoice is a live payable — it needs its own
+    // finance-verify task or it never enters the queue.
+    if (createdInvoice) {
+      ensureTask(createdInvoice.company_id, createdInvoice.client_id, {
+        workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+        doc_id: createdInvoice.id, doc_number: createdInvoice.invoice_number,
+        counterparty: po.supplier_name,
+        doc_status: "draft", owner_role: "finance",
+        required_action: `Verify purchase invoice ${createdInvoice.invoice_number}`,
+        next_action: "Approve for payment", amount: createdInvoice.amount,
+        linked_docs: [{ type: "purchase_order", id: po.id, number: po.po_number }],
+      });
+    }
+
     res.status(201).json({ ...po, created_proforma: createdProforma, created_invoice: createdInvoice });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -328,8 +382,12 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
       res.status(404).json({ error: "Purchase order not found" });
       return;
     }
+    if (existing.manual_status === "pending_approval") {
+      res.status(400).json({ error: "This purchase order is awaiting checker review and cannot be edited — ask the checker to reject it back to draft" });
+      return;
+    }
     if (existing.manual_status !== "draft" && existing.manual_status !== "approved") {
-      res.status(400).json({ error: `Purchase orders can only be edited while draft or approved (current: ${existing.status})` });
+      res.status(400).json({ error: `Purchase orders can only be edited while draft (current: ${existing.status})` });
       return;
     }
 
@@ -375,6 +433,19 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
     for (const [k, v] of Object.entries(parsed)) {
       if (v !== undefined && k !== "lines") updates[k] = v;
     }
+    // Keep denormalized party names truthful when the bill/ship customer changes.
+    if (parsed.bill_to_customer_id !== undefined || parsed.ship_to_customer_id !== undefined) {
+      const { getCustomerById } = await import("../utils/customers.js");
+      const billId = (parsed.bill_to_customer_id as string | null | undefined) ?? existing.bill_to_customer_id ?? null;
+      const shipId = ((parsed.ship_to_customer_id as string | null | undefined) ?? existing.ship_to_customer_id ?? billId) || null;
+      if (parsed.bill_to_customer_id !== undefined) {
+        updates.bill_to_customer_name = billId ? (await getCustomerById(billId).catch(() => null))?.name ?? null : null;
+      }
+      if (parsed.ship_to_customer_id !== undefined || parsed.bill_to_customer_id !== undefined) {
+        updates.ship_to_customer_id = shipId;
+        updates.ship_to_customer_name = shipId ? (await getCustomerById(shipId).catch(() => null))?.name ?? null : null;
+      }
+    }
     delete updates.id;
     delete updates.created_at;
     delete updates.created_by;
@@ -392,8 +463,56 @@ router.patch("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), a
   }
 });
 
-// ── POST /api/goods-purchase-orders/:id/approve ── (checker/admin only)
-router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
+// ── POST /api/goods-purchase-orders/:id/submit ── (maker sends draft to checker)
+router.post("/:id/submit", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
+  try {
+    const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Purchase order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Purchase order not found" });
+      return;
+    }
+    if (existing.manual_status !== "draft") {
+      res.status(400).json({ error: `Only draft purchase orders can be sent for approval (current: ${existing.status})` });
+      return;
+    }
+    const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
+      manual_status: "pending_approval",
+      status: "pending_approval",
+      review_comments: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      updated_at: nowISO(),
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "info",
+      message: `Purchase order ${existing.po_number} sent to checker for approval`,
+      created_by: req.user!.id,
+    });
+    // My Queue: submit task done → checker approval task opens.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id, "submit");
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "approve", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "pending_approval", owner_role: "checker",
+      required_action: `Approve purchase order ${existing.po_number} (checker)`,
+      next_action: "Auto-sent — receive goods", amount: existing.grand_total,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Submit goods purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-purchase-orders/:id/approve ── (checker only, via checker desk)
+// Approval ALSO marks the order sent (to supplier/client) so the next flow
+// (GRN receive, logistics ship) unblocks immediately. Client approval is
+// informational only for now — it never gates receiving.
+router.post("/:id/approve", requireAuth, requireAnyWriteAccess("goods-purchase-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
   try {
     if (!isApprover(req.user!.roles)) {
       res.status(403).json({ error: "Only a checker or admin can approve purchase orders" });
@@ -405,15 +524,81 @@ router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orde
       res.status(404).json({ error: "Purchase order not found" });
       return;
     }
-    if (existing.manual_status !== "draft") {
-      res.status(400).json({ error: `Only draft purchase orders can be approved (current: ${existing.status})` });
+    if (existing.manual_status !== "pending_approval" && existing.manual_status !== "draft") {
+      res.status(400).json({ error: `Only purchase orders awaiting review can be approved (current: ${existing.status})` });
       return;
     }
+    const now = nowISO();
     const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
-      manual_status: "approved",
-      status: "approved",
-      updated_at: nowISO(),
+      manual_status: "sent",
+      status: "sent",
+      approved_by: req.user!.id,
+      approved_at: now,
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      review_comments: null,
+      sent_to_client_at: now,
+      client_status: "pending",
+      updated_at: now,
     });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "info",
+      message: `Purchase order ${existing.po_number} approved by checker and sent — goods can now be received`,
+      created_by: req.user!.id,
+    });
+     // My Queue: review tasks done → next task branches on payment_terms (Advance → proforma, else invoice) + GRN
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    const isAdv = String(existing.payment_terms ?? "").trim().toLowerCase() === "advance";
+    if (isAdv) {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "purchase_order", stage: "create_proforma", doc_type: "purchase_order",
+        doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+        doc_status: "sent", owner_role: "purchase",
+        required_action: `Create purchase proforma for ${existing.po_number} (advance terms)`,
+        next_action: "Send to checker", amount: existing.grand_total,
+        linked_docs: [{ type: "purchase_order", id: existing.id, number: existing.po_number }],
+      });
+    } else {
+      ensureTask(existing.company_id, existing.client_id, {
+        workflow_type: "purchase_order", stage: "create_invoice", doc_type: "purchase_order",
+        doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+        doc_status: "sent", owner_role: "purchase",
+        required_action: `Create purchase invoice for ${existing.po_number}`,
+        next_action: "Verify & pay", amount: existing.grand_total,
+        linked_docs: [{ type: "purchase_order", id: existing.id, number: existing.po_number }],
+      });
+    }
+    // GRN still available in parallel once sent
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "await_goods", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "sent", owner_role: "warehouse",
+      required_action: `Receive goods for ${existing.po_number}`,
+      next_action: "Create GRN", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
+    });
+    // Fire-and-forget client/supplier notification — email failure never rolls back approval.
+    try {
+      const { sendPurchaseOrderEmail } = await import("../utils/email.js");
+      const { getCustomerById } = await import("../utils/customers.js");
+      const billTo = existing.bill_to_customer_id ? await getCustomerById(existing.bill_to_customer_id).catch(() => null) : null;
+      const shipTo = existing.ship_to_customer_id ? await getCustomerById(existing.ship_to_customer_id).catch(() => null) : null;
+      const to = (billTo as any)?.contact_email ?? (shipTo as any)?.contact_email ?? null;
+      if (to) {
+        sendPurchaseOrderEmail({
+          to,
+          customerName: existing.bill_to_customer_name ?? existing.ship_to_customer_name ?? "Customer",
+          poNumber: existing.po_number,
+          amount: existing.grand_total,
+          companyName: req.user!.email,
+        });
+      }
+    } catch (e) {
+      console.error("   ⚠️ PO client notification failed (approval kept):", e);
+    }
     res.json(updated);
   } catch (err) {
     console.error("Approve goods purchase order error:", err);
@@ -421,7 +606,61 @@ router.post("/:id/approve", requireAuth, requireWriteAccess("goods-purchase-orde
   }
 });
 
-// ── POST /api/goods-purchase-orders/:id/send ──
+// ── POST /api/goods-purchase-orders/:id/reject ── (checker sends back to draft)
+router.post("/:id/reject", requireAuth, requireAnyWriteAccess("goods-purchase-orders", "checker-desk"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isApprover(req.user!.roles)) {
+      res.status(403).json({ error: "Only a checker or admin can reject purchase orders" });
+      return;
+    }
+    const { comments } = req.body ?? {};
+    const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
+    if (!existing) { res.status(404).json({ error: "Purchase order not found" }); return; }
+    if (req.user!.company_id && existing.company_id !== req.user!.company_id) {
+      res.status(404).json({ error: "Purchase order not found" });
+      return;
+    }
+    if (existing.manual_status !== "pending_approval") {
+      res.status(400).json({ error: `Only purchase orders awaiting review can be rejected (current: ${existing.status})` });
+      return;
+    }
+    const now = nowISO();
+    const updated = await updateItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }, {
+      manual_status: "draft",
+      status: "draft",
+      reviewed_by: req.user!.id,
+      reviewed_at: now,
+      review_comments: comments ? String(comments).slice(0, 2000) : null,
+      updated_at: now,
+    });
+    createActivityAlert({
+      client_id: existing.client_id,
+      company_id: existing.company_id,
+      type: "purchase_order_created",
+      severity: "warning",
+      message: `Purchase order ${existing.po_number} rejected by checker — back to draft${comments ? `: ${String(comments).slice(0, 140)}` : ""}`,
+      created_by: req.user!.id,
+    });
+    // My Queue: back to a draft submit task for the maker.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "submit", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "draft", owner_role: "purchase", assigned_user: existing.created_by,
+      required_action: `Rework purchase order ${existing.po_number} (checker rejected)`,
+      next_action: "Checker approval", amount: existing.grand_total,
+      latest_update: comments ? String(comments).slice(0, 500) : null,
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error("Reject goods purchase order error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/goods-purchase-orders/:id/send ── (legacy: approved → sent)
+// New flow auto-sends on checker approval, so this only serves POs that were
+// approved before the maker–checker gate. Kept to avoid stranding them.
 router.post("/:id/send", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
@@ -438,6 +677,16 @@ router.post("/:id/send", requireAuth, requireWriteAccess("goods-purchase-orders"
       manual_status: "sent",
       status: "sent",
       updated_at: nowISO(),
+    });
+    // My Queue (legacy send): review tasks done → receive-goods task opens.
+    completeTasksForDoc(existing.company_id, "purchase_order", existing.id, req.user!.id);
+    ensureTask(existing.company_id, existing.client_id, {
+      workflow_type: "purchase_order", stage: "await_goods", doc_type: "purchase_order",
+      doc_id: existing.id, doc_number: existing.po_number, counterparty: existing.supplier_name,
+      doc_status: "sent", owner_role: "warehouse",
+      required_action: `Receive goods for ${existing.po_number}`,
+      next_action: "Create GRN", amount: existing.grand_total,
+      due_date: existing.expected_delivery_date ?? null,
     });
     res.json(updated);
   } catch (err) {
@@ -469,6 +718,8 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-purchase-order
       status: "cancelled",
       updated_at: nowISO(),
     });
+    // My Queue: drop open tasks for the cancelled order.
+    cancelTasksForDoc(existing.company_id, "purchase_order", existing.id, "Purchase order cancelled");
     res.json(updated);
   } catch (err) {
     console.error("Cancel goods purchase order error:", err);
@@ -476,7 +727,7 @@ router.post("/:id/cancel", requireAuth, requireWriteAccess("goods-purchase-order
   }
 });
 
-// ── DELETE /api/goods-purchase-orders/:id ── (drafts only)
+// ── DELETE /api/goods-purchase-orders/:id ── (allowed regardless of status)
 router.delete("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), async (req: AuthRequest, res: Response) => {
   try {
     const existing = await getItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id }) as GoodsPurchaseOrder | undefined;
@@ -485,11 +736,9 @@ router.delete("/:id", requireAuth, requireWriteAccess("goods-purchase-orders"), 
       res.status(404).json({ error: "Purchase order not found" });
       return;
     }
-    if (existing.status !== "draft") {
-      res.status(400).json({ error: `Only draft purchase orders can be deleted (current: ${existing.status})` });
-      return;
-    }
     await deleteItem(TABLES.GOODS_PURCHASE_ORDERS, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted order regardless of status.
+    cancelTasksForDoc(existing.company_id, "purchase_order", existing.id, "Purchase order deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete goods purchase order error:", err);

@@ -105,10 +105,12 @@ async function request<T = unknown>(
     const errorBody = await res.json().catch(() => ({ error: res.statusText }));
     const err = new Error(
       errorBody.error ?? `Request failed: ${res.status}`,
-    ) as Error & { status?: number };
+    ) as Error & { status?: number; details?: unknown; suggestion?: string };
     // Attach the HTTP status so callers can distinguish "invalid token"
     // (401/403) from transient failures (429/5xx).
     err.status = res.status;
+    (err as any).details = (errorBody as any).details;
+    (err as any).suggestion = (errorBody as any).suggestion;
     throw err;
   }
 

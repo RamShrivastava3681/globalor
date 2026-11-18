@@ -14,9 +14,11 @@ import { requireAuth, requireWriteAccess, requireAnyWriteAccess, getCompanyFilte
 import { generateId, nowISO } from "../utils/helpers.js";
 import { generateMovementNumber } from "../utils/stock.js";
 import { syncPurchaseInvoiceFromGrns } from "../utils/goodsOrders.js";
-import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Profile, Debtor, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
+import type { PurchaseInvoice, PurchaseInvoiceLine, Vendor, Supplier, Profile, Customer, DocMeta, GoodsPurchaseOrder } from "../types/index.js";
 import type { StockMovement } from "../types/index.js";
 import { createActivityAlert } from "../utils/alerts.js";
+import { ensureTask, completeTasksForDoc, cancelTasksForDoc } from "../utils/workflowTasks.js";
+import { scanCustomersMerged, getCustomerById, getInvoicePartyId } from "../utils/customers.js";
 
 const router = Router();
 
@@ -25,17 +27,38 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
 
-    let invoices = await scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!));
-
-    // Preload all vendors, profiles, debtors, and invoices into lookup maps
-    // to avoid N+1 GetItem calls during enrichment
-    const allVendors = await scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!));
-    const allProfiles = await scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!));
-    const allDebtors = await scanTable<Debtor>(TABLES.DEBTORS, getCompanyFilter(req.user!));
-    const allSalesInvoices = await scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!));
-    const vendorMap = new Map(allVendors.map((v) => [v.id, v]));
+    // Run all table scans in parallel — previously sequential, so response
+    // time was the SUM of five full-table scans.
+    let invoices: PurchaseInvoice[];
+    let allVendors: Vendor[];
+    let allSuppliers: Supplier[];
+    let allProfiles: Profile[];
+    let allCustomers: Customer[];
+    let allSalesInvoices: any[];
+    [
+      invoices,
+      allVendors,
+      allSuppliers,
+      allProfiles,
+      allCustomers,
+      allSalesInvoices,
+    ] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Supplier>(TABLES.SUPPLIERS, getCompanyFilter(req.user!)),
+      scanTable<Profile>(TABLES.PROFILES, getCompanyFilter(req.user!)),
+      scanCustomersMerged(getCompanyFilter(req.user!) as any),
+      scanTable<any>(TABLES.INVOICES, getCompanyFilter(req.user!)),
+    ]);
+    const vendorMap = new Map<string, Vendor>(allVendors.map((v) => [v.id, v]));
+    // Suppliers created via /api/suppliers are valid procurement counterparties
+    // too (PO dropdown merges both tables). Fall back to them so a PI whose
+    // vendor_id points at the suppliers table still resolves a display name.
+    for (const s of allSuppliers) {
+      if (!vendorMap.has(s.id)) vendorMap.set(s.id, { id: s.id, name: s.company_name } as Vendor);
+    }
     const profileMap = new Map(allProfiles.map((p) => [p.id, p]));
-    const debtorMap = new Map(allDebtors.map((d) => [d.id, d]));
+    const customerMap = new Map(allCustomers.map((d) => [d.id, d]));
     const salesInvMap = new Map(allSalesInvoices.map((si) => [si.id, si]));
 
     // Fast synchronous enrichment
@@ -49,13 +72,13 @@ router.get("/", requireAuth, async (req: AuthRequest, res: Response) => {
           .map((sId) => {
             const si = salesInvMap.get(sId);
             if (si) {
-              return { ...si, debtor: debtorMap.get(si.debtor_id) };
+              return { ...si, customer: customerMap.get(getInvoicePartyId(si) ?? "") };
             }
             return null;
           })
           .filter(Boolean);
       }
-      return { ...pi, vendor, client, linkedSales };
+      return { ...pi, vendor, client, linkedSales, amount_paid: pi.amount_paid ?? null, amount_received: pi.amount_paid ?? 0 };
     };
 
     // Server-side search filtering (including vendor name)
@@ -147,13 +170,58 @@ router.get("/mini", requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ── GET /api/purchase-invoices/stats ──
+// Compact aggregates for the purchases dashboard + "review all drafts". Scans
+// ONLY the purchase-invoices + vendors tables (the enriched GET / also scans
+// profiles, customers and all sales invoices) and returns small rows — the
+// dashboard needs status/amount/date/vendor-name, not lines or linked sales.
+// Must stay registered before "/:id".
+router.get("/stats", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const [invoices, allVendors, allSuppliers] = await Promise.all([
+      scanTable<PurchaseInvoice>(TABLES.PURCHASE_INVOICES, getCompanyFilter(req.user!)),
+      scanTable<Vendor>(TABLES.VENDORS, getCompanyFilter(req.user!)),
+      scanTable<Supplier>(TABLES.SUPPLIERS, getCompanyFilter(req.user!)),
+    ]);
+    const vendorNameById = new Map(allVendors.map((v) => [v.id, v.name] as const));
+    for (const s of allSuppliers) {
+      if (!vendorNameById.has(s.id)) vendorNameById.set(s.id, s.company_name);
+    }
+
+    const rows = invoices.map((pi) => ({
+      id: pi.id,
+      invoice_number: pi.invoice_number,
+      amount: Number(pi.amount) || 0,
+      amount_paid: Number(pi.amount_paid) || 0,
+      amount_received: Number(pi.amount_paid) || 0,
+      status: pi.status,
+      issue_date: pi.issue_date ?? null,
+      due_date: (pi as any).due_date ?? null,
+      created_at: (pi as any).created_at ?? null,
+      vendor_id: (pi as any).vendor_id ?? null,
+      vendor_name: (pi as any).vendor_id ? vendorNameById.get((pi as any).vendor_id) ?? "Unknown" : "Unknown",
+    }));
+    res.json(rows);
+  } catch (err) {
+    console.error("Get purchase invoice stats error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── GET /api/purchase-invoices/:id ── (single enriched purchase invoice)
 router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const invoice = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
     if (!invoice) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
 
-    const vendor = invoice.vendor_id ? await getItem(TABLES.VENDORS, { id: invoice.vendor_id }) as Vendor | undefined : undefined;
+    let vendor: Vendor | undefined;
+    if (invoice.vendor_id) {
+      vendor = (await getItem(TABLES.VENDORS, { id: invoice.vendor_id }) as Vendor | undefined) ?? undefined;
+      if (!vendor) {
+        const supplier = (await getItem(TABLES.SUPPLIERS, { id: invoice.vendor_id }).catch(() => null)) as Supplier | null;
+        if (supplier) vendor = { ...supplier, name: supplier.company_name } as unknown as Vendor;
+      }
+    }
     const client = invoice.client_id ? await getItem(TABLES.PROFILES, { id: invoice.client_id }) as Profile | undefined : undefined;
 
     // Enrich linked sales invoices
@@ -162,8 +230,9 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res: Response) => {
       const results = await Promise.all(
         invoice.linked_sales_invoice_ids.map(async (sId) => {
           const si = await getItem(TABLES.INVOICES, { id: sId }) as any;
-          if (si?.debtor_id) {
-            si.debtor = await getItem(TABLES.DEBTORS, { id: si.debtor_id }) as Debtor | undefined;
+          const partyId = getInvoicePartyId(si);
+          if (partyId) {
+            si.customer = await getCustomerById(partyId);
           }
           return si;
         }),
@@ -189,7 +258,7 @@ const createSchema = z.object({
   goods_purchase_order_id: z.string().trim().max(200).nullable().optional(),
   issue_date: z.string().optional().default(() => new Date().toISOString().slice(0, 10)),
   due_date: z.string().nullable().optional(),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   bl_date: z.string().nullable().optional(),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
@@ -348,8 +417,12 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       }
     }
 
-    // Create activity alert
-    const vendor = await getItem(TABLES.VENDORS, { id: parsed.vendor_id }) as Vendor | undefined;
+    // Create activity alert (vendors table first, suppliers table as fallback)
+    let vendor: Vendor | undefined = ((await getItem(TABLES.VENDORS, { id: parsed.vendor_id }).catch(() => null)) as Vendor | null) ?? undefined;
+    if (!vendor) {
+      const supplierForAlert = (await getItem(TABLES.SUPPLIERS, { id: parsed.vendor_id }).catch(() => null)) as Supplier | null;
+      if (supplierForAlert) vendor = { name: supplierForAlert.company_name } as Vendor;
+    }
     createActivityAlert({
       client_id: req.user!.id,
       company_id: req.user!.company_id,
@@ -358,6 +431,19 @@ router.post("/", requireAuth, requireWriteAccess("purchase-invoices"), async (re
       message: `Purchase invoice ${parsed.invoice_number} created for $${parsed.amount.toLocaleString()}${vendor ? ` — ${vendor.name}` : ""}`,
       created_by: req.user!.id,
     });
+
+    // My Queue: new draft PI needs verification. A PO-linked PI also clears
+    // the PO's receive-goods task (goods are now being billed).
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+      doc_id: id, doc_number: invoice.invoice_number, counterparty: vendor?.name ?? null,
+      doc_status: "draft", owner_role: "finance",
+      required_action: `Verify purchase invoice ${invoice.invoice_number}`,
+      next_action: "Approve for payment", amount: invoice.amount, due_date: due_date,
+    });
+    if (linkedPoId) {
+      completeTasksForDoc(invoice.company_id, "purchase_order", linkedPoId, req.user!.id);
+    }
 
     res.status(201).json(invoice);
   } catch (err) {
@@ -386,8 +472,50 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
       }));
     }
 
+    // Auto-calculate status based on payment amount
+    const existing = await getItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }) as PurchaseInvoice | undefined;
+    if (existing && (updates.amount_paid != null || updates.amount != null)) {
+      const amount = Number(updates.amount ?? existing.amount);
+      const amountPaid = Number(updates.amount_paid ?? existing.amount_paid ?? 0);
+      if (amountPaid >= amount && amount > 0) {
+        updates.status = "paid";
+        if (!updates.paid_date) updates.paid_date = nowISO().slice(0, 10);
+      } else if (amountPaid > 0 && amountPaid < amount) {
+        updates.status = "partial";
+      }
+    }
+
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, updates);
     if (!updated) { res.status(404).json({ error: "Purchase invoice not found" }); return; }
+    // My Queue: paid PIs drop out; checker decisions auto-advance.
+    const uStatus = String((updated as any).status ?? "");
+    const uCompany = (updated as any).company_id ?? req.user!.company_id;
+    if (uStatus === "paid") {
+      completeTasksForDoc(uCompany, "purchase_invoice", req.params.id, req.user!.id);
+    } else if (uStatus === "approved" || uStatus === "rejected" || uStatus === "disputed") {
+      const u = updated as any;
+      completeTasksForDoc(uCompany, "purchase_invoice", req.params.id, req.user!.id);
+      const vendor = ((await getItem(TABLES.VENDORS, { id: u.vendor_id }).catch(() => null)) as any)
+        ?? ((await getItem(TABLES.SUPPLIERS, { id: u.vendor_id }).catch(() => null)) as any);
+      const vendorName = vendor?.name ?? vendor?.company_name ?? null;
+      if (uStatus === "approved") {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "purchase_invoice", stage: "record_payment", doc_type: "purchase_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: vendorName,
+          doc_status: "approved", owner_role: "treasury",
+          required_action: `Record payment for ${u.invoice_number}`,
+          next_action: "Close invoice", amount: u.amount, due_date: u.due_date ?? null,
+        });
+      } else {
+        ensureTask(uCompany, u.client_id ?? req.user!.id, {
+          workflow_type: "purchase_invoice", stage: "verify", doc_type: "purchase_invoice",
+          doc_id: req.params.id, doc_number: u.invoice_number, counterparty: vendorName,
+          doc_status: uStatus, owner_role: "finance",
+          required_action: `Rework purchase invoice ${u.invoice_number} (checker ${uStatus})`,
+          next_action: "Resubmit", amount: u.amount,
+        });
+      }
+    }
     res.json(updated);
   } catch (err) {
     console.error("Update purchase invoice error:", err);
@@ -399,7 +527,7 @@ router.patch("/:id", requireAuth, requireAnyWriteAccess("purchase-invoices", "ch
 // ── POST /api/purchase-invoices/batch ── (mass import from Excel)
 const batchPurchaseInvoiceSchema = z.object({
   vendor_id: z.string().min(1),
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
   bl_date: z.string().nullable().optional(),
@@ -512,7 +640,7 @@ router.post("/batch", requireAuth, requireWriteAccess("purchase-invoices"), asyn
 
 // ── POST /api/purchase-invoices/batch-with-suppliers ── (mass import with supplier auto-creation/matching)
 const batchWithSuppliersSchema = z.object({
-  payment_terms_days: z.number().min(0).optional().default(30),
+  payment_terms_days: z.number().min(0).optional().default(60),
   due_date_source: z.enum(["invoice", "bl"]).optional().default("invoice"),
   has_contractual_due_date: z.boolean().optional().default(false),
   bl_date: z.string().nullable().optional(),
@@ -879,6 +1007,15 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"),
       return;
     }
     const updated = await updateItem(TABLES.PURCHASE_INVOICES, { id: req.params.id }, { status: "submitted", updated_at: nowISO() });
+    // My Queue: verify task done → checker approval task opens.
+    completeTasksForDoc(invoice.company_id, "purchase_invoice", invoice.id, req.user!.id, "verify");
+    ensureTask(invoice.company_id, invoice.client_id, {
+      workflow_type: "purchase_invoice", stage: "approve_for_payment", doc_type: "purchase_invoice",
+      doc_id: invoice.id, doc_number: invoice.invoice_number, counterparty: null,
+      doc_status: "submitted", owner_role: "checker",
+      required_action: `Approve purchase invoice ${invoice.invoice_number} (checker)`,
+      next_action: "Record payment", amount: invoice.amount, due_date: invoice.due_date ?? null,
+    });
     res.json(updated);
   } catch (err) {
     console.error("Submit purchase invoice error:", err);
@@ -889,6 +1026,8 @@ router.post("/:id/submit", requireAuth, requireWriteAccess("purchase-invoices"),
 router.delete("/:id", requireAuth, requireWriteAccess("purchase-invoices"), async (req: AuthRequest, res: Response) => {
   try {
     await deleteItem(TABLES.PURCHASE_INVOICES, { id: req.params.id });
+    // My Queue: drop open tasks for the deleted invoice.
+    cancelTasksForDoc(req.user!.company_id, "purchase_invoice", req.params.id, "Purchase invoice deleted");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete purchase invoice error:", err);

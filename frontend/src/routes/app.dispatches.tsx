@@ -1,17 +1,19 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Plus, X, Loader2, Trash2, CheckCircle2, XCircle, Pencil, Truck, Package, FileText, Undo2, PackageCheck, AlertTriangle,
+  Plus, X, Loader2, Trash2, CheckCircle2, XCircle, Pencil, Truck, Package, FileText, Undo2, PackageCheck, AlertTriangle, Ship,
 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/dispatches")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { so?: string; createFromInvoice?: string; fromQueue?: string } => ({
     so: typeof search?.so === "string" ? search.so : undefined,
+    createFromInvoice: typeof search?.createFromInvoice === "string" ? search.createFromInvoice : undefined,
+    fromQueue: typeof search?.fromQueue === "string" ? search.fromQueue : undefined,
   }),
   component: DispatchesPage,
 });
@@ -38,6 +40,9 @@ type DSP = {
   goods_sales_order_id: string;
   so_number: string | null;
   customer_name: string | null;
+  billing_customer_name: string | null;
+  billing_address: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   warehouse: string | null;
@@ -69,6 +74,9 @@ type SO = {
   id: string;
   so_number: string;
   customer_name: string | null;
+  billing_customer_name: string | null;
+  billing_address: string | null;
+  shipping_customer_name: string | null;
   contact_person: string | null;
   delivery_address: string | null;
   status: string;
@@ -97,14 +105,35 @@ const DSP_STATUS: Record<DSP["status"], string> = {
   cancelled: "border-border bg-muted text-muted-foreground line-through",
 };
 
-function DispatchesPage() {
-  const { so: preselectedSo } = Route.useSearch();
+export function DispatchesPage({ embedded = false, preselectedSo: preselectedSoProp }: { embedded?: boolean; preselectedSo?: string } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { so?: string; createFromInvoice?: string; fromQueue?: string } });
+  const linkInvoice = embedded ? undefined : ((routerSearch as any)?.createFromInvoice as string | undefined);
+  const preselectedSo = preselectedSoProp ?? (embedded ? undefined : ((routerSearch as any)?.so as string | undefined));
+  const navigate = useNavigate();
   const { isAdmin, isChecker, canWrite } = useAuth();
   const canEdit = canWrite("goods-sales-orders");
   const canOverride = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [preselectSo, setPreselectSo] = useState<string | undefined>(preselectedSo);
+
+  // Deep-link from My Queue: ?createFromInvoice=<invoiceId> resolves the
+  // invoice's sales order and opens the dispatch form preselected.
+  useEffect(() => {
+    if (!embedded && linkInvoice && canEdit) {
+      (async () => {
+        try {
+          const inv = await api.get<any>("/invoices/" + linkInvoice);
+          if (inv?.goods_sales_order_id) setPreselectSo(inv.goods_sales_order_id);
+        } catch {
+          // keep the manual flow — user picks the SO themselves
+        }
+        setOpen(true);
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkInvoice, embedded, canEdit]);
   const [statusFilter, setStatusFilter] = useState<"all" | DSP["status"]>("all");
   const [deliverTarget, setDeliverTarget] = useState<DSP | null>(null);
   const [returnTarget, setReturnTarget] = useState<DSP | null>(null);
@@ -216,7 +245,14 @@ function DispatchesPage() {
                           <div className="text-[10px] text-muted-foreground">{fmtDate(d.dispatch_date)}{d.transporter_name ? ` · ${d.transporter_name}` : ""}</div>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs text-primary">{d.so_number ?? "—"}</td>
-                        <td className="px-5 py-3">{d.customer_name ?? "—"}</td>
+                        <td className="px-5 py-3">
+                          <div>{d.shipping_customer_name ?? d.customer_name ?? "—"}</div>
+                          {(d.billing_address || d.delivery_address) && (
+                            <div className="max-w-56 truncate text-[10px] text-muted-foreground" title={`Bill: ${d.billing_address ?? "—"} | Ship: ${d.delivery_address ?? "—"}`}>
+                              Bill: {d.billing_address ?? "—"} | Ship: {d.delivery_address ?? "—"}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right num text-warning">{dispatched.toLocaleString()}</td>
                         <td className="px-5 py-3 text-right num font-medium">{fmtMoney(value)}</td>
                         <td className="px-5 py-3">
@@ -253,6 +289,10 @@ function DispatchesPage() {
                           )}
                           {(d.status === "confirmed" || d.status === "partially_delivered") && canEdit && (
                             <div className="flex items-center justify-end gap-1.5">
+                              <Link to="/app/logistics" search={{ from_type: "goods_dispatch", from_id: d.id }}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:border-primary hover:text-primary">
+                                <Ship className="h-3 w-3" /> Ship
+                              </Link>
                               <button onClick={() => setDeliverTarget(d)}
                                 className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[11px] text-primary hover:bg-primary/10">
                                 <PackageCheck className="h-3 w-3" /> Deliver
@@ -291,7 +331,23 @@ function DispatchesPage() {
         )}
       </div>
 
-      {open && <NewDispatchModal preselectSo={preselectSo} canOverride={canOverride} onClose={() => setOpen(false)} />}
+      {open && (
+        <NewDispatchModal
+          preselectSo={preselectSo}
+          canOverride={canOverride}
+          onClose={() => {
+            setOpen(false);
+            if (!embedded && linkInvoice) {
+              if ((routerSearch as any)?.fromQueue) {
+                // Queue-driven flow: the task completes server-side on create — return to My Queue.
+                navigate({ to: "/app/tasks", replace: true });
+              } else {
+                navigate({ to: "/app/dispatches", search: { so: undefined, createFromInvoice: undefined }, replace: true });
+              }
+            }
+          }}
+        />
+      )}
       {deliverTarget && <DeliverModal dsp={deliverTarget} onClose={() => setDeliverTarget(null)} />}
       {returnTarget && <ReturnModal dsp={returnTarget} onClose={() => setReturnTarget(null)} />}
     </div>
@@ -341,7 +397,7 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
     queryFn: async () => (await api.get<{ rows: LiveStockRow[] }>("/stock-movements/summary")) ?? { rows: [] },
   });
 
-  const dispatchableSos = (sosQ.data ?? []).filter((s) => s.status === "confirmed" || s.status === "partially_dispatched");
+  const dispatchableSos = (sosQ.data ?? []).filter((s) => ["approved", "confirmed", "partially_dispatched"].includes(s.status));
   const so = soDetailQ.data;
   const stockRows = stockQ.data?.rows ?? [];
 
@@ -450,7 +506,7 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
           <div className="grid gap-3 md:grid-cols-2">
             <L label="Sales order *" full>
               <select className="inp" value={soId} onChange={(e) => { setSoId(e.target.value); setLines([]); }}>
-                <option value="">Pick a confirmed sales order…</option>
+                <option value="">Pick an approved sales order…</option>
                 {dispatchableSos.map((s) => (
                   <option key={s.id} value={s.id}>{s.so_number} — {s.customer_name ?? "customer"} ({s.status.replace("_", " ")})</option>
                 ))}
@@ -465,6 +521,11 @@ function NewDispatchModal({ preselectSo, canOverride, onClose }: { preselectSo?:
 
           {soId && so && (
             <>
+              <div className="grid gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs sm:grid-cols-3">
+                <div><span className="text-muted-foreground">Bill to: </span><span className="font-medium">{[(so.billing_customer_name ?? so.customer_name), so.billing_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Ship to: </span><span className="font-medium">{[(so.shipping_customer_name ?? so.customer_name), so.delivery_address].filter(Boolean).join(" — ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Contact: </span><span className="font-medium">{so.contact_person ?? "—"}</span></div>
+              </div>
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40 text-xs uppercase tracking-widest text-muted-foreground">

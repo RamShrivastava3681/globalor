@@ -33,8 +33,8 @@ function AdvancesPage() {
     const q = searchQuery.toLowerCase();
     const inv = a.side === "sales" ? a.invoice : a.purchase;
     const cp = a.order
-      ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-      : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+      ? (a.side === "sales" ? a.order.customer?.name : a.order.vendor?.name)
+      : (a.side === "sales" ? a.invoice?.customer?.name : a.purchase?.vendor?.name);
     return (
       a.reference?.toLowerCase().includes(q) ||
       (cp ?? "").toLowerCase().includes(q) ||
@@ -138,8 +138,8 @@ function AdvancesPage() {
                     const inv = a.side === "sales" ? a.invoice : a.purchase;
                     const linkedAmount = a.order?.amount ?? inv?.amount ?? null;
                     const cp = a.order
-                      ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-                      : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                      ? (a.side === "sales" ? a.order.customer?.name : a.order.vendor?.name)
+                      : (a.side === "sales" ? a.invoice?.customer?.name : a.purchase?.vendor?.name);
                     return (
                       <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
@@ -288,7 +288,7 @@ function NewAdvanceModal({ side, onClose }: { side: "sales" | "purchase"; onClos
                 <option value="">Select PO…</option>
                 {(ordersQ.data ?? []).map((o: any) => (
                   <option key={o.id} value={o.id}>
-                    {o.po_number} · {(o.debtor?.name ?? o.vendor?.name) ?? ""} · {fmtMoney(o.amount)}
+                    {o.po_number} · {(o.customer?.name ?? o.vendor?.name) ?? ""} · {fmtMoney(o.amount)}
                   </option>
                 ))}
               </select>
@@ -341,7 +341,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
-  const debtor = invoice.debtor;
+  const customer = invoice.customer;
   const invDocs: any[] = Array.isArray(invoice.documents) ? invoice.documents : [];
 
   return (
@@ -390,26 +390,26 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: any; onClose: () =>
             )}
           </div>
 
-          {/* Debtor details */}
-          {debtor && (
+          {/* Customer details */}
+          {customer && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />Debtor
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />Customer
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
-                <Detail label="Name" value={debtor.name} />
-                <Detail label="Contact" value={debtor.contact_name || "—"} />
-                <Detail label="Email" value={debtor.contact_email || "—"} />
-                <Detail label="Phone" value={debtor.contact_phone || "—"} />
-                <Detail label="Industry" value={debtor.industry || "—"} />
+                <Detail label="Name" value={customer.name} />
+                <Detail label="Contact" value={customer.contact_name || "—"} />
+                <Detail label="Email" value={customer.contact_email || "—"} />
+                <Detail label="Phone" value={customer.contact_phone || "—"} />
+                <Detail label="Industry" value={customer.industry || "—"} />
 
-                {debtor.address_line && <Detail label="Address" value={[debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ")} />}
-                {debtor.website && <Detail label="Website" value={debtor.website} />}
+                {customer.address_line && <Detail label="Address" value={[customer.address_line, customer.city, customer.country].filter(Boolean).join(", ")} />}
+                {customer.website && <Detail label="Website" value={customer.website} />}
               </div>
-              {debtor.notes && (
+              {customer.notes && (
                 <div className="mt-3">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Notes</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{debtor.notes}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{customer.notes}</p>
                 </div>
               )}
             </div>

@@ -177,7 +177,7 @@ function QueuePage() {
         po_number: i.po_number ?? null, advance,
         balance: net, // net amount is the balance receivable
         due_date: i.due_date, issue_date: i.issue_date,
-        status: i.status, party: i.debtor?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
+        status: i.status, party: i.customer?.name ?? "—", client: i.client?.company_name || i.client?.contact_name || "—",
         has_contractual_due_date: i.has_contractual_due_date,
       };
     }),
@@ -204,7 +204,7 @@ function QueuePage() {
       due_date: null,
       issue_date: p.proforma_date ?? p.issue_date,
       status: p.proforma_status,
-      party: p.side === "sales" ? p.debtor?.name ?? "—" : p.vendor?.name ?? "—",
+      party: p.side === "sales" ? p.customer?.name ?? "—" : p.vendor?.name ?? "—",
       client: p.client?.company_name || p.client?.contact_name || "—",
       side: p.side,
       proforma_number: p.proforma_number,
@@ -243,7 +243,7 @@ function QueuePage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card title="Supplier balance due"><div className="num text-3xl text-warning">{fmtMoney(balanceToPay)}</div></Card>
           <Card title="Advances applied (AP)"><div className="num text-3xl text-primary">{fmtMoney(advancesAppliedOut)}</div></Card>
-          <Card title="Debtor balance expected"><div className="num text-3xl text-primary">{fmtMoney(balanceToReceive)}</div></Card>
+          <Card title="Customer balance expected"><div className="num text-3xl text-primary">{fmtMoney(balanceToReceive)}</div></Card>
           <Card title="Advances applied (AR)"><div className="num text-3xl text-success">{fmtMoney(advancesAppliedIn)}</div></Card>
         </div>
 

@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { api } from "@/lib/api-client";
@@ -10,6 +10,7 @@ import { Plus, X, Loader2, Trash2, Eye, Building2, User, DollarSign, CheckCircle
 import { toast } from "sonner";
 
 import { z } from "zod";
+import { DocActions } from "@/components/workflow/doc-actions";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { getToken } from "@/lib/api-client";
 import * as XLSX from "xlsx";
@@ -25,7 +26,13 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/app/proformas")({
-  validateSearch: z.object({ view: z.string().optional() }),
+  validateSearch: z.object({
+    view: z.string().optional(),
+    createFromPo: z.string().optional(),
+    createFromSo: z.string().optional(),
+    side: z.string().optional(),
+    fromQueue: z.string().optional(),
+  }),
   component: ProformasPage,
 });
 
@@ -33,7 +40,7 @@ type PF = {
   id: string;
   client_id: string;
   side: "sales" | "purchase";
-  debtor_id: string | null;
+  customer_id: string | null;
   vendor_id: string | null;
   po_number: string;
   proforma_number: string | null;
@@ -48,13 +55,36 @@ type PF = {
   notes: string | null;
 };
 
-function ProformasPage() {
-  const { view } = Route.useSearch();
+export function ProformasPage({ embedded = false }: { embedded?: boolean } = {}) {
+  // Embedded-safe search: useRouterState works under any route (Route.useSearch throws when rendered inside a workbench).
+  const routerSearch = useRouterState({ select: (s) => s.location.search as unknown as { view?: string; createFromPo?: string; createFromSo?: string; side?: string; fromQueue?: string } });
+  const view = embedded ? undefined : ((routerSearch as any)?.view as string | undefined);
+  const routeCreateFromPo = embedded ? undefined : ((routerSearch as any)?.createFromPo as string | undefined);
+  const routeCreateFromSo = embedded ? undefined : ((routerSearch as any)?.createFromSo as string | undefined);
   const navigate = useNavigate();
   const { user, isAdmin, isClient, isChecker, isTreasury, isOperations, canWrite } = useAuth();
   const canCreate = canWrite("purchase-orders");
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
+
+  // Deep-link from My Queue: ?createFromPo=<poId> / ?createFromSo=<soId>
+  // auto-opens the matching proforma modal with the order preselected.
+  useEffect(() => {
+    if (embedded) return;
+    if (routeCreateFromPo) setOpen("purchase");
+    else if (routeCreateFromSo) setOpen("sales");
+  }, [routeCreateFromPo, routeCreateFromSo, embedded]);
+
+  const closeModal = () => {
+    setOpen(null);
+    if (embedded) return;
+    if ((routerSearch as any)?.fromQueue) {
+      // Queue-driven flow: the task completes server-side on create — return to My Queue.
+      navigate({ to: "/app/tasks", replace: true });
+    } else if (routeCreateFromPo || routeCreateFromSo) {
+      navigate({ to: "/app/proformas", search: { createFromPo: undefined, createFromSo: undefined, side: undefined }, replace: true });
+    }
+  };
   const [importOpen, setImportOpen] = useState(false);
   const [viewing, setViewing] = useState<any | null>(null);
   const [editingPf, setEditingPf] = useState<any | null>(null);
@@ -86,7 +116,9 @@ function ProformasPage() {
       if (found) {
         setViewing(found);
         setInitialViewDone(true);
-        navigate({ to: "/app/proformas", search: { view: undefined }, replace: true });
+        if (!embedded) {
+          navigate({ to: "/app/proformas", search: { view: undefined }, replace: true });
+        }
       }
     }
   }, [view, listQ.data, initialViewDone, navigate]);
@@ -111,7 +143,7 @@ function ProformasPage() {
     .filter((p: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
-      const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+      const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
       return (
         p.proforma_number?.toLowerCase().includes(q) ||
         p.po_number?.toLowerCase().includes(q) ||
@@ -203,7 +235,7 @@ function ProformasPage() {
         </div>
 
         <FilterBar
-          searchPlaceholder="Search proformas by number, PO, counterparty…"
+          searchPlaceholder={tab === "sales" ? "Search proformas by number, PO, customer…" : tab === "purchase" ? "Search proformas by number, PO, supplier…" : "Search proformas by number, PO, counterparty…"}
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
           statusOptions={[
@@ -248,7 +280,7 @@ function ProformasPage() {
                     <th className="px-5 py-2 text-left font-normal">Proforma</th>
                     <th className="px-5 py-2 text-left font-normal">PO #</th>
                     <th className="px-5 py-2 text-left font-normal">Client</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-left font-normal">{tab === "sales" ? "Customer" : tab === "purchase" ? "Supplier" : "Counterparty"}</th>
                     <th className="px-5 py-2 text-left font-normal">Side</th>
                     <th className="px-5 py-2 text-right font-normal">Advance amount</th>
                     <th className="px-5 py-2 text-left font-normal">Contractual Payment Terms</th>
@@ -258,7 +290,7 @@ function ProformasPage() {
                 </thead>
                 <tbody>
                   {rows.map((p: any) => {
-                    const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+                    const cp = p.side === "sales" ? p.customer?.name : p.vendor?.name;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-[10px] text-muted-foreground" title={p.id}>#{p.id.slice(-8).toUpperCase()}</td>
@@ -371,7 +403,13 @@ function ProformasPage() {
 
       {importOpen && <MassImportModal onClose={() => setImportOpen(false)} />}
 
-      {open && user && <NewProformaModal side={open} onClose={() => setOpen(null)} />}
+      {open && user && (
+        <NewProformaModal
+          side={open}
+          presetOrderId={open === "purchase" ? routeCreateFromPo : routeCreateFromSo}
+          onClose={closeModal}
+        />
+      )}
 
       {editingPf && (
         <EditProformaModal
@@ -447,7 +485,7 @@ function StatusPill({ status, pStatus }: { status: string; pStatus: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${cls}`}>{label}</span>;
 }
 
-function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClose: () => void }) {
+function NewProformaModal({ side, presetOrderId, onClose }: { side: "sales" | "purchase"; presetOrderId?: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     po_number: "", proforma_number: "", proforma_date: new Date().toISOString().slice(0, 10),
@@ -459,21 +497,76 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
   const partiesQ = useQuery({
     queryKey: ["pf-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
-      return (await api.get<any[]>("/vendors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/customers")) ?? [];
+      // Merge vendors + suppliers — a goods PO supplier may live in either table.
+      const [vendors, suppliers] = await Promise.all([
+        api.get<any[]>("/vendors").catch(() => []),
+        api.get<any[]>("/suppliers").catch(() => []),
+      ]);
+      return [
+        ...((vendors ?? []).map((v: any) => ({ id: v.id, name: v.name }))),
+        ...((suppliers ?? []).map((s: any) => ({ id: s.id, name: s.company_name ?? s.name }))),
+      ].sort((a: any, b: any) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
     },
   });
+
+  // ── Optional order link ──
+  // Purchase side links a goods purchase order, sales side a goods sales
+  // order. Picking one fetches the counterparty and amount from it. Leaving
+  // it empty keeps the fully manual flow — linking is never required.
+  const ordersQ = useQuery({
+    queryKey: ["pf-orders", side],
+    queryFn: async () => side === "sales"
+      ? ((await api.get<any[]>("/goods-sales-orders")) ?? [])
+      : ((await api.get<any[]>("/goods-purchase-orders")) ?? []),
+    staleTime: 30_000,
+  });
+  const orderOptions = useMemo(() => ((ordersQ.data ?? []) as any[])
+    .filter((o: any) => o.status !== "cancelled")
+    .sort((a: any, b: any) => ((b.po_number || b.so_number) || "").localeCompare((a.po_number || a.so_number) || "")), [ordersQ.data]);
+  const [linkedOrderId, setLinkedOrderId] = useState("");
+  const linkedOrder = useMemo(() => orderOptions.find((o: any) => o.id === linkedOrderId) ?? null, [orderOptions, linkedOrderId]);
+  const applyOrder = (o: any) => {
+    setLinkedOrderId(o.id);
+    setForm((prev: any) => {
+      const next: any = { ...prev };
+      if (side === "purchase") {
+        next.po_number = o.po_number ?? prev.po_number;
+        if (o.supplier_id) next.party_id = o.supplier_id;
+        if (o.grand_total != null) next.amount = String(o.grand_total);
+      } else {
+        next.po_number = o.so_number ?? o.po_number ?? prev.po_number;
+        if (o.customer_id) next.party_id = o.customer_id;
+        if (o.grand_total != null) next.amount = String(o.grand_total);
+      }
+      return next;
+    });
+  };
+
+  // Deep-link preset: auto-apply the linked order once options resolve.
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (presetAppliedRef.current || !presetOrderId || ordersQ.isLoading) return;
+    const o = orderOptions.find((x: any) => x.id === presetOrderId);
+    if (o) {
+      presetAppliedRef.current = true;
+      applyOrder(o);
+    } else {
+      presetAppliedRef.current = true; // missing / not linkable — stop retrying
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetOrderId, orderOptions, ordersQ.isLoading]);
 
   const create = useMutation({
     mutationFn: async () => {
       if (!form.po_number.trim()) throw new Error("PO number is required");
       if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
-      if (!form.party_id) throw new Error(side === "sales" ? "Pick a debtor" : "Pick a supplier");
+      if (!form.party_id) throw new Error(side === "sales" ? "Pick a customer" : "Pick a supplier");
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
       await api.post("/purchase-orders", {
         side,
-        debtor_id: side === "sales" ? form.party_id : null,
+        customer_id: side === "sales" ? form.party_id : null,
         vendor_id: side === "purchase" ? form.party_id : null,
         po_number: form.po_number.trim(),
         proforma_number: form.proforma_number.trim(),
@@ -489,15 +582,73 @@ function NewProformaModal({ side, onClose }: { side: "sales" | "purchase"; onClo
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const queueLocked = !!presetOrderId && !!linkedOrder;
   return (
-    <Modal title={`New ${side} proforma`} onClose={onClose}>
+    <Modal title={`New ${side} proforma${queueLocked ? " — from order" : ""}`} onClose={onClose}>
       <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
-        <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
+        {queueLocked && (
+          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+            <span className="font-medium text-primary">Linked from My Queue:</span>{" "}
+            <span className="font-mono">{side === "purchase" ? linkedOrder.po_number : (linkedOrder.so_number ?? linkedOrder.po_number)}</span>
+            {" · "}
+            {side === "purchase" ? linkedOrder.supplier_name : linkedOrder.customer_name}
+            {" — order and party are locked to keep the advance chain intact."}
+          </div>
+        )}
+        <div>
+          <L label={side === "purchase" ? "Link purchase order (optional) — fetches supplier & amount" : "Link sales order (optional) — fetches customer & amount"}>
+            <select
+              className="inp"
+              value={linkedOrderId}
+              onChange={(e) => {
+                const o = orderOptions.find((x: any) => x.id === e.target.value);
+                if (o) applyOrder(o);
+                else setLinkedOrderId("");
+              }}
+            >
+              <option value="">— No link — enter manually —</option>
+              {orderOptions.map((o: any) => (
+                <option key={o.id} value={o.id}>
+                  {side === "purchase"
+                    ? `${o.po_number} — ${o.supplier_name ?? "supplier"} · ${o.grand_total != null ? `$${Number(o.grand_total).toLocaleString()}` : ""}`
+                    : `${o.so_number} — ${o.customer_name ?? "customer"} · ${o.grand_total != null ? `$${Number(o.grand_total).toLocaleString()}` : ""}`}
+                </option>
+              ))}
+            </select>
+          </L>
+          {linkedOrder && (
+            <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-mono font-medium">{side === "purchase" ? linkedOrder.po_number : linkedOrder.so_number}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {side === "purchase" ? linkedOrder.supplier_name : linkedOrder.customer_name} · {linkedOrder.grand_total != null ? `$${Number(linkedOrder.grand_total).toLocaleString()}` : ""}
+                  </span>
+                </div>
+                <button type="button" onClick={() => setLinkedOrderId("")} className="rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                  Unlink
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {side === "purchase" ? "PO ref, supplier and amount" : "Customer and amount"} filled from the order — you can still edit them below.
+              </p>
+            </div>
+          )}
+        </div>
+        <L label="PO number *"><input required disabled={queueLocked} className="inp disabled:opacity-70" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
-        <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
-          <select required className="inp" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
+        <L label={side === "sales" ? "Customer *" : "Supplier *"}>
+          <select required disabled={queueLocked} className="inp disabled:opacity-70" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
             <option value="">Select…</option>
             {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {(() => {
+              const wantId = side === "purchase" ? linkedOrder?.supplier_id : linkedOrder?.customer_id;
+              const wantName = side === "purchase" ? linkedOrder?.supplier_name : linkedOrder?.customer_name;
+              if (wantId && !(partiesQ.data ?? []).some((p: any) => p.id === wantId)) {
+                return <option value={wantId}>{wantName ?? "Linked order party"}</option>;
+              }
+              return null;
+            })()}
           </select>
         </L>
         <div className="grid grid-cols-2 gap-3">
@@ -556,7 +707,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; advances: any[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const cp = proforma.side === "sales" ? proforma.debtor : proforma.vendor;
+  const cp = proforma.side === "sales" ? proforma.customer : proforma.vendor;
 
   const deletePf = useMutation({
     mutationFn: async () => {
@@ -617,7 +768,7 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
           {cp && (
             <div className="rounded-lg border border-border bg-background/40 p-4">
               <h4 className="mb-3 text-xs uppercase tracking-widest text-primary">
-                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Debtor" : "Supplier"}
+                <Building2 className="mr-1 inline h-3.5 w-3.5" />{proforma.side === "sales" ? "Customer" : "Supplier"}
               </h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                 <Detail label="Name" value={cp.name} />
@@ -735,6 +886,9 @@ function ProformaDetailModal({ proforma, advances, onClose }: { proforma: any; a
             </div>
           )}
 
+          {/* Inline checker/treasury actions — approve when pending review, fund when approved */}
+          <DocActions kind="proforma" doc={proforma} onDone={onClose} />
+
           <div className="flex items-center justify-between gap-2 pt-2">
             <div>
               <button
@@ -783,7 +937,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
   const partiesQ = useQuery({
     queryKey: ["import-parties", side],
     queryFn: async () => {
-      if (side === "sales") return (await api.get<any[]>("/debtors")) ?? [];
+      if (side === "sales") return (await api.get<any[]>("/customers")) ?? [];
       return (await api.get<any[]>("/vendors")) ?? [];
     },
   });
@@ -792,7 +946,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!partyId) {
-      toast.error(`Please select a ${side === "sales" ? "debtor" : "supplier"} first`);
+      toast.error(`Please select a ${side === "sales" ? "customer" : "supplier"} first`);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -845,7 +999,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
     mutationFn: async () => {
       const payload = {
         side,
-        [side === "sales" ? "debtor_id" : "vendor_id"]: partyId,
+        [side === "sales" ? "customer_id" : "vendor_id"]: partyId,
         items: rows.map((r) => ({
           proforma_number: r.invoice_number,
           proforma_date: r.proforma_date,
@@ -897,14 +1051,14 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
                   <button key={s} onClick={() => { setSide(s); setPartyId(""); }}
                     className={`rounded-md border px-4 py-2 text-sm transition ${
                       side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                    }`}>{s === "sales" ? "Sales (Debtor)" : "Purchase (Supplier)"}</button>
+                    }`}>{s === "sales" ? "Sales (Customer)" : "Purchase (Supplier)"}</button>
                 ))}
               </div>
             </L>
 
-            <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
+            <L label={side === "sales" ? "Customer *" : "Supplier *"}>
               <select required value={partyId} onChange={(e) => setPartyId(e.target.value)} className="inp">
-                <option value="">Select {side === "sales" ? "debtor" : "supplier"}…</option>
+                <option value="">Select {side === "sales" ? "customer" : "supplier"}…</option>
                 {(partiesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </L>
@@ -940,7 +1094,7 @@ function MassImportModal({ onClose }: { onClose: () => void }) {
 
             <div className="rounded-md border border-border bg-background/40 p-3 text-xs space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Side</span><span className="capitalize">{side}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">{side === "sales" ? "Debtor" : "Supplier"}</span><span>{(partiesQ.data ?? []).find((p: any) => p.id === partyId)?.name ?? "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">{side === "sales" ? "Customer" : "Supplier"}</span><span>{(partiesQ.data ?? []).find((p: any) => p.id === partyId)?.name ?? "—"}</span></div>
             </div>
 
             <div className="-mx-5 overflow-x-auto">
